@@ -1,7 +1,9 @@
 [package]
 name = "tymbolica"
 version = "0.1.0"
-entrypoint = "lib.typ"
-authors = ["Symbolica contributors"]
+entrypoint = "typst/lib.typ"
+authors = [ "Symbolica contributors" ]
 license = "Symbolica"
 description = "Symbolica computer algebra for Typst"
+categories = [ ]
+disciplines = [ ]

@@ -96,7 +96,7 @@ For a source checkout, import the local library directly:
 
 == Worked API Examples
 
-Tidy evaluates each example below and places its rendered output beside the source. Lines beginning with `>>>` provide hidden setup shared only within that example.
+//Tidy evaluates each example below and places its rendered output beside the source. Lines beginning with `>>>` provide hidden setup shared only within that example.
 
 #show raw.where(lang: "worked"): worked-example
 
@@ -108,15 +108,15 @@ Tidy evaluates each example below and places its rendered output beside the sour
 
 #let x = var("x")
 #let y = var("y")
-#let a-wild = wild("a")
-#let rhs-only = wild("fresh")
+#let a = wild("a")
+#let aa = wild("a",level:2)
 #let expr = math($(x + 1)^2 + y$)
 #let literal = atom("z")
 #let namespaced = add(svar("x"), x)
 
 expr: #to-typst(expr)\
 literal: #to-typst(literal)\
-wildcards: #raw(canonical(a-wild)) and #raw(canonical(rhs-only))\
+wildcards: #raw(canonical(a)) and #raw(canonical(aa))\
 namespaces: #raw(canonical(namespaced, namespaces: true))
 ```
 
