@@ -1071,32 +1071,52 @@ pub fn derivative(expr: &[u8], var: &[u8]) -> Result<Vec<u8>, String> {
     encode_atom(&expr.derivative(var))
 }
 
-fn rational_integral(expr: &[u8], var: &[u8]) -> Result<(Atom, Vec<Atom>), String> {
-    let expr = decode_atom(expr, "expr")?;
-    let var_atom = decode_atom(var, "var")?;
-    let variable = PolyVariable::from(
-        Indeterminate::try_from(var_atom)
-            .map_err(|err| format!("integration variable must be a variable: {err}"))?,
-    );
-    let rational = expr
-        .try_to_rational_polynomial::<_, _, u16>(&Q, &Z, Some(Arc::new(vec![variable])))
+fn integrate_polynomial_term(
+    term: &Atom,
+    variables: Arc<Vec<PolyVariable>>,
+) -> Result<Atom, String> {
+    let rational = term
+        .try_to_rational_polynomial::<_, _, u16>(&Q, &Z, Some(variables))
         .map_err(|err| format!("expression must be a rational function of the variable: {err}"))?;
     if !rational.denominator.is_one() {
         return Err("integration currently supports polynomial expressions only".to_owned());
     }
+
     let integral = rational.integrate(0);
-    let mut terms = integral
+    let mut parts = integral
         .rational_parts
         .into_iter()
         .map(|part| part.to_expression())
         .collect::<Vec<_>>();
-    terms.extend(
+    parts.extend(
         integral
             .logarithmic_parts
             .into_iter()
             .map(|part| part.coefficient.to_expression() * part.argument.to_expression().log()),
     );
-    Ok((Atom::add_many(terms.clone()), terms))
+    Ok(Atom::add_many(parts))
+}
+
+fn rational_integral_atoms(expr: Atom, var_atom: Atom) -> Result<(Atom, Vec<Atom>), String> {
+    let variable = PolyVariable::from(
+        Indeterminate::try_from(var_atom)
+            .map_err(|err| format!("integration variable must be a variable: {err}"))?,
+    );
+    let variables = Arc::new(vec![variable]);
+    let expanded = expr.expand_via_poly::<u16, Atom>(None);
+    let input_terms = expanded
+        .as_add_view()
+        .map(|sum| sum.into_iter().map(Atom::from).collect::<Vec<_>>())
+        .unwrap_or_else(|| vec![expanded]);
+    let steps = input_terms
+        .iter()
+        .map(|term| integrate_polynomial_term(term, variables.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((Atom::add_many(steps.clone()), steps))
+}
+
+fn rational_integral(expr: &[u8], var: &[u8]) -> Result<(Atom, Vec<Atom>), String> {
+    rational_integral_atoms(decode_atom(expr, "expr")?, decode_atom(var, "var")?)
 }
 
 #[wasm_func]
@@ -1688,4 +1708,61 @@ pub fn matrix_shape(matrix: &[u8]) -> Result<Vec<u8>, String> {
         Value::Integer((matrix.nrows() as i64).into()),
         Value::Integer((matrix.ncols() as i64).into()),
     ]))
+}
+
+#[cfg(test)]
+#[unsafe(export_name = "wasm_minimal_protocol_send_result_to_host")]
+extern "C" fn test_send_result_to_host(_: *const u8, _: usize) {}
+
+#[cfg(test)]
+#[unsafe(export_name = "wasm_minimal_protocol_write_args_to_buffer")]
+extern "C" fn test_write_args_to_buffer(_: *mut u8) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn integration_steps_are_per_expanded_term() {
+        let (result, steps) = rational_integral_atoms(
+            symbolica::parse!("(x + 1) * (x + 2)"),
+            symbolica::parse!("x"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            steps,
+            vec![
+                symbolica::parse!("2*x"),
+                symbolica::parse!("3/2*x^2"),
+                symbolica::parse!("1/3*x^3"),
+            ]
+        );
+        assert_eq!(result, symbolica::parse!("2*x + 3/2*x^2 + 1/3*x^3"));
+    }
+
+    #[test]
+    fn factored_and_expanded_inputs_have_the_same_integral() {
+        let (factored, _) = rational_integral_atoms(
+            symbolica::parse!("(x + 1) * (x + 2)"),
+            symbolica::parse!("x"),
+        )
+        .unwrap();
+        let (expanded, _) =
+            rational_integral_atoms(symbolica::parse!("x^2 + 3*x + 2"), symbolica::parse!("x"))
+                .unwrap();
+
+        assert_eq!(factored, expanded);
+    }
+
+    #[test]
+    fn integration_still_rejects_rational_denominators() {
+        let error = rational_integral_atoms(symbolica::parse!("1/(x + 1)"), symbolica::parse!("x"))
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            "integration currently supports polynomial expressions only"
+        );
+    }
 }

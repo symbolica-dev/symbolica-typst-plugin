@@ -1,19 +1,26 @@
-#import "../lib.typ" as symbolica
+#import "../lib.typ": *
 
-#let input = symbolica.math($(f((y^x + 1)^2)+xi)/("some"+"thing")$)
-#let expanded = symbolica.expand(input)
-#let d = symbolica.derivative(input, "x")
-#let combined = symbolica.add(expanded, symbolica.mul(3, "x"))
-#let replaced = symbolica.replace(input, "y", "z")
+#set page(width: 150mm, height: auto, margin: 18mm)
+#set text(size: 11pt)
+#set par(leading: 0.7em)
 
-Input: #symbolica.to-typst(input)
+= Exact algebra in one document
 
-Expanded: #symbolica.to-typst(expanded)
+Tymbolica turns native Typst mathematics into an exact Symbolica expression and
+places the computed result back into the document.
 
-Derivative: #symbolica.to-typst(d)
+#let x = var("x")
+#let polynomial = math($x^4 - 5 x^2 + 4$)
+#let factored = factor(polynomial)
+#let slope = derivative(polynomial, x)
+#let area = integrate(polynomial, x)
 
-Combined: #symbolica.to-typst(combined)
+$
+  f(x) &= #to-typst(polynomial) \
+       &= #to-typst(factored) quad "factored" \
+  f'(x) &= #to-typst(slope) \
+  integral f(x) dif x &= #to-typst(area) + C
+$
 
-Replaced: #symbolica.to-typst(replaced)
-
-Symbolica: #symbolica.canonical(input)
+All coefficients remain exact. Tymbolica deliberately leaves the integration
+constant to the surrounding mathematics.

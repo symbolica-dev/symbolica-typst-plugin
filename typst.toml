@@ -2,8 +2,11 @@
 name = "tymbolica"
 version = "0.1.0"
 entrypoint = "typst/lib.typ"
-authors = [ "Symbolica contributors" ]
-license = "Symbolica"
-description = "Symbolica computer algebra for Typst"
-categories = [ ]
-disciplines = [ ]
+authors = ["lcnbr <https://github.com/lcnbr>"]
+license = "MIT"
+description = "Perform exact symbolic computation with Symbolica."
+repository = "https://github.com/lcnbr/tymbolica"
+keywords = ["computer-algebra", "symbolic-computation", "symbolica"]
+categories = ["integration", "scripting"]
+disciplines = ["mathematics"]
+compiler = "0.14.0"
