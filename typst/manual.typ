@@ -68,6 +68,14 @@
   scope: (symbolica: symbolica),
   preamble: example-preamble,
 )
+#let reference-style = {
+  let style = tidy.utilities.get-style-functions(tidy.styles.default)
+  style.show-example = (..args) => block(
+    tidy.styles.default.show-example(..args),
+    breakable: false,
+  )
+  style
+}
 #let worked-example(code) = tidy.styles.default.show-example(
   raw(code.text, lang: "typ", block: true),
   scope: (symbolica: symbolica),
@@ -290,9 +298,9 @@ potential $V(theta)=kappa(1-cos theta)$, derive the restoring torque, and take a
 cubic small-angle approximation. Two torque readings are then enough to recover
 both the unknown scale $kappa$ and a sensor offset $tau_0$.
 
-The calculation is adapted from Symbolica's
+The calculation follows the
 #link("https://github.com/symbolica-dev/symbolica#pendulum-calibration")[
-  pendulum calibration example
+  pendulum-calibration example in Symbolica's repository README
 ]. We create the `symbolica` set of functions because `cos` must be understood
 as the analytic cosine rather than as an arbitrary function name.
 
@@ -468,6 +476,34 @@ Differentiating the sum leaves a zero residual.
   kind: "warning",
 )
 
+== Separate a rational response into modes
+
+Suppose a response function arrives in a form with one removable factor and
+two remaining poles. Cancel the shared factor, split the reduced response into
+simple modes, and then recombine the modes to check that nothing was lost.
+This follows the
+#link(symbolica-guide)[rational-expression workflow in Symbolica's First Steps].
+
+```worked
+#let s = var("s")
+#let response = math($((s + 3)(2 s + 5)) / (s^3 + 6 s^2 + 11 s + 6)$)
+#let reduced = cancel(response)
+#let modes = apart(reduced, s)
+#let residual = together(sub(modes, reduced))
+
+$
+  H(s) &= #to-typst(response) \
+  H_"reduced"(s) &= #to-typst(reduced) \
+                   &= #to-typst(modes)
+$\
+verification: $ #to-typst(residual) $
+```
+
+The two terms expose poles at $s=-1$ and $s=-2$ separately, which is often the
+useful form for inverse transforms or modal reasoning. `together` returns a
+zero residual after recombination. The cancellation does hide the original
+restriction $s != -3$; keep that restriction when the domain matters.
+
 == Solve a nonlinear system exactly and numerically
 
 The circle $x^2+y^2=25$ and the line $x-y=1$ meet twice. The exact solver should
@@ -530,6 +566,7 @@ $A a=b$.
 #let b = vec((1, 3, 8))
 #let coefficients = matrix-solve(A, b)
 #let check = matrix-mul(A, coefficients)
+#let exact = matrix-is-zero(matrix-sub(check, b))
 #let polynomial = add(
   matrix-at(coefficients, 0, 0),
   mul(matrix-at(coefficients, 1, 0), t),
@@ -540,7 +577,8 @@ $ A = #to-typst(A), quad b = #to-typst(b) $\
 $ op("det")(A) = #to-typst(det(A)) $\
 $ a = #to-typst(coefficients) $\
 $ p(t) = #to-typst(polynomial) $\
-$ A a = #to-typst(check) $
+$ A a = #to-typst(check) $\
+verification: residual matrix is exactly zero: #exact
 ```
 
 The nonzero determinant tells us the coefficients are unique. Reading them
@@ -609,6 +647,10 @@ few boundaries are worth knowing before you choose an approach:
   Numerical solving depends on a starting point and gives an approximate
   answer rather than a derivation of convergence.
 
+- Decimal literals remain floating-point values. A current upstream Wasm bug
+  can mis-evaluate them inside analytic functions. Write exact fractions for
+  those inputs—for example, `cos(1/2)`—and apply `to-float` to the result.
+
 - Matrix entries must be rational-polynomial expressions, and their dimensions
   must agree for the requested operation.
 
@@ -635,6 +677,9 @@ deeper polynomial algorithms—use Symbolica directly.
   [A derivative or series leaves a function unchanged],
   [`sin`, `cos`, or another analytic function was read as an ordinary name.],
   [Use `init(namespace: "symbolica")` for Symbolica built-ins.],
+  [An analytic function of a decimal gives an unexpected value],
+  [Its floating-point argument encountered the current upstream Wasm bug.],
+  [Use an exact fraction such as `cos(1/2)`, then call `to-float`.],
   [A replacement does not match],
   [Repeated wildcards would have to capture different expressions.],
   [Check that every occurrence of the wildcard should match the same value.],
@@ -659,14 +704,16 @@ things up. Functions are grouped by the kind of calculation they perform.
     title: [Parsing, symbols, and rendering],
     names: (
       "math", "atom", "var", "wild", "array-tree", "canonical",
-      "to-typst-source", "to-typst", "to-latex",
+      "to-typst-source", "to-typst", "to-latex", "to-float",
     ),
   ),
   (
     title: [Algebra and calculus],
     names: (
-      "simplify", "expand", "factor", "derivative", "integrate",
-      "integrate-with-steps", "series",
+      "simplify", "expand", "factor", "together", "cancel", "apart",
+      "collect", "coefficient", "coefficient-list", "terms",
+      "indeterminates", "contains", "is-constant",
+      "derivative", "integrate", "integrate-with-steps", "series",
     ),
   ),
   (
@@ -687,7 +734,8 @@ things up. Functions are grouped by the kind of calculation they perform.
       "matrix-mul", "matrix-div-scalar", "transpose", "det", "inv",
       "matrix-solve", "matrix-solve-any", "row-reduce", "augment",
       "split-col", "primitive-part", "content", "matrix-at",
-      "matrix-shape",
+      "matrix-shape", "matrix-is-zero", "matrix-is-diagonal",
+      "matrix-derivative",
     ),
   ),
   (
@@ -721,7 +769,7 @@ things up. Functions are grouped by the kind of calculation they perform.
     subset.variables = ()
     tidy.show-module(
       subset,
-      style: tidy.styles.default,
+      style: reference-style,
       show-module-name: false,
       show-outline: false,
       sort-functions: none,

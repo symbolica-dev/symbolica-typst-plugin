@@ -7,7 +7,8 @@ Tymbolica lets the formulas on a Typst page take part in the calculation. Write
 an expression as ordinary Typst mathematics, work with it symbolically, and
 place the result back into the same document. You can currently:
 
-- expand, factor, and differentiate expressions;
+- expand, factor, collect, differentiate, and inspect expressions;
+- combine, cancel, or decompose rational functions;
 - integrate polynomials and calculate series;
 - replace recurring patterns with wildcards;
 - solve systems exactly or numerically;

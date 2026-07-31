@@ -6,7 +6,7 @@ local `0.1.0` package while its initial public surface is being prepared.
 ## Unreleased
 
 - Reorganized the manual around installation, concepts, task-oriented worked
-  guides, result contracts, troubleshooting, and a grouped API reference.
+  guides, troubleshooting, and a grouped API reference.
 - Added a pendulum-calibration workflow, exact and numerical nonlinear solving,
   verified polynomial integration, wildcard rewriting, exact interpolation,
   and batched gradient evaluation examples.
@@ -21,6 +21,15 @@ local `0.1.0` package while its initial public surface is being prepared.
   import layout.
 - Reworked the manual's prose around mathematical questions, removed repeated
   implementation detail, and moved tool credits to acknowledgements.
+- Added rational-expression transforms (`together`, `cancel`, and `apart`),
+  collection and coefficient tools, term and indeterminate inspection,
+  structural predicates, decimal approximation, and complex or square-free
+  factorization options.
+- Added exact matrix zero and diagonal predicates plus entrywise matrix
+  differentiation.
+- Preserve decimal literals as floating-point coefficients instead of silently
+  rewriting them as rationals. Exact rational analytic inputs such as
+  `cos(1/2)` remain approximable with `to-float`.
 
 ## 0.1.0
 

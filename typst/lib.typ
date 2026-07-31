@@ -157,6 +157,20 @@
 
 #let _atom_array(engine, values, namespace: none) = cbor.encode(values.map(value => _expr_bytes(engine, value, namespace: namespace)))
 #let _payload_bytes(engine, value, namespace: none) = if type(value) == bytes { value } else { _expr_bytes(engine, value, namespace: namespace) }
+#let _expr_array(engine, values) = {
+  let value = values
+  if type(value) == bytes { return value }
+  if type(value) == content {
+    let kind = repr(value.func())
+    let fields = value.fields()
+    if kind == "equation" { return _expr_array(engine, fields.body) }
+    if kind == "vec" and "children" in fields {
+      return fields.children.map(child => _expr_bytes(engine, child))
+    }
+  }
+  if type(value) == array { return value.map(item => _expr_bytes(engine, item)) }
+  (_expr_bytes(engine, value),)
+}
 
 #let _canonical(engine, expr, namespaces: false) = str(engine.plugin.canonical(_payload_bytes(engine, expr), cbor.encode(namespaces)))
 #let _to_typst_source(engine, expr) = str(engine.plugin.to_typst(_payload_bytes(engine, expr)))
@@ -168,7 +182,46 @@
 
 #let _simplify(engine, expr) = engine.plugin.simplify_expr(_expr_bytes(engine, expr))
 #let _expand(engine, expr) = engine.plugin.expand(_expr_bytes(engine, expr))
-#let _factor(engine, expr) = engine.plugin.factor(_expr_bytes(engine, expr))
+#let _together(engine, expr) = engine.plugin.together(_expr_bytes(engine, expr))
+#let _cancel(engine, expr) = engine.plugin.cancel(_expr_bytes(engine, expr))
+#let _apart(engine, expr, var) = engine.plugin.apart(cbor.encode((
+  expr: _expr_bytes(engine, expr),
+  var: _expr_bytes(engine, var),
+)))
+#let _collect(engine, expr, variables) = engine.plugin.collect(cbor.encode((
+  expr: _expr_bytes(engine, expr),
+  variables: _expr_array(engine, variables),
+)))
+#let _coefficient(engine, expr, monomial) = engine.plugin.coefficient(
+  _expr_bytes(engine, expr),
+  _expr_bytes(engine, monomial),
+)
+#let _coefficient_list(engine, expr, variables) = cbor(engine.plugin.coefficient_list(cbor.encode((
+  expr: _expr_bytes(engine, expr),
+  variables: _expr_array(engine, variables),
+))))
+#let _terms(engine, expr) = cbor(engine.plugin.terms(_expr_bytes(engine, expr)))
+#let _indeterminates(engine, expr, enter-functions: true) = cbor(engine.plugin.indeterminates(cbor.encode((
+  expr: _expr_bytes(engine, expr),
+  enter-functions: enter-functions,
+))))
+#let _contains(engine, expr, subexpression) = cbor(engine.plugin.contains(
+  _expr_bytes(engine, expr),
+  _expr_bytes(engine, subexpression),
+))
+#let _is_constant(engine, expr) = cbor(engine.plugin.is_constant(_expr_bytes(engine, expr)))
+#let _to_float(engine, expr, decimal-prec: 16) = engine.plugin.to_float(cbor.encode((
+  expr: _expr_bytes(engine, expr),
+  decimal-prec: decimal-prec,
+)))
+#let _factor(engine, expr, complex: false, square-free: false) = {
+  assert(not (complex and square-free), message: "complex and square-free factorization cannot be combined")
+  engine.plugin.factor(cbor.encode((
+    expr: _expr_bytes(engine, expr),
+    complex: complex,
+    square-free: square-free,
+  )))
+}
 #let _derivative(engine, expr, var) = engine.plugin.derivative(_expr_bytes(engine, expr), _expr_bytes(engine, var))
 #let _integrate(engine, expr, var) = engine.plugin.integrate(_expr_bytes(engine, expr), _expr_bytes(engine, var))
 #let _integrate_with_steps(engine, expr, var) = cbor(engine.plugin.integrate_with_steps(
@@ -297,21 +350,6 @@
   (min: float(min), max: float(max), samples: samples)
 }
 
-#let _expr_array(engine, values) = {
-  let value = values
-  if type(value) == bytes { return value }
-  if type(value) == content {
-    let kind = repr(value.func())
-    let fields = value.fields()
-    if kind == "equation" { return _expr_array(engine, fields.body) }
-    if kind == "vec" and "children" in fields {
-      return fields.children.map(child => _expr_bytes(engine, child))
-    }
-  }
-  if type(value) == array { return value.map(item => _expr_bytes(engine, item)) }
-  ( _expr_bytes(engine, value), )
-}
-
 #let _evaluate_many(engine, expressions, variables, points) = {
   let expressions = _expr_array(engine, expressions)
   let variables = _expr_array(engine, variables)
@@ -423,6 +461,12 @@
 #let _content(engine, matrix) = engine.plugin.content(_matrix(engine, matrix))
 #let _matrix_at(engine, matrix, row, col) = engine.plugin.matrix_at(cbor.encode((matrix: _matrix(engine, matrix), row: row, col: col)))
 #let _matrix_shape(engine, matrix) = cbor(engine.plugin.matrix_shape(_matrix(engine, matrix)))
+#let _matrix_is_zero(engine, matrix) = cbor(engine.plugin.matrix_is_zero(_matrix(engine, matrix)))
+#let _matrix_is_diagonal(engine, matrix) = cbor(engine.plugin.matrix_is_diagonal(_matrix(engine, matrix)))
+#let _matrix_derivative(engine, matrix, var) = engine.plugin.matrix_derivative(
+  _matrix(engine, matrix),
+  _expr_bytes(engine, var),
+)
 
 #let _add(engine, ..terms) = engine.plugin.add(_atom_array(engine, terms.pos()))
 #let _mul(engine, ..factors) = engine.plugin.mul(_atom_array(engine, factors.pos()))
@@ -478,7 +522,18 @@
     to-latex: expr => _to_latex(engine, expr),
     simplify: expr => _simplify(engine, expr),
     expand: expr => _expand(engine, expr),
-    factor: expr => _factor(engine, expr),
+    together: expr => _together(engine, expr),
+    cancel: expr => _cancel(engine, expr),
+    apart: (expr, var) => _apart(engine, expr, var),
+    collect: (expr, variables) => _collect(engine, expr, variables),
+    coefficient: (expr, monomial) => _coefficient(engine, expr, monomial),
+    coefficient-list: (expr, variables) => _coefficient_list(engine, expr, variables),
+    terms: expr => _terms(engine, expr),
+    indeterminates: (expr, enter-functions: true) => _indeterminates(engine, expr, enter-functions: enter-functions),
+    contains: (expr, subexpression) => _contains(engine, expr, subexpression),
+    is-constant: expr => _is_constant(engine, expr),
+    to-float: (expr, decimal-prec: 16) => _to_float(engine, expr, decimal-prec: decimal-prec),
+    factor: (expr, complex: false, square-free: false) => _factor(engine, expr, complex: complex, square-free: square-free),
     derivative: (expr, var) => _derivative(engine, expr, var),
     integrate: (expr, var) => _integrate(engine, expr, var),
     integrate-with-steps: (expr, var) => _integrate_with_steps(engine, expr, var),
@@ -515,6 +570,9 @@
     content: matrix => _content(engine, matrix),
     matrix-at: (matrix, row, col) => _matrix_at(engine, matrix, row, col),
     matrix-shape: matrix => _matrix_shape(engine, matrix),
+    matrix-is-zero: matrix => _matrix_is_zero(engine, matrix),
+    matrix-is-diagonal: matrix => _matrix_is_diagonal(engine, matrix),
+    matrix-derivative: (matrix, var) => _matrix_derivative(engine, matrix, var),
     add: (..terms) => _add(engine, ..terms),
     mul: (..factors) => _mul(engine, ..factors),
     neg: expr => _neg(engine, expr),
@@ -531,7 +589,8 @@
 /// Typst math structures are translated through the configured grammar. Matrix-valued
 /// `mat(...)` and `vec(...)` content must instead be passed to `matrix` or
 /// `vec`. Keep the returned bytes opaque and use this module's functions to
-/// inspect or transform them.
+/// inspect or transform them. Decimal literals remain floating-point
+/// coefficients; write a fraction when you need exact input.
 ///
 /// ```example
 /// #let expr = math($x + 1$)
@@ -555,10 +614,11 @@
 /// Convert a supported Typst value or math expression into an atom payload.
 ///
 /// Existing atom bytes pass through unchanged. Content is parsed like `math`;
-/// integers and floats become numbers. Strings are parsed as leaf values:
-/// numeric strings become numbers and other strings become symbols in the
-/// engine's namespace. Matrix payloads are not atom payloads and should not be
-/// passed to atom-only algebra functions.
+/// integers become exact numbers and floats remain floating-point
+/// coefficients. Strings are parsed as leaf values: numeric strings become
+/// numbers and other strings become symbols in the engine's namespace. Matrix
+/// payloads are not atom payloads and should not be passed to atom-only algebra
+/// functions.
 ///
 /// ```example
 /// #to-typst(atom("x"))
@@ -726,7 +786,7 @@
   expr,
 ) = (_default_engine.expand)(expr)
 
-/// Factor an expression with Symbolica's exact factorization routine.
+/// Factor an expression exactly.
 ///
 /// ```example
 /// #to-typst(factor(math($x^2 + 2 x + 1$)))
@@ -737,7 +797,224 @@
   /// Atom payload or supported expression value to factor.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.factor)(expr)
+  /// Factor over the complex rationals instead of the rationals.
+  /// Cannot be combined with `square-free`.
+  /// -> bool
+  complex: false,
+  /// Return a square-free factorization, preserving multiplicities without
+  /// fully splitting every factor. Complex input is handled over the complex
+  /// rationals.
+  /// Cannot be combined with `complex`.
+  /// -> bool
+  square-free: false,
+) = (_default_engine.factor)(expr, complex: complex, square-free: square-free)
+
+/// Write a rational expression over a common denominator.
+///
+/// ```example
+/// #to-typst(together(math($1/x + 1/y$)))
+/// ```
+///
+/// -> bytes
+#let together(
+  /// Expression whose rational terms should be combined.
+  /// -> bytes | content | int | float | str
+  expr,
+) = (_default_engine.together)(expr)
+
+/// Cancel common factors between numerators and denominators.
+///
+/// Parts of the expression without a cancellation are left alone. Remember
+/// that canceling a factor can hide a point excluded by the original formula.
+///
+/// ```example
+/// #to-typst(cancel(math($(x^2 - 1)/(x - 1)$)))
+/// ```
+///
+/// -> bytes
+#let cancel(
+  /// Rational expression in which to cancel common factors.
+  /// -> bytes | content | int | float | str
+  expr,
+) = (_default_engine.cancel)(expr)
+
+/// Decompose a rational expression into partial fractions.
+///
+/// Denominators are decomposed in the given indeterminate.
+///
+/// ```example
+/// #let x = var("x")
+/// #to-typst(apart(math($(2 x + 3)/((x + 1)(x + 2))$), x))
+/// ```
+///
+/// -> bytes
+#let apart(
+  /// Rational expression to decompose.
+  /// -> bytes | content | int | float | str
+  expr,
+  /// Indeterminate for the decomposition.
+  /// -> bytes | content | str
+  var,
+) = (_default_engine.apart)(expr, var)
+
+/// Collect terms by powers of one or more variables or functions.
+///
+/// ```example
+/// #let x = var("x")
+/// #to-typst(collect(math($5 x + x y + x^2 + 5$), x))
+/// ```
+///
+/// -> bytes
+#let collect(
+  /// Expression whose terms should be collected.
+  /// -> bytes | content | int | float | str
+  expr,
+  /// One variable or function, or an array of them.
+  /// -> bytes | content | str | array
+  variables,
+) = (_default_engine.collect)(expr, variables)
+
+/// Extract the coefficient of a literal monomial or subexpression.
+///
+/// For example, asking for the coefficient of `x^2` in
+/// $5x+x y+x^2+y x^2$ returns $1+y$.
+///
+/// ```example
+/// #let x = var("x")
+/// #to-typst(coefficient(math($5 x + x y + x^2 + y x^2$), pow(x, 2)))
+/// ```
+///
+/// -> bytes
+#let coefficient(
+  /// Expression to inspect.
+  /// -> bytes | content | int | float | str
+  expr,
+  /// Literal monomial or subexpression whose coefficient is wanted.
+  /// -> bytes | content | int | float | str
+  monomial,
+) = (_default_engine.coefficient)(expr, monomial)
+
+/// Return collected key–coefficient pairs for one or more indeterminates.
+///
+/// Each result is `(key, coefficient)`, both as atom payloads. A key of `1`
+/// carries terms not polynomially collected in the requested variables.
+/// A coefficient that vanishes only through a deeper identity may remain.
+///
+/// ```example
+/// #let x = var("x")
+/// #let pairs = coefficient-list(math($x^2 + 5 x + 7$), x)
+/// #pairs.map(pair => [#to-typst(pair.at(0)): #to-typst(pair.at(1))]).join[, ]
+/// ```
+///
+/// -> array
+#let coefficient-list(
+  /// Expression to inspect.
+  /// -> bytes | content | int | float | str
+  expr,
+  /// One variable or function, or an array of them.
+  /// -> bytes | content | str | array
+  variables,
+) = (_default_engine.coefficient-list)(expr, variables)
+
+/// Return the top-level additive terms of an expression.
+///
+/// This does not expand or recurse. A value that is not a sum is returned as
+/// a one-element array.
+///
+/// ```example
+/// #terms(math($x^2 + 2 x + 1$)).map(to-typst).join[, ]
+/// ```
+///
+/// -> array
+#let terms(
+  /// Expression to split into top-level summands.
+  /// -> bytes | content | int | float | str
+  expr,
+) = (_default_engine.terms)(expr)
+
+/// Return the variables and function expressions that act as indeterminates.
+///
+/// Results are sorted in Symbolica's internal order.
+///
+/// ```example
+/// #indeterminates(math($f(x) + y$)).map(to-typst).join[, ]
+/// ```
+///
+/// -> array
+#let indeterminates(
+  /// Expression to inspect.
+  /// -> bytes | content | int | float | str
+  expr,
+  /// Traverse function arguments as well as collecting the function itself.
+  /// -> bool
+  enter-functions: true,
+) = (_default_engine.indeterminates)(expr, enter-functions: enter-functions)
+
+/// Test whether an expression literally contains another expression.
+///
+/// The test follows the stored expression structure: for example, `x*y*z`
+/// contains `x`, but does not contain the regrouped product `x*y` as a node.
+///
+/// ```example
+/// #contains(math($x y z$), var("x"))
+/// ```
+///
+/// -> bool
+#let contains(
+  /// Expression to search.
+  /// -> bytes | content | int | float | str
+  expr,
+  /// Literal subexpression to look for.
+  /// -> bytes | content | int | float | str
+  subexpression,
+) = (_default_engine.contains)(expr, subexpression)
+
+/// Test whether an expression has no user-defined variables or functions.
+///
+/// Supported built-in functions such as `sin` and `cos` remain constant when
+/// all of their arguments are constant.
+///
+/// ```example
+/// #is-constant(math($cos(2) + 1/3$))
+/// ```
+///
+/// -> bool
+#let is-constant(
+  /// Expression to test.
+  /// -> bytes | content | int | float | str
+  expr,
+) = (_default_engine.is-constant)(expr)
+
+/// Approximate numerical coefficients and built-in functions as decimals.
+///
+/// Variables remain symbolic. The WebAssembly build supports between 1 and 16
+/// significant decimal digits. Use `evaluate` on the original expression when
+/// you need a numerical value rather than a symbolic display form. Expressions
+/// containing built-in calls with very large numeric arguments remain exact.
+///
+/// ```example
+/// #to-typst(to-float(math($1/3$), decimal-prec: 6))
+/// ```
+///
+/// Exact rational arguments to Symbolica built-ins can be approximated too:
+///
+/// ```example
+/// #let sym = init(namespace: "symbolica")
+/// #let parse = sym.math
+/// #let approximate = sym.to-float
+/// #let render = sym.to-typst
+/// #render(approximate(parse($cos(1/2)$), decimal-prec: 6))
+/// ```
+///
+/// -> bytes
+#let to-float(
+  /// Expression to approximate.
+  /// -> bytes | content | int | float | str
+  expr,
+  /// Number of significant decimal digits to retain, from 1 through 16.
+  /// -> int
+  decimal-prec: 16,
+) = (_default_engine.to-float)(expr, decimal-prec: decimal-prec)
 
 /// Differentiate an expression exactly with respect to an indeterminate.
 ///
@@ -1591,6 +1868,54 @@
   /// -> bytes | content | array | int | float | str
   matrix,
 ) = (_default_engine.matrix-shape)(matrix)
+
+/// Test exactly whether every matrix entry is zero.
+///
+/// This is an exact symbolic predicate, not a floating-point tolerance test.
+///
+/// ```example
+/// #matrix-is-zero(matrix(((0, 0), (0, 0))))
+/// ```
+///
+/// -> bool
+#let matrix-is-zero(
+  /// Matrix to inspect.
+  /// -> bytes | content | array | int | float | str
+  matrix,
+) = (_default_engine.matrix-is-zero)(matrix)
+
+/// Test exactly whether every off-diagonal matrix entry is zero.
+///
+/// Rectangular matrices are accepted; entries outside the main diagonal must
+/// be zero.
+///
+/// ```example
+/// #matrix-is-diagonal(matrix(((1, 0), (0, 2))))
+/// ```
+///
+/// -> bool
+#let matrix-is-diagonal(
+  /// Matrix to inspect.
+  /// -> bytes | content | array | int | float | str
+  matrix,
+) = (_default_engine.matrix-is-diagonal)(matrix)
+
+/// Differentiate every matrix entry with respect to an indeterminate.
+///
+/// ```example
+/// #let x = var("x")
+/// #to-typst(matrix-derivative(matrix(((pow(x, 2), x), (1, 0))), x))
+/// ```
+///
+/// -> bytes
+#let matrix-derivative(
+  /// Rational-polynomial matrix to differentiate.
+  /// -> bytes | content | array | int | float | str
+  matrix,
+  /// Indeterminate with respect to which each entry is differentiated.
+  /// -> bytes | content | str
+  var,
+) = (_default_engine.matrix-derivative)(matrix, var)
 
 /// Construct an exact sum from expression values.
 ///
