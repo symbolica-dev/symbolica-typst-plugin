@@ -431,13 +431,12 @@
 #let _div(engine, lhs, rhs) = engine.plugin.div(_expr_bytes(engine, lhs), _expr_bytes(engine, rhs))
 #let _pow(engine, base, exp) = engine.plugin.power(_expr_bytes(engine, base), _expr_bytes(engine, exp))
 
-/// Create an independent Symbolica engine backed by a WebAssembly plugin.
+/// Create an independent set of Tymbolica functions.
 ///
 /// The returned dictionary exposes the same parsing, algebra, evaluation,
-/// solving, and matrix functions as this module's top-level API. Its methods use
-/// this engine's `namespace`, `source`, and `grammar`; the top-level functions
-/// use one shared engine initialized with the defaults below. Create an engine
-/// when you need a different symbol namespace, plugin location, or grammar.
+/// solving, and matrix operations as the top-level API. Use it when you need a
+/// different symbol namespace, plugin location, or parser grammar; ordinary
+/// calculations can use the imported top-level functions directly.
 ///
 /// ```example
 /// #let sym = init(namespace: "physics")
@@ -456,8 +455,8 @@
   /// paths are resolved by Typst from this source file.
   /// -> str
   source: "tymbolica.wasm",
-  /// Parsely grammar used by `math` and `array-tree` unless they receive an
-  /// explicit grammar override.
+  /// Parser grammar used by `math` and `array-tree` unless they receive an
+  /// explicit override.
   /// -> dictionary
   grammar: _default_grammar,
 ) = {
@@ -529,7 +528,7 @@
 /// Parse Typst math content into an opaque Symbolica atom payload.
 ///
 /// Arithmetic, fractions, powers, roots, absolute values, calls, and common
-/// Typst math structures are translated through Parsely. Matrix-valued
+/// Typst math structures are translated through the configured grammar. Matrix-valued
 /// `mat(...)` and `vec(...)` content must instead be passed to `matrix` or
 /// `vec`. Keep the returned bytes opaque and use this module's functions to
 /// inspect or transform them.
@@ -544,7 +543,7 @@
   /// Math content, normally written as `$...$`.
   /// -> content
   eqn,
-  /// Parsely grammar override. `none` uses the default engine grammar.
+  /// Parser grammar override. `none` uses the default engine grammar.
   /// -> dictionary | none
   grammar: none,
   /// Namespace for parsed symbols. `none` uses the engine namespace (`"typst"`
@@ -617,7 +616,7 @@
   namespace: none,
 ) = (_default_engine.wild)(name, level: level, namespace: namespace)
 
-/// Render the Parsely parse tree for a Typst math expression.
+/// Render the parse tree for a Typst math expression.
 ///
 /// This is a diagnostic view of the tree consumed by `math`; it does not create
 /// a Symbolica atom.
@@ -631,7 +630,7 @@
   /// Math content to inspect.
   /// -> content
   eqn,
-  /// Parsely grammar override. `none` uses the engine grammar.
+  /// Parser grammar override. `none` uses the engine grammar.
   /// -> dictionary | none
   grammar: none,
 ) = (_default_engine.array-tree)(eqn, grammar: grammar)
@@ -1062,7 +1061,7 @@
   samples: 200,
 ) = _domain(min, max, samples: samples)
 
-/// Evaluate one or more expressions at explicit points in one Wasm call.
+/// Evaluate one or more expressions at explicit points in one batch.
 ///
 /// A single expression or variable may be passed directly; otherwise use an
 /// array. Every point must supply one real or complex value per variable. The
@@ -1091,7 +1090,7 @@
 ) = (
   _default_engine.evaluate-many)(expressions, variables, points)
 
-/// Evaluate expressions over a Cartesian product of real domains in one Wasm call.
+/// Evaluate expressions over a Cartesian product of real domains in one batch.
 ///
 /// The result is `(shape: array, points: array, values: array)`. `shape` lists
 /// the sample count of every domain. The grid axes are flattened into rows with

@@ -3,21 +3,21 @@
 Exact symbolic computation inside Typst, powered by
 [Symbolica](https://symbolica.io/).
 
-Tymbolica parses native Typst mathematics, sends exact expressions through a
-bundled WebAssembly plugin, and returns results that can be typeset directly in
-the same document. It currently supports:
+Tymbolica lets the formulas on a Typst page take part in the calculation. Write
+an expression as ordinary Typst mathematics, work with it symbolically, and
+place the result back into the same document. You can currently:
 
-- expression construction, expansion, factorization, and differentiation;
-- polynomial integration and univariate series;
-- wildcard-based structural rewriting;
-- exact and numerical equation-system solving;
-- batched real or complex evaluation; and
-- exact matrix construction, reduction, inversion, and solving.
+- expand, factor, and differentiate expressions;
+- integrate polynomials and calculate series;
+- replace recurring patterns with wildcards;
+- solve systems exactly or numerically;
+- evaluate formulas over points or grids; and
+- solve exact matrix problems.
 
 Start with the [user manual](typst/manual.pdf), the
 [minimal example](typst/examples/basic.typ), or the
 [polynomial-system showcase](typst/examples/showcase.typ). The manual contains
-the conceptual guide, task-oriented examples, limitations, and generated API
+the conceptual guide, task-oriented examples, limitations, and complete API
 reference.
 
 ## Quick start
@@ -65,10 +65,6 @@ Linux data directory. During repository development, examples instead import
 - [Minimal example](typst/examples/basic.typ) — a compact first document
 - [Polynomial-system showcase](typst/examples/showcase.typ) — exact solving,
   factorization, substitution, and a Jacobian determinant in one case study
-- [API surface check](typst/examples/api-surface.typ) — broad executable API
-  coverage for maintainers
-- [Local-package smoke test](typst/examples/local-package.typ) — verifies the
-  root manifest and `@local` import path
 - [Changelog](CHANGELOG.md) — user-visible changes and compatibility notes
 
 ## Development
@@ -88,6 +84,10 @@ nix run .#check    # rebuild, compile the public examples, and verify the PDF
 nix flake check    # validate the Typst distribution using the tracked bundle
 ```
 
+Maintainer checks also compile
+[the API surface](typst/examples/api-surface.typ) and verify the
+[`@local` package import](typst/examples/local-package.typ).
+
 `nix run .#check` verifies the documented `@local` installation layout and
 fails when `typst/manual.pdf` does not match `manual.typ` and the current
 WebAssembly bundle. Commit the source, bundle, and regenerated manual together.
@@ -102,3 +102,9 @@ redistribution permission. The MIT License does not relicense Symbolica or that
 artifact: Symbolica's own terms apply, so read the
 [Symbolica license](https://symbolica.io/license/) before redistributing or
 deploying the bundle.
+
+Tymbolica would not exist without [Symbolica](https://symbolica.io/). Thank you
+to its contributors for the algebra engine at the heart of this package.
+Thanks also to [Parsely](https://typst.app/universe/package/parsely/) for making
+native Typst-math parsing possible, and to
+[Tidy](https://typst.app/universe/package/tidy/) for the documentation tools.

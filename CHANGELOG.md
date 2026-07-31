@@ -19,6 +19,8 @@ local `0.1.0` package while its initial public surface is being prepared.
   Symbolica's separate upstream terms explicit.
 - Added release checks for the root package manifest and documented `@local`
   import layout.
+- Reworked the manual's prose around mathematical questions, removed repeated
+  implementation detail, and moved tool credits to acknowledgements.
 
 ## 0.1.0
 
