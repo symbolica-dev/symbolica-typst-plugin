@@ -1,5 +1,4 @@
 use std::io::Cursor;
-use std::sync::Arc;
 
 use ahash::HashMap;
 
@@ -32,6 +31,8 @@ use symbolica::prelude::{
     PrintOptions, PrintState, Q, RationalPolynomial, RationalPolynomialField, Real,
     ReplaceSettings, Replacement, Ring, SeriesDepth, SolveError, Symbol, Z,
 };
+#[cfg(feature = "rubi")]
+use symbolica_integrate::{Integrate, IntegrationExplanation, IntegrationStep};
 use wasm_minimal_protocol::*;
 
 initiate_protocol!();
@@ -1972,68 +1973,98 @@ pub fn derivative(expr: &[u8], var: &[u8]) -> Result<Vec<u8>, String> {
     encode_atom(&expr.derivative(var))
 }
 
-fn integrate_polynomial_term(
-    term: &Atom,
-    variables: Arc<Vec<PolyVariable>>,
-) -> Result<Atom, String> {
-    let rational = term
-        .try_to_rational_polynomial::<_, _, u16>(&Q, &Z, Some(variables))
-        .map_err(|err| format!("expression must be a rational function of the variable: {err}"))?;
-    if !rational.denominator.is_one() {
-        return Err("integration currently supports polynomial expressions only".to_owned());
+#[cfg(feature = "rubi")]
+fn integration_variable(var: Atom) -> Result<Symbol, String> {
+    match var.as_view() {
+        AtomView::Var(var) => Ok(var.get_symbol()),
+        _ => Err("integration variable must be a symbol".to_owned()),
     }
-
-    let integral = rational.integrate(0);
-    let mut parts = integral
-        .rational_parts
-        .into_iter()
-        .map(|part| part.to_expression())
-        .collect::<Vec<_>>();
-    parts.extend(
-        integral
-            .logarithmic_parts
-            .into_iter()
-            .map(|part| part.coefficient.to_expression() * part.argument.to_expression().log()),
-    );
-    Ok(Atom::add_many(parts))
 }
 
-fn rational_integral_atoms(expr: Atom, var_atom: Atom) -> Result<(Atom, Vec<Atom>), String> {
-    let variable = PolyVariable::from(
-        Indeterminate::try_from(var_atom)
-            .map_err(|err| format!("integration variable must be a variable: {err}"))?,
-    );
-    let variables = Arc::new(vec![variable]);
-    let expanded = expr.expand_via_poly::<u16, Atom>(None);
-    let input_terms = expanded
-        .as_add_view()
-        .map(|sum| sum.into_iter().map(Atom::from).collect::<Vec<_>>())
-        .unwrap_or_else(|| vec![expanded]);
-    let steps = input_terms
-        .iter()
-        .map(|term| integrate_polynomial_term(term, variables.clone()))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok((Atom::add_many(steps.clone()), steps))
+#[cfg(feature = "rubi")]
+fn rubi_integral_atoms(expr: Atom, var: Atom) -> Result<Result<Atom, Atom>, String> {
+    Ok(expr.integrate(integration_variable(var)?))
 }
 
-fn rational_integral(expr: &[u8], var: &[u8]) -> Result<(Atom, Vec<Atom>), String> {
-    rational_integral_atoms(decode_atom(expr, "expr")?, decode_atom(var, "var")?)
+#[cfg(feature = "rubi")]
+fn rubi_integration_explanation_atoms(
+    expr: Atom,
+    var: Atom,
+) -> Result<IntegrationExplanation, String> {
+    Ok(expr.integrate_with_steps(integration_variable(var)?))
 }
 
+#[cfg(feature = "rubi")]
+fn integration_step_cbor(step: IntegrationStep) -> Result<Value, String> {
+    Ok(Value::Map(vec![
+        (
+            Value::Text("rule".to_owned()),
+            step.rule
+                .map(|rule| Value::Integer((rule as i64).into()))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            Value::Text("depth".to_owned()),
+            Value::Integer((step.depth as i64).into()),
+        ),
+        (
+            Value::Text("description".to_owned()),
+            Value::Text(step.description.to_owned()),
+        ),
+        (
+            Value::Text("references".to_owned()),
+            Value::Array(
+                step.references
+                    .iter()
+                    .map(|reference| Value::Text((*reference).to_owned()))
+                    .collect(),
+            ),
+        ),
+        (
+            Value::Text("source".to_owned()),
+            Value::Text(step.source.to_owned()),
+        ),
+        (
+            Value::Text("input".to_owned()),
+            Value::Bytes(encode_atom(&step.input)?),
+        ),
+        (
+            Value::Text("output".to_owned()),
+            Value::Bytes(encode_atom(&step.output)?),
+        ),
+    ]))
+}
+
+#[cfg(feature = "rubi")]
 #[wasm_func]
 pub fn integrate(expr: &[u8], var: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&rational_integral(expr, var)?.0)
+    let result = rubi_integral_atoms(decode_atom(expr, "expr")?, decode_atom(var, "var")?)?;
+    encode_atom(match &result {
+        Ok(result) | Err(result) => result,
+    })
 }
 
+#[cfg(feature = "rubi")]
 #[wasm_func]
 pub fn integrate_with_steps(expr: &[u8], var: &[u8]) -> Result<Vec<u8>, String> {
-    let (result, steps) = rational_integral(expr, var)?;
+    let explanation =
+        rubi_integration_explanation_atoms(decode_atom(expr, "expr")?, decode_atom(var, "var")?)?;
+    let (complete, result) = match explanation.result {
+        Ok(result) => (true, result),
+        Err(result) => (false, result),
+    };
+    let steps = explanation
+        .steps
+        .into_iter()
+        .map(integration_step_cbor)
+        .collect::<Result<Vec<_>, _>>()?;
     encode_cbor(Value::Map(vec![
         (
             Value::Text("result".to_owned()),
             Value::Bytes(encode_atom(&result)?),
         ),
-        (Value::Text("steps".to_owned()), atoms_cbor_value(steps)?),
+        (Value::Text("complete".to_owned()), Value::Bool(complete)),
+        (Value::Text("steps".to_owned()), Value::Array(steps)),
     ]))
 }
 
@@ -2641,47 +2672,113 @@ extern "C" fn test_write_args_to_buffer(_: *mut u8) {}
 mod tests {
     use super::*;
 
+    #[cfg(feature = "rubi")]
     #[test]
-    fn integration_steps_are_per_expanded_term() {
-        let (result, steps) = rational_integral_atoms(
-            symbolica::parse!("(x + 1) * (x + 2)"),
-            symbolica::parse!("x"),
-        )
-        .unwrap();
+    fn rubi_integration_records_nested_rule_transformations() {
+        let integrand = symbolica::parse!("x/(x + 1)");
+        let x = symbolica::symbol!("x");
+        let explanation =
+            rubi_integration_explanation_atoms(integrand.clone(), Atom::var(x)).unwrap();
 
-        assert_eq!(
-            steps,
-            vec![
-                symbolica::parse!("2*x"),
-                symbolica::parse!("3/2*x^2"),
-                symbolica::parse!("1/3*x^3"),
-            ]
+        let result = explanation.result.as_ref().unwrap();
+        let residual = (result.derivative(x) - integrand).expand().together();
+        assert!(residual.is_zero());
+        assert_eq!(explanation.steps.first().unwrap().depth, 0);
+        assert!(explanation.steps.iter().any(|step| step.depth > 0));
+        assert!(
+            explanation
+                .steps
+                .iter()
+                .any(|step| step.rule.is_some() && !step.source.is_empty())
         );
-        assert_eq!(result, symbolica::parse!("2*x + 3/2*x^2 + 1/3*x^3"));
+        assert!(
+            explanation
+                .steps
+                .iter()
+                .all(|step| !step.description.is_empty() && step.input != step.output)
+        );
     }
 
+    #[cfg(feature = "rubi")]
     #[test]
-    fn factored_and_expanded_inputs_have_the_same_integral() {
-        let (factored, _) = rational_integral_atoms(
-            symbolica::parse!("(x + 1) * (x + 2)"),
-            symbolica::parse!("x"),
-        )
-        .unwrap();
-        let (expanded, _) =
-            rational_integral_atoms(symbolica::parse!("x^2 + 3*x + 2"), symbolica::parse!("x"))
-                .unwrap();
+    fn rubi_integrates_a_rational_denominator() {
+        let x = symbolica::symbol!("x");
+        let result = rubi_integral_atoms(symbolica::parse!("1/(x^2 + 1)"), Atom::var(x))
+            .unwrap()
+            .unwrap();
 
-        assert_eq!(factored, expanded);
+        assert_eq!(result, symbolica::parse!("atan(x)"));
     }
 
+    #[cfg(feature = "rubi")]
     #[test]
-    fn integration_still_rejects_rational_denominators() {
-        let error = rational_integral_atoms(symbolica::parse!("1/(x + 1)"), symbolica::parse!("x"))
-            .unwrap_err();
+    fn rubi_step_bridge_preserves_complete_incomplete_and_substitution_steps() {
+        let x = Atom::var(symbolica::symbol!("x"));
+        let encoded_x = encode_atom(&x).unwrap();
 
+        let decode_explanation = |integrand: Atom| {
+            let payload = integrate_with_steps(&encode_atom(&integrand).unwrap(), &encoded_x)
+                .expect("integration bridge should encode its explanation");
+            let Value::Map(map) = decode_cbor(&payload, "integration explanation").unwrap() else {
+                panic!("integration explanation must be a dictionary");
+            };
+            map
+        };
+
+        let complete = decode_explanation(symbolica::parse!("x/(x + 1)"));
+        assert_eq!(map_get(&complete, "complete"), Some(&Value::Bool(true)));
+        assert!(map_get(&complete, "overview").is_none());
+        let Value::Bytes(result) = map_get(&complete, "result").unwrap() else {
+            panic!("integration result must be Atom bytes");
+        };
+        let result = decode_atom(result, "integration result").unwrap();
         assert_eq!(
-            error,
-            "integration currently supports polynomial expressions only"
+            (result.derivative(symbolica::symbol!("x")) - symbolica::parse!("x/(x + 1)"))
+                .together(),
+            Atom::num(0)
+        );
+        let Value::Array(steps) = map_get(&complete, "steps").unwrap() else {
+            panic!("integration steps must be an array");
+        };
+        assert!(steps.len() > 1);
+        for step in steps {
+            let Value::Map(step) = step else {
+                panic!("each integration step must be a dictionary");
+            };
+            assert!(matches!(map_get(step, "rule"), Some(Value::Integer(_))));
+            assert!(matches!(map_get(step, "depth"), Some(Value::Integer(_))));
+            assert!(matches!(map_get(step, "description"), Some(Value::Text(_))));
+            assert!(matches!(map_get(step, "references"), Some(Value::Array(_))));
+            assert!(matches!(map_get(step, "source"), Some(Value::Text(_))));
+            for field in ["input", "output"] {
+                let Some(Value::Bytes(atom)) = map_get(step, field) else {
+                    panic!("{field} must be Atom bytes");
+                };
+                let _ = decode_atom(atom, field).expect("step Atom should round-trip");
+            }
+        }
+
+        let substitution = decode_explanation(symbolica::parse!("exp(x)/(1 + exp(x))"));
+        let Value::Array(steps) = map_get(&substitution, "steps").unwrap() else {
+            panic!("integration steps must be an array");
+        };
+        assert!(steps.iter().any(|step| {
+            let Value::Map(step) = step else {
+                return false;
+            };
+            matches!(map_get(step, "rule"), Some(Value::Null))
+        }));
+
+        let incomplete = decode_explanation(symbolica::parse!("x + x^x"));
+        assert_eq!(map_get(&incomplete, "complete"), Some(&Value::Bool(false)));
+        let Value::Bytes(result) = map_get(&incomplete, "result").unwrap() else {
+            panic!("incomplete integration result must be Atom bytes");
+        };
+        assert!(
+            decode_atom(result, "incomplete integration result")
+                .unwrap()
+                .to_string()
+                .contains("unintegrable")
         );
     }
 

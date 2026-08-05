@@ -10,9 +10,16 @@ local `0.1.0` package while its initial public surface is being prepared.
 - Added a pendulum-calibration workflow, exact and numerical nonlinear solving,
   verified polynomial integration, wildcard rewriting, exact interpolation,
   and batched gradient evaluation examples.
-- Changed `integrate-with-steps` to return one antiderivative contribution per
-  canonically expanded polynomial term. The aggregate `result` remains the
-  exact sum of those contributions.
+- Replaced polynomial-only integration with the MIT-licensed
+  `symbolica-integrate` Rubi engine. `integrate-with-steps` now returns Rubi's
+  actual nested transformations, including rule metadata, input and output
+  expressions, and whether the best-effort result is complete.
+- Split the WebAssembly engine into a compact core plugin and a full plugin
+  containing Rubi. The imported top-level API and plain `init()` use core;
+  integration requires `init(profile: "full")`, with parsing, transformation,
+  and rendering kept within that full API because plugin expression bytes are
+  not portable. Both plugins remain part of the package, so the split reduces
+  loaded and instantiated WebAssembly rather than download size.
 - Documented every public parameter, default, return shape, and current
   capability boundary in the generated reference.
 - Declared Tymbolica's original source code under the MIT License while keeping

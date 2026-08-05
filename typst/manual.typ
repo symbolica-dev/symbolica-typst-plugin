@@ -5,6 +5,7 @@
 #let package-version = manifest.package.version
 #let repository = "https://github.com/lcnbr/tymbolica"
 #let symbolica-guide = "https://symbolica.io/docs/quick_start.html"
+#let symbolica-integration = "https://symbolica.io/posts/symbolic_integration/"
 #let accent = rgb("#315c88")
 #let pale-accent = rgb("#edf4fb")
 #let warning = rgb("#9a5b13")
@@ -153,8 +154,9 @@ Linux, place or symlink the repository root at:
 )
 
 Use the corresponding Typst data directory on macOS or Windows. The package
-root must contain `typst.toml`; its `typst` directory contains `lib.typ` and
-`tymbolica.wasm`. Then import:
+root must contain `typst.toml`; its `typst` directory contains `lib.typ`, the
+small `tymbolica.wasm` plugin, and `tymbolica-full.wasm` with Rubi integration.
+Then import:
 
 #raw(
   "#import \"@local/tymbolica:" + package-version + "\": *",
@@ -181,6 +183,46 @@ included in the checkout.
   ],
 )
 
+== Choose core or full
+
+Most documents only need Tymbolica's algebra, solving, evaluation, and matrix
+tools. Those live in the small core plugin, which is selected by default. The
+much larger Rubi rule collection lives in a separate full plugin, so a document
+that never integrates does not have to load it.
+
+#table(
+  columns: (0.8fr, 1.6fr, 3fr),
+  inset: 6pt,
+  stroke: 0.4pt + rgb("#d5dbe1"),
+  table.header([*Profile*], [*Create it with*], [*Use it for*]),
+  [Core],
+  [`init()`],
+  [Everything except Rubi integration; this is the default.],
+  [Full],
+  [`init(profile: "full")`],
+  [`integrate`, `integrate-with-steps`, and all core operations.],
+)
+
+Both files ship with the package, so the profile changes what Typst loads, not
+the size of the package download. If you assemble a core-only deployment by
+hand, `tymbolica-full.wasm` can simply be left behind.
+
+For an integration-heavy document, give the full engine a short name and use
+its methods explicitly:
+
+```typst
+#let sym = init(profile: "full")
+#let parse = sym.math
+#let var = sym.var
+#let integrate = sym.integrate
+#let x = var("x")
+#let result = integrate(parse($x / (x + 1)$), x)
+```
+
+The imported top-level API is core-only, so integration always starts with an
+explicit full engine. Keep parsing, transformation, and rendering on that same
+engine: opaque Atom bytes cannot be passed between the core and full plugins.
+
 == Where to begin
 
 #table(
@@ -195,8 +237,10 @@ included in the checkout.
   [`math`, `var`, and `atom`],
   [Put an answer back into the document],
   [`to-typst`],
-  [Factor, expand, differentiate, integrate, or take a series],
-  [`expand`, `factor`, `derivative`, `integrate`, `series`],
+  [Factor, expand, differentiate, or take a series],
+  [`expand`, `factor`, `derivative`, `series` in the core profile],
+  [Integrate and inspect Rubi's rule path],
+  [`init(profile: "full")`, then `sym.integrate-with-steps`],
   [Replace a recurring symbolic pattern],
   [`wild`, `rule`, `replace`],
   [Evaluate a formula at many points],
@@ -267,10 +311,12 @@ so that differentiation and numerical evaluation recognize them:
 ```typst
 #let sym = init(namespace: "symbolica")
 #let parse = sym.math
-#let x = sym.var("x")
+#let var = sym.var
 #let derivative = sym.derivative
+#let render = sym.to-typst
+#let x = var("x")
 
-#sym.to-typst(derivative(parse($sin(x)$), x))
+#render(derivative(parse($sin(x)$), x))
 ```
 
 The worked pendulum example binds these functions to short local names so that
@@ -440,38 +486,62 @@ difference between an ordinary `var("a")` and `wild("a")`.
   kind: "warning",
 )
 
-== Integrate a polynomial and verify it
+== Follow Rubi's integration steps
 
-The next polynomial is compact while factored and rather less friendly after
-expansion. We integrate its expanded terms one by one, add the contributions,
-and differentiate the answer as a check.
+For $x/(1+x)$, the useful idea is to expose a constant term before integrating.
+Rubi finds that rewrite, splits the resulting integral, and records the nested
+rule path. This is the same example used in
+#link(symbolica-integration)[Symbolica's integration introduction]. Here the
+full engine is explicit because the core plugin deliberately omits Rubi.
 
 ```worked
+#let sym = init(profile: "full")
+#let parse = sym.math
+#let var = sym.var
+#let render = sym.to-typst
+#let integrate-with-steps = sym.integrate-with-steps
+#let derivative = sym.derivative
+#let subtract = sym.sub
+#let together = sym.together
 #let x = var("x")
-#let p = math($(x + 1)^3 (2 x^2 - 3 x + 5)$)
-#let integration = integrate-with-steps(p, x)
-#let residual = expand(
-  sub(derivative(integration.result, x), p)
+#let f = parse($x / (x + 1)$)
+#let integration = integrate-with-steps(f, x)
+#let residual = together(
+  subtract(derivative(integration.result, x), f)
 )
+#assert(integration.complete)
 
-$ p(x) = #to-typst(p) $\
-term contributions:\
-#for (index, term) in integration.steps.enumerate() [
-  #(index + 1). #to-typst(term) #linebreak()
+$ f(x) = #render(f) $\
+#for step in integration.steps [
+  #h(step.depth * 1.25em)
+  #if step.rule == none [*Transformation*] else [*Rule #step.rule*]
+  #if step.description != "" [: #step.description]
+  #linebreak()
+  #h(step.depth * 1.25em)
+  $#render(step.input) = #render(step.output)$
+  #linebreak()
 ]
-$ integral p(x) dif x = #to-typst(integration.result) + C $\
-verification: $ (partial I)/(partial x) - p(x) = #to-typst(residual) $
+$ integral f(x) dif x = #render(integration.result) + C $\
+verification: $ (partial I)/(partial x) - f(x) = #render(residual) $
 ```
 
-Each numbered line is the antiderivative of one term after expansion. Their sum
-is one antiderivative of $p$; the displayed equation adds the customary $+C$.
-Differentiating the sum leaves a zero residual.
+The mathematics is visible in the tree: first
+$x/(1+x) = 1 - 1/(1+x)$, then linearity separates the two integrals, and the
+leaves give $x$ and $-log(1+x)$. The indentation comes from each step's `depth`,
+so an outer rewrite is followed by the subintegrals it created. For a numbered
+rule, `input` and `output` are the integral before and after that rewrite. A
+step without a rule number records an auxiliary transformation, such as a
+fresh-symbol substitution. `description`, `rule`, `references`, and `source`
+explain where each move came from. The displayed result adds the customary
+$+C$; Tymbolica itself does not.
 
 #callout(
-  [Integration boundary],
+  [Best-effort integrals],
   [
-    At present, integration is limited to polynomials. An integral such as
-    $integral 1/(1+x^2) dif x$ is outside Tymbolica's current scope.
+    Rubi covers many families of integrands, but no finite rule collection solves
+    every integral. When it stops early, `complete` is `false`, `result` contains
+    an `unintegrable` marker for the unresolved part, and `steps` still records
+    the progress.
   ],
   kind: "warning",
 )
@@ -640,8 +710,16 @@ Tymbolica deliberately presents a smaller surface than Symbolica itself. The
 parts covered in this manual work well for exact algebra in documents, but a
 few boundaries are worth knowing before you choose an approach:
 
-- Integration is polynomial-only. The term-by-term form expands the input
-  first and does not add $+C$ automatically.
+- The imported top-level API and the default `init()` engine are core-only.
+  Rubi integration is available from `init(profile: "full")`.
+
+- Atom bytes belong to the plugin instance that created them. Bind the parser,
+  operations, and renderer from one engine rather than mixing core and full
+  calls in the same expression pipeline.
+
+- Integration returns a best-effort expression when no Rubi rule finishes the
+  job. Check `complete` from `integrate-with-steps` when an unevaluated
+  remainder matters. No $+C$ is added automatically.
 
 - Exact system solving is intended for linear and polynomial equations.
   Numerical solving depends on a starting point and gives an approximate
@@ -661,8 +739,8 @@ few boundaries are worth knowing before you choose an approach:
 - Some unusual Typst math structures may not parse. `array-tree` can help show
   what the parser received.
 
-For operations beyond this scope—general integration, arbitrary precision, or
-deeper polynomial algorithms—use Symbolica directly.
+For operations beyond this scope—an integral Rubi cannot finish, arbitrary
+precision, or deeper polynomial algorithms—use Symbolica directly.
 
 == When something looks wrong
 
@@ -674,6 +752,12 @@ deeper polynomial algorithms—use Symbolica directly.
   [`expected content, found bytes`],
   [A symbolic result was inserted directly into `$...$`.],
   [Display it with `to-typst`.],
+  [An engine has no `integrate` method],
+  [It was created with the default core profile.],
+  [Use `init(profile: "full")` and bind its integration functions.],
+  [A symbolic result fails in another API],
+  [The Atom bytes were created by a different plugin instance or profile.],
+  [Parse, transform, and render through functions bound from the same engine.],
   [A derivative or series leaves a function unchanged],
   [`sin`, `cos`, or another analytic function was read as an ordinary name.],
   [Use `init(namespace: "symbolica")` for Symbolica built-ins.],
@@ -697,7 +781,8 @@ deeper polynomial algorithms—use Symbolica directly.
 = API reference
 
 The worked chapters are meant for reading; this section is meant for looking
-things up. Functions are grouped by the kind of calculation they perform.
+things up. The generated groups below are the core-only top-level API. The two
+full-profile integration methods are documented separately afterwards.
 
 #let reference-groups = (
   (
@@ -708,12 +793,12 @@ things up. Functions are grouped by the kind of calculation they perform.
     ),
   ),
   (
-    title: [Algebra and calculus],
+    title: [Algebra and core calculus],
     names: (
       "simplify", "expand", "factor", "together", "cancel", "apart",
       "collect", "coefficient", "coefficient-list", "terms",
       "indeterminates", "contains", "is-constant",
-      "derivative", "integrate", "integrate-with-steps", "series",
+      "derivative", "series",
     ),
   ),
   (
@@ -780,6 +865,32 @@ things up. Functions are grouped by the kind of calculation they perform.
   }
 ]
 
+== Full-profile integration methods
+
+These methods are fields of the dictionary returned by
+`init(profile: "full")`; they are not imported as top-level functions. Bind
+them before use, as in the worked integration example, and keep their Atom
+inputs and outputs on the same full engine.
+
+```text
+integrate(expr, var) -> bytes
+integrate-with-steps(expr, var) -> dictionary
+```
+
+`integrate` returns Rubi's best antiderivative without adding $+C$. An
+unfinished result contains an `unintegrable` marker. `integrate-with-steps`
+returns the same result together with:
+
+- `result` (`bytes`): the best antiderivative;
+- `complete` (`bool`): whether Rubi finished every subintegral;
+- `steps` (`array`): the ordered transformation tree.
+
+Each step contains `rule` (`int` or `none`), `depth` (`int`), `description`
+(`str`), `references` (`array` of strings), `source` (`str`), and the Atom
+payloads `input` and `output` (`bytes`). Steps run from an outer rewrite into
+the nested integrals it creates; `rule: none` marks an auxiliary
+transformation such as a fresh-symbol substitution.
+
 = Compatibility and licensing
 
 This manual describes Tymbolica #package-version. The package is tested with
@@ -789,8 +900,11 @@ Tymbolica's original source code is released under the
 #link(repository + "/blob/main/LICENSE")[MIT License]. Symbolica is developed
 by the Symbolica contributors and is distributed under its own
 #link("https://symbolica.io/license/")[license terms]. The MIT License does not
-relicense Symbolica or the bundled WebAssembly artifact; Symbolica's terms
-still apply to their use.
+relicense Symbolica or either bundled WebAssembly artifact; Symbolica's terms
+still apply to their use. The full plugin's symbolic integration is supplied
+by the
+#link("https://github.com/symbolica-dev/symbolica-integrate")[MIT-licensed
+`symbolica-integrate`] crate and its port of the Rubi rules.
 
 For source, issues, and release history, visit
 #link(repository)[github.com/lcnbr/tymbolica].
@@ -799,7 +913,10 @@ For source, issues, and release history, visit
 
 Tymbolica would not exist without #link("https://symbolica.io/")[Symbolica].
 Thank you to its contributors for building and sharing the algebra engine at
-the heart of this package.
+the heart of this package, and for making Rubi integration available through
+#link("https://github.com/symbolica-dev/symbolica-integrate")[`symbolica-integrate`].
+Thanks as well to the Rubi contributors whose rule collection powers the
+full integration plugin.
 
 Thanks also to #link("https://typst.app/universe/package/parsely/")[Parsely],
 which makes it possible to work with mathematics written directly in Typst,

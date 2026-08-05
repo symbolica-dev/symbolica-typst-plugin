@@ -26,17 +26,22 @@
             program = "${pkgs.writeShellApplication { inherit name; runtimeInputs = path; inherit text; }}/bin/${name}";
             meta.description = "Run ${name}";
           };
-          buildScript = ''
+          buildVariant = cargoFeatures: output: ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target"
+            cargo build --release --target "$target" --no-default-features ${cargoFeatures}
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --strip-debug --strip-producers \
-              -o typst/tymbolica.wasm "target/$target/release/tymbolica_plugin.wasm"
-            ls -lh typst/tymbolica.wasm
+              -o ${output} "target/$target/release/tymbolica_plugin.wasm"
+            ls -lh ${output}
           '';
+          coreBuildScript = buildVariant "" "typst/tymbolica.wasm";
+          fullBuildScript = buildVariant "--features rubi" "typst/tymbolica-full.wasm";
+          buildScript = coreBuildScript + fullBuildScript;
         in rec {
           default = build;
           build = app "tymbolica-build" buildScript;
+          build-core = app "tymbolica-build-core" coreBuildScript;
+          build-full = app "tymbolica-build-full" fullBuildScript;
           manual = app "tymbolica-manual" (buildScript + ''
             out="''${TYMBOLICA_MANUAL_OUT:-typst/manual.pdf}"
             if [ "$#" -gt 0 ]; then
@@ -54,6 +59,7 @@
             typst compile --root . typst/examples/basic.typ "$check_dir/basic.pdf"
             typst compile --root . typst/examples/showcase.typ "$check_dir/showcase.pdf"
             typst compile --root . typst/examples/api-surface.typ "$check_dir/api-surface.pdf"
+            typst compile --root . typst/examples/integration.typ "$check_dir/integration.pdf"
             typst compile --root . typst/examples/parsely-mwe.typ "$check_dir/parsely-mwe.pdf"
             typst compile --root . typst/manual.typ "$check_dir/manual.pdf"
 
@@ -88,6 +94,7 @@
             typst compile --root "$work" "$work/typst/examples/basic.typ" "$out/basic.pdf"
             typst compile --root "$work" "$work/typst/examples/showcase.typ" "$out/showcase.pdf"
             typst compile --root "$work" "$work/typst/examples/api-surface.typ" "$out/api-surface.pdf"
+            typst compile --root "$work" "$work/typst/examples/integration.typ" "$out/integration.pdf"
             typst compile --root "$work" "$work/typst/examples/parsely-mwe.typ" "$out/parsely-mwe.pdf"
             typst compile --root "$work" "$work/typst/manual.typ" "$out/manual.pdf"
 

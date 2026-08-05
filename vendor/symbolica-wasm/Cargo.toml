@@ -1,0 +1,12 @@
+[package]
+name = "symbolica"
+version = "2.2.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+symbolica-upstream = { package = "symbolica", git = "https://github.com/symbolica-dev/symbolica", branch = "dev", default-features = false, features = ["wasm"] }

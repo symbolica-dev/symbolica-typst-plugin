@@ -1,6 +1,17 @@
 #import "../lib.typ": init
 
-#let sym = init()
+#let core = init()
+#let full = init(profile: "full")
+#assert(not ("integrate" in core))
+#assert(not ("integrate-with-steps" in core))
+#assert("integrate" in full)
+#assert("integrate-with-steps" in full)
+#let sym = core
+#let full-parse = full.math
+#let full-var = full.var
+#let full-to-typst = full.to-typst
+#let full-integrate = full.integrate
+#let full-integrate-with-steps = full.integrate-with-steps
 #let parse = sym.math
 #let var = sym.var
 #let wild = sym.wild
@@ -25,8 +36,6 @@
 #let replace = sym.replace
 #let replace-wildcards = sym.replace-wildcards
 #let series = sym.series
-#let integrate = sym.integrate
-#let integrate-with-steps = sym.integrate-with-steps
 #let evaluate = sym.evaluate
 #let domain = sym.domain
 #let evaluate-many = sym.evaluate-many
@@ -152,8 +161,12 @@
 #let rhs-only = replace(parse($f(x)$), parse($f("a_")$), parse($g("a_", "fresh_")$), allow-new-wildcards-on-rhs: true)
 
 #let exact = solve-linear((parse($2 x + y - 5$), parse($x - y - 1$)), (x, y))
-#let integral = integrate(parse($x^2 + 2 x + 1$), x)
-#let integration = integrate-with-steps(parse($x^2 + 2 x + 1$), x)
+#let full-x = full-var("x")
+#let full-integrand = full-parse($x / (x + 1)$)
+#let integral = full-integrate(full-integrand, full-x)
+#let integration = full-integrate-with-steps(full-integrand, full-x)
+#assert(integration.complete)
+#assert(integration.steps.any(step => step.depth > 0))
 #let nonlinear = solve-system((parse($x + y$), parse($y^2 - 2$)), (x, y))
 #let root = nsolve(parse($x^2 - 2$), x, 1.0)
 #let roots = nsolve-system((parse($x^2 + y - 3$), parse($x - y$)), (x, y), (1.0, 1.0))
@@ -209,7 +222,7 @@ RHS-only wildcard: #to-typst(rhs-only)
 
 Exact solve: #exact.map(to-typst).join[, ]
 
-Integral: #to-typst(integral), #repr(integration.steps.map(to-typst))
+Integral: #full-to-typst(integral); #integration.steps.len() nested Rubi steps
 
 Nonlinear solve: #repr(nonlinear.map(row => row.map(to-typst)))
 

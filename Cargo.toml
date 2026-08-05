@@ -9,12 +9,23 @@ license = "MIT"
 name = "tymbolica_plugin"
 crate-type = ["cdylib"]
 
+[features]
+default = []
+rubi = ["dep:symbolica-integrate"]
+
 [dependencies]
 ahash = { version = "0.8", default-features = false, features = ["std", "compile-time-rng"] }
 ciborium = "0.2.2"
 getrandom = "0.3"
 symbolica = { git = "https://github.com/symbolica-dev/symbolica", branch = "dev", default-features = false, features = ["wasm"] }
+symbolica-integrate = { git = "https://github.com/symbolica-dev/symbolica-integrate", rev = "c0766013b7b866a0ab37324862240204bfa7107a", features = ["steps"], optional = true }
 wasm-minimal-protocol = "0.1"
+
+[patch.crates-io]
+# Temporary until astro-float publishes the merged wasm32 word-size fix.
+astro-float = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
+astro-float-num = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
+symbolica = { path = "vendor/symbolica-wasm" }
 
 [workspace]
 

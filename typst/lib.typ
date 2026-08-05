@@ -477,10 +477,23 @@
 
 /// Create an independent set of Tymbolica functions.
 ///
-/// The returned dictionary exposes the same parsing, algebra, evaluation,
-/// solving, and matrix operations as the top-level API. Use it when you need a
-/// different symbol namespace, plugin location, or parser grammar; ordinary
-/// calculations can use the imported top-level functions directly.
+/// The returned dictionary exposes Tymbolica's parsing, algebra, evaluation,
+/// solving, and matrix operations. The `"core"` profile uses the small plugin
+/// and leaves out symbolic integration. The `"full"` profile adds Rubi's
+/// `integrate` and `integrate-with-steps` methods. Use `init` when you want to
+/// select a profile, symbol namespace, plugin location, or parser grammar;
+/// ordinary calculations can use the imported top-level functions directly.
+///
+/// `integrate(expr, var)` returns Rubi's best-effort antiderivative as bytes.
+/// `integrate-with-steps(expr, var)` returns `(result: bytes, complete: bool,
+/// steps: array)`. Each step contains `rule` (int or none), `depth` (int),
+/// `description` (str), `references` (array of str), `source` (str), and the
+/// immediate `input` and `output` expressions as bytes. The steps run from an
+/// outer rewrite into its nested integrals. No integration constant is added.
+///
+/// Keep a calculation inside the engine that created its expressions. Core
+/// and full engines have separate Symbolica symbol registries, so their opaque
+/// atom bytes must not be exchanged.
 ///
 /// ```example
 /// #let sym = init(namespace: "physics")
@@ -495,22 +508,38 @@
   /// per-call `namespace` passed to `math` or `var` takes precedence.
   /// -> str
   namespace: "typst",
-  /// WebAssembly plugin path passed to Typst's `plugin` constructor. Relative
-  /// paths are resolved by Typst from this source file.
+  /// Plugin profile. `"core"` selects the small Symbolica bundle; `"full"`
+  /// selects the bundle with Rubi integration and genuine integration steps.
   /// -> str
-  source: "tymbolica.wasm",
+  profile: "core",
+  /// WebAssembly plugin path passed to Typst's `plugin` constructor. `none`
+  /// selects the bundled plugin for `profile`. Relative custom paths are
+  /// resolved by Typst from this source file.
+  /// -> str | none
+  source: none,
   /// Parser grammar used by `math` and `array-tree` unless they receive an
   /// explicit override.
   /// -> dictionary
   grammar: _default_grammar,
 ) = {
+  assert(
+    profile in ("core", "full"),
+    message: "profile must be \"core\" or \"full\"",
+  )
+  let source = if source != none {
+    source
+  } else if profile == "full" {
+    "tymbolica-full.wasm"
+  } else {
+    "tymbolica.wasm"
+  }
   let engine = (
     plugin: plugin(source),
     grammar: grammar,
     namespace: namespace,
   )
 
-  (
+  let api = (
     math: (eqn, grammar: none, namespace: none) => _from_math(engine, eqn, grammar: grammar, namespace: namespace),
     atom: value => _expr_bytes(engine, value),
     var: (name, namespace: none) => _var(engine, name, namespace: namespace),
@@ -535,8 +564,6 @@
     to-float: (expr, decimal-prec: 16) => _to_float(engine, expr, decimal-prec: decimal-prec),
     factor: (expr, complex: false, square-free: false) => _factor(engine, expr, complex: complex, square-free: square-free),
     derivative: (expr, var) => _derivative(engine, expr, var),
-    integrate: (expr, var) => _integrate(engine, expr, var),
-    integrate-with-steps: (expr, var) => _integrate_with_steps(engine, expr, var),
     series: (expr, var, expansion-point, depth, depth-denom: 1, depth-is-absolute: true) => _series(engine, expr, var, expansion-point, depth, depth-denom: depth-denom, depth-is-absolute: depth-is-absolute),
     rule: (pattern, rhs, non-greedy-wildcards: (), min-level: 0, max-level: none, level-range: none, level-is-tree-depth: false, partial: true, allow-new-wildcards-on-rhs: false, rhs-cache-size: 100) => _rule(engine, pattern, rhs, non-greedy-wildcards: non-greedy-wildcards, min-level: min-level, max-level: max-level, level-range: level-range, level-is-tree-depth: level-is-tree-depth, partial: partial, allow-new-wildcards-on-rhs: allow-new-wildcards-on-rhs, rhs-cache-size: rhs-cache-size),
     replace: (expr, pattern, rhs, repeat: false, once: false, bottom-up: false, nested: false, non-greedy-wildcards: (), min-level: 0, max-level: none, level-range: none, level-is-tree-depth: false, partial: true, allow-new-wildcards-on-rhs: false, rhs-cache-size: 100) => _replace(engine, expr, pattern, rhs, repeat: repeat, once: once, bottom-up: bottom-up, nested: nested, non-greedy-wildcards: non-greedy-wildcards, min-level: min-level, max-level: max-level, level-range: level-range, level-is-tree-depth: level-is-tree-depth, partial: partial, allow-new-wildcards-on-rhs: allow-new-wildcards-on-rhs, rhs-cache-size: rhs-cache-size),
@@ -580,8 +607,17 @@
     div: (lhs, rhs) => _div(engine, lhs, rhs),
     pow: (base, exp) => _pow(engine, base, exp),
   )
+
+  if profile == "full" {
+    api.insert("integrate", (expr, var) => _integrate(engine, expr, var))
+    api.insert(
+      "integrate-with-steps",
+      (expr, var) => _integrate_with_steps(engine, expr, var),
+    )
+  }
+  api
 }
-#let _default_engine = init()
+#let _default_engine() = init()
 
 /// Parse Typst math content into an opaque Symbolica atom payload.
 ///
@@ -609,7 +645,7 @@
   /// for the top-level function).
   /// -> str | none
   namespace: none,
-) = (_default_engine.math)(eqn, grammar: grammar, namespace: namespace)
+) = (_default_engine().math)(eqn, grammar: grammar, namespace: namespace)
 
 /// Convert a supported Typst value or math expression into an atom payload.
 ///
@@ -629,7 +665,7 @@
   /// Value to convert.
   /// -> bytes | content | int | float | str
   value,
-) = (_default_engine.atom)(value)
+) = (_default_engine().atom)(value)
 
 /// Construct a named Symbolica variable.
 ///
@@ -648,7 +684,7 @@
   /// Namespace override. `none` uses the engine namespace.
   /// -> str | none
   namespace: none,
-) = (_default_engine.var)(name, namespace: namespace)
+) = (_default_engine().var)(name, namespace: namespace)
 
 /// Construct a Symbolica pattern wildcard.
 ///
@@ -674,7 +710,7 @@
   /// Namespace override. `none` uses the engine namespace.
   /// -> str | none
   namespace: none,
-) = (_default_engine.wild)(name, level: level, namespace: namespace)
+) = (_default_engine().wild)(name, level: level, namespace: namespace)
 
 /// Render the parse tree for a Typst math expression.
 ///
@@ -693,7 +729,7 @@
   /// Parser grammar override. `none` uses the engine grammar.
   /// -> dictionary | none
   grammar: none,
-) = (_default_engine.array-tree)(eqn, grammar: grammar)
+) = (_default_engine().array-tree)(eqn, grammar: grammar)
 
 /// Render an atom or matrix payload as Symbolica source text.
 ///
@@ -710,7 +746,7 @@
   /// Include symbol namespaces in the output.
   /// -> bool
   namespaces: false,
-) = (_default_engine.canonical)(expr, namespaces: namespaces)
+) = (_default_engine().canonical)(expr, namespaces: namespaces)
 
 /// Render an atom or matrix payload as Typst math source.
 ///
@@ -723,7 +759,7 @@
   /// Atom or matrix payload, or a supported expression value.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.to-typst-source)(expr)
+) = (_default_engine().to-typst-source)(expr)
 
 /// Render an atom or matrix payload as evaluated Typst math content.
 ///
@@ -742,7 +778,7 @@
   /// Render as a block equation instead of inline math.
   /// -> bool
   block: false,
-) = (_default_engine.to-typst)(expr, block: block)
+) = (_default_engine().to-typst)(expr, block: block)
 
 /// Render an atom or matrix payload as LaTeX source.
 ///
@@ -755,7 +791,7 @@
   /// Atom or matrix payload, or a supported expression value.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.to-latex)(expr)
+) = (_default_engine().to-latex)(expr)
 
 /// Re-import and re-export an atom in Symbolica's canonical internal form.
 ///
@@ -771,7 +807,7 @@
   /// Atom payload or supported expression value to normalize.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.simplify)(expr)
+) = (_default_engine().simplify)(expr)
 
 /// Expand an expression through Symbolica's polynomial expansion.
 ///
@@ -784,7 +820,7 @@
   /// Atom payload or supported expression value to expand.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.expand)(expr)
+) = (_default_engine().expand)(expr)
 
 /// Factor an expression exactly.
 ///
@@ -807,7 +843,7 @@
   /// Cannot be combined with `complex`.
   /// -> bool
   square-free: false,
-) = (_default_engine.factor)(expr, complex: complex, square-free: square-free)
+) = (_default_engine().factor)(expr, complex: complex, square-free: square-free)
 
 /// Write a rational expression over a common denominator.
 ///
@@ -820,7 +856,7 @@
   /// Expression whose rational terms should be combined.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.together)(expr)
+) = (_default_engine().together)(expr)
 
 /// Cancel common factors between numerators and denominators.
 ///
@@ -836,7 +872,7 @@
   /// Rational expression in which to cancel common factors.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.cancel)(expr)
+) = (_default_engine().cancel)(expr)
 
 /// Decompose a rational expression into partial fractions.
 ///
@@ -855,7 +891,7 @@
   /// Indeterminate for the decomposition.
   /// -> bytes | content | str
   var,
-) = (_default_engine.apart)(expr, var)
+) = (_default_engine().apart)(expr, var)
 
 /// Collect terms by powers of one or more variables or functions.
 ///
@@ -872,7 +908,7 @@
   /// One variable or function, or an array of them.
   /// -> bytes | content | str | array
   variables,
-) = (_default_engine.collect)(expr, variables)
+) = (_default_engine().collect)(expr, variables)
 
 /// Extract the coefficient of a literal monomial or subexpression.
 ///
@@ -892,7 +928,7 @@
   /// Literal monomial or subexpression whose coefficient is wanted.
   /// -> bytes | content | int | float | str
   monomial,
-) = (_default_engine.coefficient)(expr, monomial)
+) = (_default_engine().coefficient)(expr, monomial)
 
 /// Return collected key–coefficient pairs for one or more indeterminates.
 ///
@@ -914,7 +950,7 @@
   /// One variable or function, or an array of them.
   /// -> bytes | content | str | array
   variables,
-) = (_default_engine.coefficient-list)(expr, variables)
+) = (_default_engine().coefficient-list)(expr, variables)
 
 /// Return the top-level additive terms of an expression.
 ///
@@ -930,7 +966,7 @@
   /// Expression to split into top-level summands.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.terms)(expr)
+) = (_default_engine().terms)(expr)
 
 /// Return the variables and function expressions that act as indeterminates.
 ///
@@ -948,7 +984,7 @@
   /// Traverse function arguments as well as collecting the function itself.
   /// -> bool
   enter-functions: true,
-) = (_default_engine.indeterminates)(expr, enter-functions: enter-functions)
+) = (_default_engine().indeterminates)(expr, enter-functions: enter-functions)
 
 /// Test whether an expression literally contains another expression.
 ///
@@ -967,7 +1003,7 @@
   /// Literal subexpression to look for.
   /// -> bytes | content | int | float | str
   subexpression,
-) = (_default_engine.contains)(expr, subexpression)
+) = (_default_engine().contains)(expr, subexpression)
 
 /// Test whether an expression has no user-defined variables or functions.
 ///
@@ -983,7 +1019,7 @@
   /// Expression to test.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.is-constant)(expr)
+) = (_default_engine().is-constant)(expr)
 
 /// Approximate numerical coefficients and built-in functions as decimals.
 ///
@@ -1014,7 +1050,7 @@
   /// Number of significant decimal digits to retain, from 1 through 16.
   /// -> int
   decimal-prec: 16,
-) = (_default_engine.to-float)(expr, decimal-prec: decimal-prec)
+) = (_default_engine().to-float)(expr, decimal-prec: decimal-prec)
 
 /// Differentiate an expression exactly with respect to an indeterminate.
 ///
@@ -1031,55 +1067,7 @@
   /// Symbolica indeterminate, normally created with `var`.
   /// -> bytes | content | str
   var,
-) = (_default_engine.derivative)(expr, var)
-
-/// Integrate a polynomial exactly with respect to a variable.
-///
-/// The expression must be polynomial in `var`; rational functions with a
-/// non-constant denominator and general transcendental integrands are rejected.
-/// No arbitrary integration constant is added.
-///
-/// ```example
-/// #let x = var("x")
-/// #to-typst(integrate(math($3 x^2 - 4 x + 7$), x))
-/// ```
-///
-/// -> bytes
-#let integrate(
-  /// Polynomial expression to integrate.
-  /// -> bytes | content | int | float | str
-  expr,
-  /// Integration variable, normally created with `var`.
-  /// -> bytes | content | str
-  var,
-) = (_default_engine.integrate)(expr, var)
-
-/// Integrate a polynomial and expose one contribution per expanded term.
-///
-/// This has the same polynomial-only restriction as `integrate`. It returns
-/// `(result: bytes, steps: array)`, where `result` is the complete antiderivative
-/// and every atom payload in `steps` is the antiderivative of one top-level term
-/// after Symbolica expands and canonically normalizes the input. A non-sum has
-/// one step; source terms may combine or cancel during expansion. Thus `steps`
-/// is a deterministic term-by-term decomposition, not a general pedagogical
-/// derivation trace. No integration constant is added.
-///
-/// ```example
-/// #let x = var("x")
-/// #let out = integrate-with-steps(math($3 x^2 - 4 x + 7$), x)
-/// #to-typst(out.result)
-/// #out.steps.map(to-typst).join[, ]
-/// ```
-///
-/// -> dictionary
-#let integrate-with-steps(
-  /// Polynomial expression to integrate.
-  /// -> bytes | content | int | float | str
-  expr,
-  /// Integration variable, normally created with `var`.
-  /// -> bytes | content | str
-  var,
-) = (_default_engine.integrate-with-steps)(expr, var)
+) = (_default_engine().derivative)(expr, var)
 
 /// Compute a univariate series expansion around `expansion-point`.
 ///
@@ -1118,7 +1106,7 @@
   /// -> bool
   depth-is-absolute: true,
 ) = (
-  _default_engine.series)(expr, var, expansion-point, depth, depth-denom: depth-denom, depth-is-absolute: depth-is-absolute)
+  _default_engine().series)(expr, var, expansion-point, depth, depth-denom: depth-denom, depth-is-absolute: depth-is-absolute)
 
 /// Build a reusable replacement rule for `replace-multiple`.
 ///
@@ -1171,7 +1159,7 @@
   /// -> int
   rhs-cache-size: 100,
 ) = (
-  _default_engine.rule)(pattern, rhs, non-greedy-wildcards: non-greedy-wildcards, min-level: min-level, max-level: max-level, level-range: level-range, level-is-tree-depth: level-is-tree-depth, partial: partial, allow-new-wildcards-on-rhs: allow-new-wildcards-on-rhs, rhs-cache-size: rhs-cache-size)
+  _default_engine().rule)(pattern, rhs, non-greedy-wildcards: non-greedy-wildcards, min-level: min-level, max-level: max-level, level-range: level-range, level-is-tree-depth: level-is-tree-depth, partial: partial, allow-new-wildcards-on-rhs: allow-new-wildcards-on-rhs, rhs-cache-size: rhs-cache-size)
 
 /// Replace subexpressions matching `pattern` with `rhs`.
 ///
@@ -1234,7 +1222,7 @@
   /// -> int
   rhs-cache-size: 100,
 ) = (
-  _default_engine.replace)(expr, pattern, rhs, repeat: repeat, once: once, bottom-up: bottom-up, nested: nested, non-greedy-wildcards: non-greedy-wildcards, min-level: min-level, max-level: max-level, level-range: level-range, level-is-tree-depth: level-is-tree-depth, partial: partial, allow-new-wildcards-on-rhs: allow-new-wildcards-on-rhs, rhs-cache-size: rhs-cache-size)
+  _default_engine().replace)(expr, pattern, rhs, repeat: repeat, once: once, bottom-up: bottom-up, nested: nested, non-greedy-wildcards: non-greedy-wildcards, min-level: min-level, max-level: max-level, level-range: level-range, level-is-tree-depth: level-is-tree-depth, partial: partial, allow-new-wildcards-on-rhs: allow-new-wildcards-on-rhs, rhs-cache-size: rhs-cache-size)
 
 /// Apply several reusable replacement rules together.
 ///
@@ -1270,7 +1258,7 @@
   /// -> bool
   nested: false,
 ) = (
-  _default_engine.replace-multiple)(expr, rules, repeat: repeat, once: once, bottom-up: bottom-up, nested: nested)
+  _default_engine().replace-multiple)(expr, rules, repeat: repeat, once: once, bottom-up: bottom-up, nested: nested)
 
 /// Substitute explicit values for wildcard placeholders in a pattern.
 ///
@@ -1289,7 +1277,7 @@
   /// Array of `(wildcard, replacement)` pairs.
   /// -> array
   replacements,
-) = (_default_engine.replace-wildcards)(pattern, replacements)
+) = (_default_engine().replace-wildcards)(pattern, replacements)
 
 /// Evaluate one expression numerically with optional substitutions.
 ///
@@ -1313,7 +1301,7 @@
   /// numbers or `(re: ..., im: ...)` dictionaries.
   /// -> array
   values: (),
-) = (_default_engine.evaluate)(expr, values: values)
+) = (_default_engine().evaluate)(expr, values: values)
 
 /// Describe one real sampling axis for `evaluate-grid`.
 ///
@@ -1365,7 +1353,7 @@
   /// -> array
   points,
 ) = (
-  _default_engine.evaluate-many)(expressions, variables, points)
+  _default_engine().evaluate-many)(expressions, variables, points)
 
 /// Evaluate expressions over a Cartesian product of real domains in one batch.
 ///
@@ -1394,7 +1382,7 @@
   /// -> array
   domains,
 ) = (
-  _default_engine.evaluate-grid)(expressions, variables, domains)
+  _default_engine().evaluate-grid)(expressions, variables, domains)
 
 /// Solve a linear system exactly for `variables`.
 ///
@@ -1420,7 +1408,7 @@
   /// Variables to solve for, in result order.
   /// -> array | content | str
   variables,
-) = (_default_engine.solve-linear)(system, variables)
+) = (_default_engine().solve-linear)(system, variables)
 
 /// Solve a linear or supported polynomial nonlinear system exactly.
 ///
@@ -1446,7 +1434,7 @@
   /// Variables to eliminate and return, in result-column order.
   /// -> array | content | str
   variables,
-) = (_default_engine.solve-system)(system, variables)
+) = (_default_engine().solve-system)(system, variables)
 
 /// Find a real root of a univariate expression with Newton's method.
 ///
@@ -1477,7 +1465,7 @@
   /// -> int
   max-iterations: 1000,
 ) = (
-  _default_engine.nsolve)(expr, var, init, prec: prec, max-iterations: max-iterations)
+  _default_engine().nsolve)(expr, var, init, prec: prec, max-iterations: max-iterations)
 
 /// Find a common real root of a system with multivariate Newton iteration.
 ///
@@ -1509,7 +1497,7 @@
   /// -> int
   max-iterations: 1000,
 ) = (
-  _default_engine.nsolve-system)(system, variables, init, prec: prec, max-iterations: max-iterations)
+  _default_engine().nsolve-system)(system, variables, init, prec: prec, max-iterations: max-iterations)
 
 /// Convert Typst values into an opaque Symbolica matrix payload.
 ///
@@ -1528,7 +1516,7 @@
   /// Matrix source value.
   /// -> bytes | content | array | int | float | str
   value,
-) = (_default_engine.matrix)(value)
+) = (_default_engine().matrix)(value)
 
 /// Convert a non-empty sequence into a column-vector matrix payload.
 ///
@@ -1544,7 +1532,7 @@
   /// Vector entries, Typst `vec(...)` content, or an existing matrix payload.
   /// -> array | content | bytes
   values,
-) = (_default_engine.vec)(values)
+) = (_default_engine().vec)(values)
 
 /// Create an `n` by `n` identity matrix payload.
 ///
@@ -1557,7 +1545,7 @@
   /// Positive matrix dimension.
   /// -> int
   n,
-) = (_default_engine.identity)(n)
+) = (_default_engine().identity)(n)
 
 /// Create a square diagonal matrix from a non-empty entry array.
 ///
@@ -1572,7 +1560,7 @@
   /// Diagonal entries in top-left to bottom-right order.
   /// -> array
   diag,
-) = (_default_engine.eye)(diag)
+) = (_default_engine().eye)(diag)
 
 /// Add two matrices entry by entry.
 ///
@@ -1591,7 +1579,7 @@
   /// Right matrix of the same shape.
   /// -> bytes | content | array | int | float | str
   rhs,
-) = (_default_engine.matrix-add)(lhs, rhs)
+) = (_default_engine().matrix-add)(lhs, rhs)
 
 /// Subtract two matrices entry by entry.
 ///
@@ -1610,7 +1598,7 @@
   /// Right matrix of the same shape.
   /// -> bytes | content | array | int | float | str
   rhs,
-) = (_default_engine.matrix-sub)(lhs, rhs)
+) = (_default_engine().matrix-sub)(lhs, rhs)
 
 /// Multiply two matrices, or multiply a matrix by a scalar expression.
 ///
@@ -1631,7 +1619,7 @@
   /// Right matrix, or scalar Typst value/math content.
   /// -> bytes | content | array | int | float | str
   rhs,
-) = (_default_engine.matrix-mul)(lhs, rhs)
+) = (_default_engine().matrix-mul)(lhs, rhs)
 
 /// Divide every matrix entry by a nonzero scalar expression.
 ///
@@ -1649,7 +1637,7 @@
   /// Nonzero scalar divisor.
   /// -> bytes | content | int | float | str
   rhs,
-) = (_default_engine.matrix-div-scalar)(lhs, rhs)
+) = (_default_engine().matrix-div-scalar)(lhs, rhs)
 
 /// Transpose a matrix, exchanging rows and columns.
 ///
@@ -1662,7 +1650,7 @@
   /// Matrix to transpose.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine.transpose)(matrix)
+) = (_default_engine().transpose)(matrix)
 
 /// Compute the exact determinant of a square matrix.
 ///
@@ -1677,7 +1665,7 @@
   /// Square matrix.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine.det)(matrix)
+) = (_default_engine().det)(matrix)
 
 /// Compute the exact inverse of an invertible square matrix.
 ///
@@ -1692,7 +1680,7 @@
   /// Invertible square matrix.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine.inv)(matrix)
+) = (_default_engine().inv)(matrix)
 
 /// Solve the matrix equation `A x = b` exactly.
 ///
@@ -1714,7 +1702,7 @@
   /// Right-hand-side matrix or column vector.
   /// -> bytes | content | array | int | float | str
   b,
-) = (_default_engine.matrix-solve)(A, b)
+) = (_default_engine().matrix-solve)(A, b)
 
 /// Solve `A x = b` exactly, choosing one solution if underdetermined.
 ///
@@ -1735,7 +1723,7 @@
   /// Right-hand-side matrix or column vector.
   /// -> bytes | content | array | int | float | str
   b,
-) = (_default_engine.matrix-solve-any)(A, b)
+) = (_default_engine().matrix-solve-any)(A, b)
 
 /// Row-reduce a matrix exactly using Gaussian elimination.
 ///
@@ -1758,7 +1746,7 @@
   /// An explicit value must be between zero and the column count.
   /// -> int | none
   max-col: none,
-) = (_default_engine.row-reduce)(matrix, max-col: max-col)
+) = (_default_engine().row-reduce)(matrix, max-col: max-col)
 
 /// Horizontally concatenate two matrices as `[lhs rhs]`.
 ///
@@ -1776,7 +1764,7 @@
   /// Right block with the same row count.
   /// -> bytes | content | array | int | float | str
   rhs,
-) = (_default_engine.augment)(lhs, rhs)
+) = (_default_engine().augment)(lhs, rhs)
 
 /// Split a matrix into left and right column blocks.
 ///
@@ -1797,7 +1785,7 @@
   /// Zero-based first column of the right block.
   /// -> int
   index,
-) = (_default_engine.split-col)(matrix, index)
+) = (_default_engine().split-col)(matrix, index)
 
 /// Divide a rational-polynomial matrix by its content.
 ///
@@ -1814,7 +1802,7 @@
   /// Matrix whose entries are rational polynomials.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine.primitive-part)(matrix)
+) = (_default_engine().primitive-part)(matrix)
 
 /// Compute the coefficient content of a rational-polynomial matrix.
 ///
@@ -1832,7 +1820,7 @@
   /// Matrix whose entries are rational polynomials.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine.content)(matrix)
+) = (_default_engine().content)(matrix)
 
 /// Read one matrix entry as an atom payload using zero-based indices.
 ///
@@ -1854,7 +1842,7 @@
   /// Must be within the matrix bounds.
   /// -> int
   col,
-) = (_default_engine.matrix-at)(matrix, row, col)
+) = (_default_engine().matrix-at)(matrix, row, col)
 
 /// Return the matrix shape as the two-element array `(rows, columns)`.
 ///
@@ -1867,7 +1855,7 @@
   /// Matrix to inspect.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine.matrix-shape)(matrix)
+) = (_default_engine().matrix-shape)(matrix)
 
 /// Test exactly whether every matrix entry is zero.
 ///
@@ -1882,7 +1870,7 @@
   /// Matrix to inspect.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine.matrix-is-zero)(matrix)
+) = (_default_engine().matrix-is-zero)(matrix)
 
 /// Test exactly whether every off-diagonal matrix entry is zero.
 ///
@@ -1898,7 +1886,7 @@
   /// Matrix to inspect.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine.matrix-is-diagonal)(matrix)
+) = (_default_engine().matrix-is-diagonal)(matrix)
 
 /// Differentiate every matrix entry with respect to an indeterminate.
 ///
@@ -1915,7 +1903,7 @@
   /// Indeterminate with respect to which each entry is differentiated.
   /// -> bytes | content | str
   var,
-) = (_default_engine.matrix-derivative)(matrix, var)
+) = (_default_engine().matrix-derivative)(matrix, var)
 
 /// Construct an exact sum from expression values.
 ///
@@ -1931,7 +1919,7 @@
   /// Positional terms to add.
   /// -> arguments
   ..terms,
-) = (_default_engine.add)(..terms)
+) = (_default_engine().add)(..terms)
 
 /// Construct an exact product from expression values.
 ///
@@ -1947,7 +1935,7 @@
   /// Positional factors to multiply.
   /// -> arguments
   ..factors,
-) = (_default_engine.mul)(..factors)
+) = (_default_engine().mul)(..factors)
 
 /// Negate an expression exactly.
 ///
@@ -1960,7 +1948,7 @@
   /// Expression to negate.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine.neg)(expr)
+) = (_default_engine().neg)(expr)
 
 /// Subtract `rhs` from `lhs` exactly.
 ///
@@ -1976,7 +1964,7 @@
   /// Subtrahend.
   /// -> bytes | content | int | float | str
   rhs,
-) = (_default_engine.sub)(lhs, rhs)
+) = (_default_engine().sub)(lhs, rhs)
 
 /// Construct the exact quotient `lhs / rhs`.
 ///
@@ -1992,7 +1980,7 @@
   /// Denominator.
   /// -> bytes | content | int | float | str
   rhs,
-) = (_default_engine.div)(lhs, rhs)
+) = (_default_engine().div)(lhs, rhs)
 
 /// Construct the exact power `base ^ exp`.
 ///
@@ -2008,4 +1996,4 @@
   /// Exponent expression.
   /// -> bytes | content | int | float | str
   exp,
-) = (_default_engine.pow)(base, exp)
+) = (_default_engine().pow)(base, exp)

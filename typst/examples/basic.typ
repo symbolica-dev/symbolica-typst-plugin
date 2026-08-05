@@ -13,14 +13,12 @@ places the computed result back into the document.
 #let polynomial = math($x^4 - 5 x^2 + 4$)
 #let factored = factor(polynomial)
 #let slope = derivative(polynomial, x)
-#let area = integrate(polynomial, x)
 
 $
   f(x) &= #to-typst(polynomial) \
        &= #to-typst(factored) quad "factored" \
-  f'(x) &= #to-typst(slope) \
-  integral f(x) dif x &= #to-typst(area) + C
+  f'(x) &= #to-typst(slope)
 $
 
-All coefficients remain exact. Tymbolica deliberately leaves the integration
-constant to the surrounding mathematics.
+All coefficients remain exact, and this basic example uses the small core
+plugin only.
