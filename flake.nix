@@ -32,10 +32,29 @@
             cargo build --release --target "$target" --no-default-features ${cargoFeatures}
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --strip-debug --strip-producers \
               -o ${output} "target/$target/release/tymbolica_plugin.wasm"
+            size="$(wc -c < ${output})"
+            if [ "$size" -gt 20971520 ]; then
+              echo "${output} is $size bytes; Typst web app files must not exceed 20 MiB" >&2
+              exit 1
+            fi
             ls -lh ${output}
           '';
           coreBuildScript = buildVariant "" "typst/tymbolica.wasm";
-          fullBuildScript = buildVariant "--features rubi" "typst/tymbolica-full.wasm";
+          fullBuildScript = ''
+            target=wasm32-unknown-unknown
+            unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
+            cargo build --release --target "$target" --no-default-features --features rubi
+
+            full_raw="target/$target/release/tymbolica-full.raw.wasm"
+            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --strip-debug --strip-producers \
+              -o "$full_raw" "target/$target/release/tymbolica_plugin.wasm"
+
+            carrier_tool="target/wasm-carrier"
+            rustc -O tools/wasm-carrier.rs -o "$carrier_tool"
+            "$carrier_tool" "$full_raw" \
+              typst/tymbolica-full-0.wasm typst/tymbolica-full-1.wasm
+            ls -lh typst/tymbolica-full-0.wasm typst/tymbolica-full-1.wasm
+          '';
           buildScript = coreBuildScript + fullBuildScript;
         in rec {
           default = build;
@@ -82,7 +101,7 @@
           typst = typstWithPackages pkgs;
         in {
           default = pkgs.runCommand "tymbolica-typst-check" {
-            nativeBuildInputs = [ pkgs.coreutils pkgs.diffutils typst ];
+            nativeBuildInputs = [ pkgs.coreutils pkgs.diffutils pkgs.findutils typst ];
           } ''
             work="$TMPDIR/tymbolica"
             mkdir -p "$work"
@@ -90,6 +109,14 @@
             cp ${self}/typst.toml "$work/typst.toml"
             chmod -R u+w "$work"
             mkdir -p "$out"
+
+            while IFS= read -r -d "" file; do
+              size="$(wc -c < "$file")"
+              if [ "$size" -gt 20971520 ]; then
+                echo "$file is $size bytes; Typst web app files must not exceed 20 MiB" >&2
+                exit 1
+              fi
+            done < <(find "$work/typst" -type f -print0)
 
             typst compile --root "$work" "$work/typst/examples/basic.typ" "$out/basic.pdf"
             typst compile --root "$work" "$work/typst/examples/showcase.typ" "$out/showcase.pdf"

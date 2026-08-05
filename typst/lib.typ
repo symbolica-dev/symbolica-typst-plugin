@@ -475,6 +475,13 @@
 #let _div(engine, lhs, rhs) = engine.plugin.div(_expr_bytes(engine, lhs), _expr_bytes(engine, rhs))
 #let _pow(engine, base, exp) = engine.plugin.power(_expr_bytes(engine, base), _expr_bytes(engine, exp))
 
+// Must match CARRIER_HEADER_LEN in tools/wasm-carrier.rs.
+#let _full_carrier_payload_offset = 32
+#let _bundled_full_plugin() = plugin(
+  read("tymbolica-full-0.wasm", encoding: none).slice(_full_carrier_payload_offset)
+  + read("tymbolica-full-1.wasm", encoding: none).slice(_full_carrier_payload_offset)
+)
+
 /// Create an independent set of Tymbolica functions.
 ///
 /// The returned dictionary exposes Tymbolica's parsing, algebra, evaluation,
@@ -512,10 +519,10 @@
   /// selects the bundle with Rubi integration and genuine integration steps.
   /// -> str
   profile: "core",
-  /// WebAssembly plugin path passed to Typst's `plugin` constructor. `none`
-  /// selects the bundled plugin for `profile`. Relative custom paths are
-  /// resolved by Typst from this source file.
-  /// -> str | none
+  /// WebAssembly plugin path or bytes passed to Typst's `plugin` constructor.
+  /// `none` selects the bundled plugin for `profile`. Relative custom paths
+  /// are resolved by Typst from this source file.
+  /// -> str | bytes | none
   source: none,
   /// Parser grammar used by `math` and `array-tree` unless they receive an
   /// explicit override.
@@ -526,15 +533,15 @@
     profile in ("core", "full"),
     message: "profile must be \"core\" or \"full\"",
   )
-  let source = if source != none {
-    source
+  let plugin-module = if source != none {
+    plugin(source)
   } else if profile == "full" {
-    "tymbolica-full.wasm"
+    _bundled_full_plugin()
   } else {
-    "tymbolica.wasm"
+    plugin("tymbolica.wasm")
   }
   let engine = (
-    plugin: plugin(source),
+    plugin: plugin-module,
     grammar: grammar,
     namespace: namespace,
   )

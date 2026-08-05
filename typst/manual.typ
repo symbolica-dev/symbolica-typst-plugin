@@ -154,8 +154,8 @@ Linux, place or symlink the repository root at:
 )
 
 Use the corresponding Typst data directory on macOS or Windows. The package
-root must contain `typst.toml`; its `typst` directory contains `lib.typ`, the
-small `tymbolica.wasm` plugin, and `tymbolica-full.wasm` with Rubi integration.
+root must contain `typst.toml`; its `typst` directory contains `lib.typ` and
+the bundled core and full engines.
 Then import:
 
 #raw(
@@ -203,9 +203,7 @@ that never integrates does not have to load it.
   [`integrate`, `integrate-with-steps`, and all core operations.],
 )
 
-Both files ship with the package, so the profile changes what Typst loads, not
-the size of the package download. If you assemble a core-only deployment by
-hand, `tymbolica-full.wasm` can simply be left behind.
+Both profiles ship with the package, but Typst only loads the selected engine.
 
 For an integration-heavy document, give the full engine a short name and use
 its methods explicitly:
@@ -900,7 +898,7 @@ Tymbolica's original source code is released under the
 #link(repository + "/blob/main/LICENSE")[MIT License]. Symbolica is developed
 by the Symbolica contributors and is distributed under its own
 #link("https://symbolica.io/license/")[license terms]. The MIT License does not
-relicense Symbolica or either bundled WebAssembly artifact; Symbolica's terms
+relicense Symbolica or the bundled WebAssembly engines; Symbolica's terms
 still apply to their use. The full plugin's symbolic integration is supplied
 by the
 #link("https://github.com/symbolica-dev/symbolica-integrate")[MIT-licensed

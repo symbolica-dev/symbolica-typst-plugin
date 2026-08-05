@@ -44,7 +44,7 @@ or inspect them with `canonical`.
 
 ## Core and full profiles
 
-Tymbolica ships two WebAssembly plugins. The compact core plugin handles
+Tymbolica ships two engine profiles. The compact core profile handles
 parsing, algebra, solving, evaluation, matrices, and series. The full plugin
 adds Rubi integration and genuine, nested integration steps. The imported
 top-level API is core-only. To integrate, create a full-profile API and use its
@@ -64,9 +64,8 @@ An API created with plain `init()` uses the core profile. Expression bytes are
 owned by the plugin that created them, so values cannot be passed between core
 and full APIs: parse, transform, and render with the same `sym` dictionary.
 
-Both plugins are included in the package. The split therefore reduces the
-WebAssembly a document has to load and instantiate when it does not integrate;
-it does not reduce the package's download size.
+Both profiles are included in the package. A document that does not integrate
+only loads and instantiates the smaller core engine.
 
 ## Install locally
 
@@ -107,10 +106,10 @@ nix develop
 Use the repository apps for the normal release workflow:
 
 ```sh
-nix run .#build       # rebuild both WebAssembly plugins
+nix run .#build       # rebuild both engine profiles
 nix run .#build-core  # rebuild only typst/tymbolica.wasm
-nix run .#build-full  # rebuild only typst/tymbolica-full.wasm
-nix run .#manual      # rebuild both plugins and typst/manual.pdf
+nix run .#build-full  # rebuild only the full Rubi bundle
+nix run .#manual      # rebuild both profiles and typst/manual.pdf
 nix run .#check       # rebuild, compile the public examples, and verify the PDF
 nix flake check       # validate the Typst distribution using tracked plugins
 ```
@@ -128,10 +127,9 @@ WebAssembly bundle. Commit the source, bundle, and regenerated manual together.
 Tymbolica's original source code is available under the [MIT License](LICENSE).
 Tymbolica is an interface to the
 [Symbolica computer algebra system](https://symbolica.io/) and follows its
-upstream `dev` branch. The generated `typst/tymbolica.wasm` is bundled here with
-redistribution permission, as is the full `typst/tymbolica-full.wasm` plugin.
-The MIT License does not relicense Symbolica or those artifacts: Symbolica's
-own terms apply, so read the
+upstream `dev` branch. The generated core and full WebAssembly bundles are
+included here with redistribution permission. The MIT License does not
+relicense Symbolica or those artifacts: Symbolica's own terms apply, so read the
 [Symbolica license](https://symbolica.io/license/) before redistributing or
 deploying the plugins.
 

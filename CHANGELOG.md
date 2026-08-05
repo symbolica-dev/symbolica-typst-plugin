@@ -18,8 +18,8 @@ local `0.1.0` package while its initial public surface is being prepared.
   containing Rubi. The imported top-level API and plain `init()` use core;
   integration requires `init(profile: "full")`, with parsing, transformation,
   and rendering kept within that full API because plugin expression bytes are
-  not portable. Both plugins remain part of the package, so the split reduces
-  loaded and instantiated WebAssembly rather than download size.
+  not portable. The full engine is stored in two web-app-sized carriers and
+  reassembled transparently, while core-only documents load just the core.
 - Documented every public parameter, default, return shape, and current
   capability boundary in the generated reference.
 - Declared Tymbolica's original source code under the MIT License while keeping
