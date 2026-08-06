@@ -8,6 +8,8 @@
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       eachSystem = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
       typstWithPackages = pkgs: pkgs.typst.withPackages (packages: [
+        packages.cetz_0_5_2
+        packages.cetz-plot_0_1_4
         packages.parsely_0_1_0
         packages.tidy_0_4_3
       ]);
@@ -77,6 +79,9 @@
 
             typst compile --root . typst/examples/basic.typ "$check_dir/basic.pdf"
             typst compile --root . typst/examples/showcase.typ "$check_dir/showcase.pdf"
+            typst compile --root . typst/examples/expression-grid.typ "$check_dir/expression-grid.pdf"
+            typst compile --root . typst/examples/lotka-volterra.typ "$check_dir/lotka-volterra.pdf"
+            typst compile --root . typst/examples/phase-portrait.typ "$check_dir/phase-portrait.pdf"
             typst compile --root . typst/examples/api-surface.typ "$check_dir/api-surface.pdf"
             typst compile --root . typst/examples/integration.typ "$check_dir/integration.pdf"
             typst compile --root . typst/examples/parsely-mwe.typ "$check_dir/parsely-mwe.pdf"
@@ -120,6 +125,9 @@
 
             typst compile --root "$work" "$work/typst/examples/basic.typ" "$out/basic.pdf"
             typst compile --root "$work" "$work/typst/examples/showcase.typ" "$out/showcase.pdf"
+            typst compile --root "$work" "$work/typst/examples/expression-grid.typ" "$out/expression-grid.pdf"
+            typst compile --root "$work" "$work/typst/examples/lotka-volterra.typ" "$out/lotka-volterra.pdf"
+            typst compile --root "$work" "$work/typst/examples/phase-portrait.typ" "$out/phase-portrait.pdf"
             typst compile --root "$work" "$work/typst/examples/api-surface.typ" "$out/api-surface.pdf"
             typst compile --root "$work" "$work/typst/examples/integration.typ" "$out/integration.pdf"
             typst compile --root "$work" "$work/typst/examples/parsely-mwe.typ" "$out/parsely-mwe.pdf"

@@ -93,6 +93,12 @@ Linux data directory. During repository development, examples instead import
   profile and its nested rule steps
 - [Polynomial-system showcase](typst/examples/showcase.typ) — exact solving,
   factorization, substitution, and a Jacobian determinant in one case study
+- [Batched expression grid](typst/examples/expression-grid.typ) — evaluate four
+  formulas together over a two-dimensional parameter grid
+- [Lotka–Volterra trajectory](typst/examples/lotka-volterra.typ) — evaluate
+  both right-hand sides together inside a local Runge–Kutta loop
+- [Complex phase portrait](typst/examples/phase-portrait.typ) — evaluate a
+  rational function over thousands of complex points in one batch
 - [Changelog](CHANGELOG.md) — user-visible changes and compatibility notes
 
 ## Development
@@ -142,3 +148,8 @@ contributors.
 Thanks also to [Parsely](https://typst.app/universe/package/parsely/) for making
 native Typst-math parsing possible, and to
 [Tidy](https://typst.app/universe/package/tidy/) for the documentation tools.
+The batched-evaluation, predator–prey, and phase-portrait examples were inspired
+by TimeTravelPenguin's
+[`symbolic-eval`](https://github.com/TimeTravelPenguin/symbolic-eval) package and
+independently adapted to Tymbolica's API. Their pinned sources and upstream
+license declaration are recorded in the [third-party notices](THIRD_PARTY.md).

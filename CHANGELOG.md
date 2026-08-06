@@ -5,6 +5,8 @@ local `0.1.0` package while its initial public surface is being prepared.
 
 ## Unreleased
 
+- Added independently adapted batched-evaluation, Lotka–Volterra, and complex
+  phase-portrait examples inspired by TimeTravelPenguin's `symbolic-eval`.
 - Reorganized the manual around installation, concepts, task-oriented worked
   guides, troubleshooting, and a grouped API reference.
 - Added a pendulum-calibration workflow, exact and numerical nonlinear solving,
