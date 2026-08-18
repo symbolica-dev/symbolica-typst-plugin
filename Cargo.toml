@@ -17,17 +17,30 @@ rubi = ["dep:symbolica-integrate"]
 ahash = { version = "0.8", default-features = false, features = ["std", "compile-time-rng"] }
 ciborium = "0.2.2"
 getrandom = "0.3"
-symbolica = { git = "https://github.com/symbolica-dev/symbolica", branch = "dev", default-features = false, features = ["wasm"] }
+idenso = { path = "../gammaloop/crates/idenso" }
+symbolica = { path = "vendor/symbolica-wasm", features = ["wasm"] }
 symbolica-integrate = { git = "https://github.com/symbolica-dev/symbolica-integrate", rev = "c0766013b7b866a0ab37324862240204bfa7107a", features = ["steps"], optional = true }
+tymbolica-atom-payload = { path = "crates/atom-payload" }
 wasm-minimal-protocol = "0.1"
 
 [patch.crates-io]
 # Temporary until astro-float publishes the merged wasm32 word-size fix.
 astro-float = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
 astro-float-num = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
+graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "9ad7ca3f59f9ed8637e3f4ae8157ead177662994" }
+numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "9ad7ca3f59f9ed8637e3f4ae8157ead177662994" }
 symbolica = { path = "vendor/symbolica-wasm" }
 
+[patch."file:///home/lcnbr/dev/gammaloop/crates/spenso"]
+spenso = { path = "vendor/gammaloop-spenso" }
+
 [workspace]
+members = [
+  "crates/atom-payload",
+  "crates/idenso-plugin",
+  "vendor/gammaloop-spenso",
+]
+resolver = "3"
 
 [profile.release]
 codegen-units = 1

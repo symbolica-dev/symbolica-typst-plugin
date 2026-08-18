@@ -1,0 +1,20 @@
+[package]
+name = "tymbolica-idenso-plugin"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[lib]
+name = "tymbolica_idenso_plugin"
+crate-type = ["cdylib"]
+
+[dependencies]
+ciborium = "0.2.2"
+getrandom = "0.3"
+getrandom-02 = { package = "getrandom", version = "0.2", default-features = false, features = ["custom"] }
+idenso = { path = "../../../gammaloop/crates/idenso" }
+spenso = { path = "../../../gammaloop/crates/spenso", features = ["shadowing"] }
+symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }
+tymbolica-atom-payload = { path = "../atom-payload" }
+wasm-minimal-protocol = "0.1"

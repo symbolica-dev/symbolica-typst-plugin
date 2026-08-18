@@ -16,7 +16,7 @@
     in {
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.binaryen pkgs.cargo pkgs.lld pkgs.rustc (typstWithPackages pkgs) ];
+          packages = [ pkgs.binaryen pkgs.cargo pkgs.lld pkgs.rustc pkgs.rustfmt (typstWithPackages pkgs) ];
         };
       });
 
@@ -31,8 +31,8 @@
           buildVariant = cargoFeatures: output: ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --no-default-features ${cargoFeatures}
-            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --strip-debug --strip-producers \
+            cargo build --release --target "$target" --package tymbolica-plugin --no-default-features ${cargoFeatures}
+            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
               -o ${output} "target/$target/release/tymbolica_plugin.wasm"
             size="$(wc -c < ${output})"
             if [ "$size" -gt 20971520 ]; then
@@ -45,10 +45,10 @@
           fullBuildScript = ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --no-default-features --features rubi
+            cargo build --release --target "$target" --package tymbolica-plugin --no-default-features --features rubi
 
             full_raw="target/$target/release/tymbolica-full.raw.wasm"
-            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --strip-debug --strip-producers \
+            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
               -o "$full_raw" "target/$target/release/tymbolica_plugin.wasm"
 
             carrier_tool="target/wasm-carrier"
@@ -57,12 +57,26 @@
               typst/tymbolica-full-0.wasm typst/tymbolica-full-1.wasm
             ls -lh typst/tymbolica-full-0.wasm typst/tymbolica-full-1.wasm
           '';
-          buildScript = coreBuildScript + fullBuildScript;
+          idensoBuildScript = ''
+            target=wasm32-unknown-unknown
+            unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
+            cargo build --release --target "$target" --package tymbolica-idenso-plugin
+            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
+              -o typst/tymbolica-idenso.wasm "target/$target/release/tymbolica_idenso_plugin.wasm"
+            size="$(wc -c < typst/tymbolica-idenso.wasm)"
+            if [ "$size" -gt 10485760 ]; then
+              echo "typst/tymbolica-idenso.wasm is $size bytes; the optional Idenso plugin must remain below 10 MiB" >&2
+              exit 1
+            fi
+            ls -lh typst/tymbolica-idenso.wasm
+          '';
+          buildScript = coreBuildScript + fullBuildScript + idensoBuildScript;
         in rec {
           default = build;
           build = app "tymbolica-build" buildScript;
           build-core = app "tymbolica-build-core" coreBuildScript;
           build-full = app "tymbolica-build-full" fullBuildScript;
+          build-idenso = app "tymbolica-build-idenso" idensoBuildScript;
           manual = app "tymbolica-manual" (buildScript + ''
             out="''${TYMBOLICA_MANUAL_OUT:-typst/manual.pdf}"
             if [ "$#" -gt 0 ]; then
@@ -85,6 +99,7 @@
             typst compile --root . typst/examples/api-surface.typ "$check_dir/api-surface.pdf"
             typst compile --root . typst/examples/integration.typ "$check_dir/integration.pdf"
             typst compile --root . typst/examples/parsely-mwe.typ "$check_dir/parsely-mwe.pdf"
+            typst compile --root . typst/examples/idenso.typ "$check_dir/idenso.pdf"
             typst compile --root . typst/manual.typ "$check_dir/manual.pdf"
 
             package_dir="$check_dir/xdg/typst/packages/local/tymbolica"
@@ -131,6 +146,7 @@
             typst compile --root "$work" "$work/typst/examples/api-surface.typ" "$out/api-surface.pdf"
             typst compile --root "$work" "$work/typst/examples/integration.typ" "$out/integration.pdf"
             typst compile --root "$work" "$work/typst/examples/parsely-mwe.typ" "$out/parsely-mwe.pdf"
+            typst compile --root "$work" "$work/typst/examples/idenso.typ" "$out/idenso.pdf"
             typst compile --root "$work" "$work/typst/manual.typ" "$out/manual.pdf"
 
             package_dir="$TMPDIR/xdg/typst/packages/local/tymbolica"

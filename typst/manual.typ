@@ -6,6 +6,7 @@
 #let repository = "https://github.com/lcnbr/tymbolica"
 #let symbolica-guide = "https://symbolica.io/docs/quick_start.html"
 #let symbolica-integration = "https://symbolica.io/posts/symbolic_integration/"
+#let idenso-guide = "https://symbolica.io/docs/python_api/community/idenso/index.html"
 #let accent = rgb("#315c88")
 #let pale-accent = rgb("#edf4fb")
 #let warning = rgb("#9a5b13")
@@ -218,8 +219,9 @@ its methods explicitly:
 ```
 
 The imported top-level API is core-only, so integration always starts with an
-explicit full engine. Keep parsing, transformation, and rendering on that same
-engine: opaque Atom bytes cannot be passed between the core and full plugins.
+explicit full engine. It can consume native Atom exports from core and Idenso.
+Because its own exports include Rubi's additional symbol state, keep results
+produced by the full engine with that engine.
 
 == Where to begin
 
@@ -702,6 +704,38 @@ points uphill everywhere else. `evaluate-grid` pairs each point with one value
 for every requested expression; use `evaluate-many` when your sample points do
 not form a Cartesian product.
 
+= Tensor algebra with Idenso
+
+Idenso supplies domain-specific tensor transformations on top of Symbolica.
+It is an optional plugin, so an ordinary Tymbolica document does not pay its
+download or instantiation cost. Both plugins exchange native Symbolica Atom
+exports:
+core can parse and render an expression while Idenso applies its tensor-aware
+symbol definitions.
+
+Here a Minkowski metric contracts the repeated Lorentz index of a vector. The
+multi-letter `mink` constructor uses `op("mink")` because that is how Typst
+marks a multi-letter operator in math content.
+
+```worked
+>>>#let sym = init(namespace: "spenso")
+>>>#let tensors = init-idenso()
+>>>#let input = (sym.math)(
+>>>  $g(op("mink")(4, 0), op("mink")(4, 1)) p(op("mink")(4, 1))$,
+>>>)
+>>>#let contracted = (tensors.simplify-metrics)(input)
+
+$
+  #(sym.to-typst)(input)
+  quad arrow.r.long
+  #(sym.to-typst)(contracted)
+$
+```
+
+`init-idenso()` also exposes gamma, color, index-wrapping, selective-expansion,
+and dot-product transformations. Their notation and mathematical conventions
+follow #link(idenso-guide)[Idenso's documentation].
+
 = What to expect
 
 Tymbolica deliberately presents a smaller surface than Symbolica itself. The
@@ -709,11 +743,12 @@ parts covered in this manual work well for exact algebra in documents, but a
 few boundaries are worth knowing before you choose an approach:
 
 - The imported top-level API and the default `init()` engine are core-only.
-  Rubi integration is available from `init(profile: "full")`.
+  Rubi integration is available from `init(profile: "full")`; Idenso tensor
+  transformations are loaded separately by `init-idenso()`.
 
-- Atom bytes belong to the plugin instance that created them. Bind the parser,
-  operations, and renderer from one engine rather than mixing core and full
-  calls in the same expression pipeline.
+- Core and Idenso exchange native Atom exports directly. Full can consume those
+  exports, but its results include additional Rubi symbol state and remain with
+  the full engine. Matrix payloads are separate and remain core/full-only.
 
 - Integration returns a best-effort expression when no Rubi rule finishes the
   job. Check `complete` from `integrate-with-steps` when an unevaluated
@@ -754,8 +789,8 @@ precision, or deeper polynomial algorithms—use Symbolica directly.
   [It was created with the default core profile.],
   [Use `init(profile: "full")` and bind its integration functions.],
   [A symbolic result fails in another API],
-  [The Atom bytes were created by a different plugin instance or profile.],
-  [Parse, transform, and render through functions bound from the same engine.],
+  [The bytes hold a matrix or came from an incompatible package version.],
+  [Exchange native Atom exports between core and Idenso. Full can consume them, but its Rubi-state exports remain full-only.],
   [A derivative or series leaves a function unchanged],
   [`sin`, `cos`, or another analytic function was read as an ordinary name.],
   [Use `init(namespace: "symbolica")` for Symbolica built-ins.],
@@ -827,7 +862,7 @@ full-profile integration methods are documented separately afterwards.
   ),
   (
     title: [Advanced configuration],
-    names: ("init",),
+    names: ("init", "init-idenso"),
   ),
 )
 
@@ -867,8 +902,7 @@ full-profile integration methods are documented separately afterwards.
 
 These methods are fields of the dictionary returned by
 `init(profile: "full")`; they are not imported as top-level functions. Bind
-them before use, as in the worked integration example, and keep their Atom
-inputs and outputs on the same full engine.
+them before use, as in the worked integration example.
 
 ```text
 integrate(expr, var) -> bytes
@@ -888,6 +922,34 @@ Each step contains `rule` (`int` or `none`), `depth` (`int`), `description`
 payloads `input` and `output` (`bytes`). Steps run from an outer rewrite into
 the nested integrals it creates; `rule: none` marks an auxiliary
 transformation such as a fresh-symbol substitution.
+
+== Idenso tensor methods
+
+These methods are fields of the dictionary returned by `init-idenso()` and
+accept core's native Atom exports. Their results can be consumed by core or
+full:
+
+```text
+cook-function(expr) -> bytes
+cook-indices(expr) -> bytes
+dirac-adjoint(expr) -> bytes
+expand-bis(expr) -> bytes
+expand-color(expr) -> bytes
+expand-metrics(expr) -> bytes
+expand-mink(expr) -> bytes
+expand-mink-bis(expr) -> bytes
+list-dangling(expr) -> array
+simplify-color(expr) -> bytes
+simplify-gamma(expr) -> bytes
+simplify-metrics(expr) -> bytes
+to-dots(expr) -> bytes
+wrap-dummies(expr, header) -> bytes
+wrap-indices(expr, header) -> bytes
+```
+
+The `header` arguments are ordinary Symbolica variables encoded as Atom
+payloads, for example `(sym.var)("left")`. `list-dangling` is the one method
+that returns an array; each element is again an Atom payload.
 
 = Compatibility and licensing
 

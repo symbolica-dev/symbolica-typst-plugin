@@ -481,6 +481,7 @@
   read("tymbolica-full-0.wasm", encoding: none).slice(_full_carrier_payload_offset)
   + read("tymbolica-full-1.wasm", encoding: none).slice(_full_carrier_payload_offset)
 )
+#let _bundled_idenso_plugin() = plugin("tymbolica-idenso.wasm")
 
 /// Create an independent set of Tymbolica functions.
 ///
@@ -498,9 +499,9 @@
 /// immediate `input` and `output` expressions as bytes. The steps run from an
 /// outer rewrite into its nested integrals. No integration constant is added.
 ///
-/// Keep a calculation inside the engine that created its expressions. Core
-/// and full engines have separate Symbolica symbol registries, so their opaque
-/// atom bytes must not be exchanged.
+/// Core and Idenso exchange native Symbolica Atom exports directly. Full can
+/// consume those exports, but its own output includes additional Rubi symbol
+/// state and should stay with that full plugin instance.
 ///
 /// ```example
 /// #let sym = init(namespace: "physics")
@@ -623,6 +624,65 @@
     )
   }
   api
+}
+
+/// Load the optional Idenso tensor-algebra plugin.
+///
+/// The returned functions accept core's native Atom exports and return exports
+/// that can be passed straight to core or full. Full-profile output includes
+/// extra Rubi state and is not an Idenso input. This keeps Idenso opt-in:
+/// documents that do not call `init-idenso` do not load its Wasm module. The
+/// bundled plugin exposes the transformations currently provided by
+/// Gammaloop's Idenso Python API.
+///
+/// ```example
+/// #let sym = init(namespace: "spenso")
+/// #let tensors = init-idenso()
+/// #let expr = (sym.math)($g(op("mink")(4, 0), op("mink")(4, 1)) p(op("mink")(4, 1))$)
+/// #(sym.to-typst)((tensors.simplify-metrics)(expr))
+/// ```
+///
+/// -> dictionary
+#let init-idenso(
+  /// WebAssembly plugin path or bytes passed to Typst's `plugin` constructor.
+  /// `none` selects the bundled Idenso plugin.
+  /// -> str | bytes | none
+  source: none,
+) = {
+  let plugin-module = if source == none {
+    _bundled_idenso_plugin()
+  } else {
+    plugin(source)
+  }
+  let payload(value, label: "expr") = {
+    assert(
+      type(value) == bytes,
+      message: label + " must be Atom payload bytes from a Tymbolica-compatible plugin",
+    )
+    value
+  }
+
+  (
+    cook-function: expr => plugin-module.cook_function(payload(expr)),
+    cook-indices: expr => plugin-module.cook_indices(payload(expr)),
+    dirac-adjoint: expr => plugin-module.dirac_adjoint(payload(expr)),
+    expand-bis: expr => plugin-module.expand_bis(payload(expr)),
+    expand-color: expr => plugin-module.expand_color(payload(expr)),
+    expand-metrics: expr => plugin-module.expand_metrics(payload(expr)),
+    expand-mink: expr => plugin-module.expand_mink(payload(expr)),
+    expand-mink-bis: expr => plugin-module.expand_mink_bis(payload(expr)),
+    list-dangling: expr => cbor(plugin-module.list_dangling(payload(expr))),
+    simplify-color: expr => plugin-module.simplify_color(payload(expr)),
+    simplify-gamma: expr => plugin-module.simplify_gamma(payload(expr)),
+    simplify-metrics: expr => plugin-module.simplify_metrics(payload(expr)),
+    to-dots: expr => plugin-module.to_dots(payload(expr)),
+    wrap-dummies: (expr, header) => plugin-module.wrap_dummies(
+      payload(expr), payload(header, label: "header"),
+    ),
+    wrap-indices: (expr, header) => plugin-module.wrap_indices(
+      payload(expr), payload(header, label: "header"),
+    ),
+  )
 }
 #let _default_engine() = init()
 

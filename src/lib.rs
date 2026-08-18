@@ -33,6 +33,9 @@ use symbolica::prelude::{
 };
 #[cfg(feature = "rubi")]
 use symbolica_integrate::{Integrate, IntegrationExplanation, IntegrationStep};
+use tymbolica_atom_payload::{
+    decode_atom as decode_shared_atom, encode_atom as encode_shared_atom,
+};
 use wasm_minimal_protocol::*;
 
 initiate_protocol!();
@@ -100,24 +103,13 @@ fn write_u32(output: &mut Vec<u8>, value: u32) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
-fn exported_atom(atom: &Atom) -> Result<Vec<u8>, String> {
-    let mut bytes = Vec::new();
-    atom.export(&mut bytes)
-        .map_err(|err| format!("failed to export Atom: {err}"))?;
-    Ok(bytes)
-}
-
-fn decode_payload(input: &[u8], label: &str) -> Result<Atom, String> {
-    Atom::import(&mut Cursor::new(input), None)
-        .map_err(|err| format!("{label} must be exported Atom bytes: {err}"))
-}
-
 fn decode_atom(input: &[u8], label: &str) -> Result<Atom, String> {
-    decode_payload(input, label)
+    initialize_shared_symbol_registry();
+    decode_shared_atom(input).map_err(|err| format!("{label} must be Atom payload bytes: {err}"))
 }
 
 fn encode_atom(atom: &Atom) -> Result<Vec<u8>, String> {
-    exported_atom(atom)
+    encode_shared_atom(atom).map_err(|err| format!("failed to encode Atom payload: {err}"))
 }
 
 fn is_matrix_payload(input: &[u8]) -> bool {
@@ -234,6 +226,7 @@ fn atom_from_cbor_value(value: &Value, label: &str) -> Result<Atom, String> {
 }
 
 fn atom_from_ast(input: &[u8], namespace: &str, label: &str) -> Result<Atom, String> {
+    initialize_shared_symbol_registry();
     let value = decode_cbor(input, label)?;
     atom_from_value(&value, namespace)
 }
@@ -274,7 +267,12 @@ fn atom_from_leaf(text: &str, namespace: &str) -> Result<Atom, String> {
 }
 
 fn symbol_atom(name: &str, namespace: &str) -> Result<Atom, String> {
+    initialize_shared_symbol_registry();
     Symbol::parse(name.trim(), namespace.to_owned()).map(Atom::var)
+}
+
+fn initialize_shared_symbol_registry() {
+    idenso::representations::initialize();
 }
 
 fn atom_from_node(map: &[(Value, Value)], namespace: &str) -> Result<Atom, String> {

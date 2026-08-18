@@ -1,0 +1,9 @@
+[package]
+name = "tymbolica-atom-payload"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[dependencies]
+symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }

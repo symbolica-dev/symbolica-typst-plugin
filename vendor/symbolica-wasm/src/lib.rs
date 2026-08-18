@@ -1,7 +1,7 @@
-//! Feature adapter for `symbolica-integrate` in WebAssembly builds.
+//! Shared Symbolica feature adapter for the Tymbolica WebAssembly plugins.
 //!
-//! The integration crate depends on Symbolica with its native default features.
-//! Re-exporting the project's existing Wasm-configured dependency keeps a single
-//! set of Symbolica types while disabling native-only backends.
+//! Some upstream crates request Symbolica features intended for native builds.
+//! Re-exporting one Wasm-configured upstream revision keeps a single set of
+//! Symbolica types while disabling native-only backends.
 
 pub use symbolica_upstream::*;

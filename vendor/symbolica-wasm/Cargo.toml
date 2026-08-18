@@ -8,5 +8,15 @@ license = "MIT"
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+bincode = ["symbolica-upstream/bincode"]
+faster_alloc = []
+gmp = []
+no_gmp = ["symbolica-upstream/no_gmp"]
+serde = ["symbolica-upstream/serde"]
+tracing_max_level_info = ["symbolica-upstream/tracing_max_level_info"]
+wasm = []
+
 [dependencies]
-symbolica-upstream = { package = "symbolica", git = "https://github.com/symbolica-dev/symbolica", branch = "dev", default-features = false, features = ["wasm"] }
+symbolica-upstream = { package = "symbolica", git = "https://github.com/symbolica-dev/symbolica", rev = "9ad7ca3f59f9ed8637e3f4ae8157ead177662994", default-features = false, features = ["wasm"] }
