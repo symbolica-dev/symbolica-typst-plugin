@@ -156,7 +156,7 @@ Linux, place or symlink the repository root at:
 
 Use the corresponding Typst data directory on macOS or Windows. The package
 root must contain `typst.toml`; its `typst` directory contains `lib.typ` and
-the bundled core and full engines.
+the bundled compressed engines and their loader.
 Then import:
 
 #raw(
@@ -184,33 +184,16 @@ included in the checkout.
   ],
 )
 
-== Choose core or full
+== Create an engine
 
-Most documents only need Tymbolica's algebra, solving, evaluation, and matrix
-tools. Those live in the small core plugin, which is selected by default. The
-much larger Rubi rule collection lives in a separate full plugin, so a document
-that never integrates does not have to load it.
-
-#table(
-  columns: (0.8fr, 1.6fr, 3fr),
-  inset: 6pt,
-  stroke: 0.4pt + rgb("#d5dbe1"),
-  table.header([*Profile*], [*Create it with*], [*Use it for*]),
-  [Core],
-  [`init()`],
-  [Everything except Rubi integration; this is the default.],
-  [Full],
-  [`init(profile: "full")`],
-  [`integrate`, `integrate-with-steps`, and all core operations.],
-)
-
-Both profiles ship with the package, but Typst only loads the selected engine.
-
-For an integration-heavy document, give the full engine a short name and use
-its methods explicitly:
+Tymbolica ships one Symbolica engine with algebra, solving, matrices, and Rubi
+integration. It is stored as a compressed asset and expanded transparently by
+a small loader. Most operations are available directly from the imported
+top-level API. Create an engine with `init()` when you need Rubi integration, a
+custom symbol namespace, or another parser grammar:
 
 ```typst
-#let sym = init(profile: "full")
+#let sym = init()
 #let parse = sym.math
 #let var = sym.var
 #let integrate = sym.integrate
@@ -218,10 +201,10 @@ its methods explicitly:
 #let result = integrate(parse($x / (x + 1)$), x)
 ```
 
-The imported top-level API is core-only, so integration always starts with an
-explicit full engine. It can consume native Atom exports from core and Idenso.
-Because its own exports include Rubi's additional symbol state, keep results
-produced by the full engine with that engine.
+Idenso's tensor transformations remain a separate compressed engine so they
+are only loaded by documents that call `init-idenso()`. Tymbolica and Idenso
+exchange native Atom exports. Rubi can extend Tymbolica's symbol registry, so
+keep Atom values produced after integration in their originating engine.
 
 == Where to begin
 
@@ -238,9 +221,9 @@ produced by the full engine with that engine.
   [Put an answer back into the document],
   [`to-typst`],
   [Factor, expand, differentiate, or take a series],
-  [`expand`, `factor`, `derivative`, `series` in the core profile],
+  [`expand`, `factor`, `derivative`, `series`],
   [Integrate and inspect Rubi's rule path],
-  [`init(profile: "full")`, then `sym.integrate-with-steps`],
+  [`init()`, then `sym.integrate-with-steps`],
   [Replace a recurring symbolic pattern],
   [`wild`, `rule`, `replace`],
   [Evaluate a formula at many points],
@@ -491,11 +474,10 @@ difference between an ordinary `var("a")` and `wild("a")`.
 For $x/(1+x)$, the useful idea is to expose a constant term before integrating.
 Rubi finds that rewrite, splits the resulting integral, and records the nested
 rule path. This is the same example used in
-#link(symbolica-integration)[Symbolica's integration introduction]. Here the
-full engine is explicit because the core plugin deliberately omits Rubi.
+#link(symbolica-integration)[Symbolica's integration introduction].
 
 ```worked
-#let sym = init(profile: "full")
+#let sym = init()
 #let parse = sym.math
 #let var = sym.var
 #let render = sym.to-typst
@@ -708,10 +690,9 @@ not form a Cartesian product.
 
 Idenso supplies domain-specific tensor transformations on top of Symbolica.
 It is an optional plugin, so an ordinary Tymbolica document does not pay its
-download or instantiation cost. Both plugins exchange native Symbolica Atom
-exports:
-core can parse and render an expression while Idenso applies its tensor-aware
-symbol definitions.
+decompression or instantiation cost. Both plugins exchange native Symbolica
+Atom exports: Tymbolica can parse and render an expression while Idenso applies
+its tensor-aware transformations.
 
 Here a Minkowski metric contracts the repeated Lorentz index of a vector. The
 multi-letter `mink` constructor uses `op("mink")` because that is how Typst
@@ -742,13 +723,12 @@ Tymbolica deliberately presents a smaller surface than Symbolica itself. The
 parts covered in this manual work well for exact algebra in documents, but a
 few boundaries are worth knowing before you choose an approach:
 
-- The imported top-level API and the default `init()` engine are core-only.
-  Rubi integration is available from `init(profile: "full")`; Idenso tensor
-  transformations are loaded separately by `init-idenso()`.
+- Rubi integration methods are fields of the dictionary returned by `init()`;
+  Idenso tensor transformations are loaded separately by `init-idenso()`.
 
-- Core and Idenso exchange native Atom exports directly. Full can consume those
-  exports, but its results include additional Rubi symbol state and remain with
-  the full engine. Matrix payloads are separate and remain core/full-only.
+- Tymbolica and Idenso exchange native Atom exports directly. Rubi integration
+  adds symbol state, so post-integration outputs remain with their originating
+  Tymbolica engine. Matrix payloads are separate and remain Tymbolica-only.
 
 - Integration returns a best-effort expression when no Rubi rule finishes the
   job. Check `complete` from `integrate-with-steps` when an unevaluated
@@ -785,12 +765,9 @@ precision, or deeper polynomial algorithms—use Symbolica directly.
   [`expected content, found bytes`],
   [A symbolic result was inserted directly into `$...$`.],
   [Display it with `to-typst`.],
-  [An engine has no `integrate` method],
-  [It was created with the default core profile.],
-  [Use `init(profile: "full")` and bind its integration functions.],
   [A symbolic result fails in another API],
   [The bytes hold a matrix or came from an incompatible package version.],
-  [Exchange native Atom exports between core and Idenso. Full can consume them, but its Rubi-state exports remain full-only.],
+  [Exchange native Atom exports between Tymbolica and Idenso before integration; keep Rubi-state exports in Tymbolica.],
   [A derivative or series leaves a function unchanged],
   [`sin`, `cos`, or another analytic function was read as an ordinary name.],
   [Use `init(namespace: "symbolica")` for Symbolica built-ins.],
@@ -814,8 +791,8 @@ precision, or deeper polynomial algorithms—use Symbolica directly.
 = API reference
 
 The worked chapters are meant for reading; this section is meant for looking
-things up. The generated groups below are the core-only top-level API. The two
-full-profile integration methods are documented separately afterwards.
+things up. The generated groups below are the top-level API. The two
+engine-bound integration methods are documented separately afterwards.
 
 #let reference-groups = (
   (
@@ -826,7 +803,7 @@ full-profile integration methods are documented separately afterwards.
     ),
   ),
   (
-    title: [Algebra and core calculus],
+    title: [Algebra and calculus],
     names: (
       "simplify", "expand", "factor", "together", "cancel", "apart",
       "collect", "coefficient", "coefficient-list", "terms",
@@ -898,11 +875,11 @@ full-profile integration methods are documented separately afterwards.
   }
 ]
 
-== Full-profile integration methods
+== Integration methods
 
 These methods are fields of the dictionary returned by
-`init(profile: "full")`; they are not imported as top-level functions. Bind
-them before use, as in the worked integration example.
+`init()`; they are not imported as top-level functions. Bind them before use,
+as in the worked integration example.
 
 ```text
 integrate(expr, var) -> bytes
@@ -926,8 +903,8 @@ transformation such as a fresh-symbol substitution.
 == Idenso tensor methods
 
 These methods are fields of the dictionary returned by `init-idenso()` and
-accept core's native Atom exports. Their results can be consumed by core or
-full:
+accept Tymbolica's native Atom exports. Their results can be consumed directly
+by Tymbolica:
 
 ```text
 cook-function(expr) -> bytes
@@ -961,8 +938,7 @@ Tymbolica's original source code is released under the
 by the Symbolica contributors and is distributed under its own
 #link("https://symbolica.io/license/")[license terms]. The MIT License does not
 relicense Symbolica or the bundled WebAssembly engines; Symbolica's terms
-still apply to their use. The full plugin's symbolic integration is supplied
-by the
+still apply to their use. Tymbolica's symbolic integration is supplied by the
 #link("https://github.com/symbolica-dev/symbolica-integrate")[MIT-licensed
 `symbolica-integrate`] crate and its port of the Rubi rules.
 
@@ -975,8 +951,8 @@ Tymbolica would not exist without #link("https://symbolica.io/")[Symbolica].
 Thank you to its contributors for building and sharing the algebra engine at
 the heart of this package, and for making Rubi integration available through
 #link("https://github.com/symbolica-dev/symbolica-integrate")[`symbolica-integrate`].
-Thanks as well to the Rubi contributors whose rule collection powers the
-full integration plugin.
+Thanks as well to the Rubi contributors whose rule collection powers symbolic
+integration.
 
 Thanks also to #link("https://typst.app/universe/package/parsely/")[Parsely],
 which makes it possible to work with mathematics written directly in Typst,

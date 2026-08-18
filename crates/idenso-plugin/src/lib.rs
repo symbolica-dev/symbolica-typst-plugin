@@ -48,7 +48,7 @@ unsafe extern "Rust" fn __getrandom_v03_custom(
 }
 
 fn decode_atom(input: &[u8], label: &str) -> Result<Atom, String> {
-    idenso::representations::initialize();
+    tymbolica_symbol_registry::initialize();
     decode_shared_atom(input)
         .map_err(|error| format!("{label} must be Atom payload bytes: {error}"))
 }

@@ -20,5 +20,4 @@ $
   f'(x) &= #to-typst(slope)
 $
 
-All coefficients remain exact, and this basic example uses the small core
-plugin only.
+All coefficients remain exact; the compressed engine is loaded transparently.

@@ -5,7 +5,7 @@
 
 = Rubi integration with genuine steps
 
-#let sym = init(profile: "full")
+#let sym = init()
 #let parse = sym.math
 #let var = sym.var
 #let render = sym.to-typst

@@ -14,7 +14,7 @@ $ f(x) = #to-typst(factor(polynomial)) $
 
 $ f'(x) = #to-typst(derivative(polynomial, x)) $
 
-#let rubi = init(profile: "full")
+#let rubi = init()
 #let rubi-var = rubi.var
 #let rubi-math = rubi.math
 #let rubi-integrate = rubi.integrate

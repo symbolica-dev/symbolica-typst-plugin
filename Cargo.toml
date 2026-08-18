@@ -12,15 +12,16 @@ crate-type = ["cdylib"]
 [features]
 default = []
 rubi = ["dep:symbolica-integrate"]
+compressed-step-metadata = ["rubi", "symbolica-integrate/compressed-step-metadata"]
 
 [dependencies]
 ahash = { version = "0.8", default-features = false, features = ["std", "compile-time-rng"] }
 ciborium = "0.2.2"
 getrandom = "0.3"
-idenso = { path = "../gammaloop/crates/idenso" }
 symbolica = { path = "vendor/symbolica-wasm", features = ["wasm"] }
-symbolica-integrate = { git = "https://github.com/symbolica-dev/symbolica-integrate", rev = "c0766013b7b866a0ab37324862240204bfa7107a", features = ["steps"], optional = true }
+symbolica-integrate = { git = "https://github.com/symbolica-dev/symbolica-integrate", rev = "3f5d745bbd09848b4e1fca8018a73430ab177905", features = ["steps"], optional = true }
 tymbolica-atom-payload = { path = "crates/atom-payload" }
+tymbolica-symbol-registry = { path = "crates/symbol-registry" }
 wasm-minimal-protocol = "0.1"
 
 [patch.crates-io]
@@ -38,6 +39,8 @@ spenso = { path = "vendor/gammaloop-spenso" }
 members = [
   "crates/atom-payload",
   "crates/idenso-plugin",
+  "crates/inflate-plugin",
+  "crates/symbol-registry",
   "vendor/gammaloop-spenso",
 ]
 resolver = "3"

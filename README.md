@@ -9,7 +9,7 @@ place the result back into the same document. You can currently:
 
 - expand, factor, collect, differentiate, and inspect expressions;
 - combine, cancel, or decompose rational functions;
-- use the full profile for Rubi integration, and calculate series;
+- integrate with Rubi, inspect its steps, and calculate series;
 - replace recurring patterns with wildcards;
 - solve systems exactly or numerically;
 - evaluate formulas over points or grids; and
@@ -42,16 +42,15 @@ The factorization and derivative are computed exactly while Typst compiles the
 document. Symbolica expressions are opaque values; render them with `to-typst`
 or inspect them with `canonical`.
 
-## Core and full profiles
+## Rubi integration and Idenso
 
-Tymbolica ships two engine profiles. The compact core profile handles
-parsing, algebra, solving, evaluation, matrices, and series. The full plugin
-adds Rubi integration and genuine, nested integration steps. The imported
-top-level API is core-only. To integrate, create a full-profile API and use its
-functions throughout the calculation:
+Tymbolica ships one Symbolica engine containing its algebra tools and Rubi.
+Most operations are available directly from the imported top-level API.
+Integration and its genuine, nested rule steps are methods of an API created
+with `init()`:
 
 ```typst
-#let sym = init(profile: "full")
+#let sym = init()
 #let parse = sym.math
 #let var = sym.var
 #let integrate = sym.integrate
@@ -60,12 +59,11 @@ functions throughout the calculation:
 #render(integrate(parse($x / (x + 1)$), x))
 ```
 
-An API created with plain `init()` uses the core profile. Expression bytes are
-owned by the plugin that created them, so values cannot be passed between core
-and full APIs: parse, transform, and render with the same `sym` dictionary.
-
-Both profiles are included in the package. A document that does not integrate
-only loads and instantiates the smaller core engine.
+The Symbolica/Rubi engine is stored as a compressed asset and expanded by a
+small loader when `init()` is first used. Tensor-specific Idenso operations are
+kept in a separate, independently compressed plugin and loaded only by
+`init-idenso()`. The two engines exchange Symbolica's native Atom exports; keep
+values produced after Rubi integration in their originating Tymbolica engine.
 
 ## Install locally
 
@@ -89,8 +87,10 @@ Linux data directory. During repository development, examples instead import
 - [User manual](typst/manual.pdf) — quickstart, concepts, recipes, limitations,
   and complete API reference
 - [Minimal example](typst/examples/basic.typ) — a compact first document
-- [Rubi integration](typst/examples/integration.typ) — the explicit full
-  profile and its nested rule steps
+- [Rubi integration](typst/examples/integration.typ) — an antiderivative and
+  its nested rule steps
+- [Idenso tensor algebra](typst/examples/idenso.typ) — native Atom exchange
+  between the main engine and the optional Idenso plugin
 - [Polynomial-system showcase](typst/examples/showcase.typ) — exact solving,
   factorization, substitution, and a Jacobian determinant in one case study
 - [Batched expression grid](typst/examples/expression-grid.typ) — evaluate four
@@ -112,10 +112,10 @@ nix develop
 Use the repository apps for the normal release workflow:
 
 ```sh
-nix run .#build       # rebuild both engine profiles
-nix run .#build-core  # rebuild only typst/tymbolica.wasm
-nix run .#build-full  # rebuild only the full Rubi bundle
-nix run .#manual      # rebuild both profiles and typst/manual.pdf
+nix run .#build        # rebuild both compressed engines and their loader
+nix run .#build-engine # rebuild only the compressed Symbolica/Rubi engine
+nix run .#build-idenso # rebuild only the compressed Idenso engine
+nix run .#manual       # rebuild both engines and typst/manual.pdf
 nix run .#check       # rebuild, compile the public examples, and verify the PDF
 nix flake check       # validate the Typst distribution using tracked plugins
 ```
@@ -133,7 +133,7 @@ WebAssembly bundle. Commit the source, bundle, and regenerated manual together.
 Tymbolica's original source code is available under the [MIT License](LICENSE).
 Tymbolica is an interface to the
 [Symbolica computer algebra system](https://symbolica.io/) and follows its
-upstream `dev` branch. The generated core and full WebAssembly bundles are
+upstream development. The generated WebAssembly bundles are
 included here with redistribution permission. The MIT License does not
 relicense Symbolica or those artifacts: Symbolica's own terms apply, so read the
 [Symbolica license](https://symbolica.io/license/) before redistributing or

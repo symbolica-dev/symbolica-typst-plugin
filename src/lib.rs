@@ -272,7 +272,7 @@ fn symbol_atom(name: &str, namespace: &str) -> Result<Atom, String> {
 }
 
 fn initialize_shared_symbol_registry() {
-    idenso::representations::initialize();
+    tymbolica_symbol_registry::initialize();
 }
 
 fn atom_from_node(map: &[(Value, Value)], namespace: &str) -> Result<Atom, String> {

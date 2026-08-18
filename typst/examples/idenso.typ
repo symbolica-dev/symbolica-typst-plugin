@@ -10,8 +10,8 @@
 )
 #let contracted = (tensors.simplify-metrics)(input)
 
-The core plugin creates the Atom, Idenso contracts the repeated Lorentz index,
-and core reads the returned Atom directly:
+Tymbolica creates the Atom, Idenso contracts the repeated Lorentz index, and
+Tymbolica reads the returned Atom directly:
 
 $
   #(sym.to-typst)(input)
@@ -19,7 +19,7 @@ $
   #(sym.to-typst)(contracted)
 $
 
-// This final core operation makes the cross-plugin round trip part of the test.
+// This final operation makes the cross-plugin round trip part of the test.
 #(sym.to-typst)((sym.expand)(contracted))
 
 // Symbolica's native Atom export preserves arbitrary-precision floats.
@@ -30,12 +30,3 @@ $
 )
 #let float-roundtrip = (tensors.simplify-metrics)(approximation)
 #assert.eq((builtin.canonical)(float-roundtrip), "1.44496")
-
-// Full can consume the common core/Idenso Atom export. Its own exports include
-// additional Rubi state and should remain with the full plugin.
-#let full = init(namespace: "spenso", profile: "full")
-#let full-roundtrip = (full.expand)(contracted)
-#assert.eq(
-  (full.canonical)(full-roundtrip, namespaces: true),
-  (sym.canonical)(contracted, namespaces: true),
-)

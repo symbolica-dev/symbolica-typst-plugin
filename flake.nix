@@ -28,55 +28,60 @@
             program = "${pkgs.writeShellApplication { inherit name; runtimeInputs = path; inherit text; }}/bin/${name}";
             meta.description = "Run ${name}";
           };
-          buildVariant = cargoFeatures: output: ''
+          loaderBuildScript = ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package tymbolica-plugin --no-default-features ${cargoFeatures}
+            cargo build --release --target "$target" --package tymbolica-inflate-plugin --lib
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-              -o ${output} "target/$target/release/tymbolica_plugin.wasm"
-            size="$(wc -c < ${output})"
-            if [ "$size" -gt 20971520 ]; then
-              echo "${output} is $size bytes; Typst web app files must not exceed 20 MiB" >&2
+              -o typst/tymbolica-inflate.wasm "target/$target/release/tymbolica_inflate_plugin.wasm"
+            size="$(wc -c < typst/tymbolica-inflate.wasm)"
+            if [ "$size" -gt 10485760 ]; then
+              echo "typst/tymbolica-inflate.wasm is $size bytes; the loader must remain below 10 MiB" >&2
               exit 1
             fi
-            ls -lh ${output}
+            ls -lh typst/tymbolica-inflate.wasm
           '';
-          coreBuildScript = buildVariant "" "typst/tymbolica.wasm";
-          fullBuildScript = ''
+          engineBuildScript = ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package tymbolica-plugin --no-default-features --features rubi
+            cargo build --release --target "$target" --package tymbolica-plugin --no-default-features --features compressed-step-metadata
 
-            full_raw="target/$target/release/tymbolica-full.raw.wasm"
+            engine_raw="target/$target/release/tymbolica.raw.wasm"
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-              -o "$full_raw" "target/$target/release/tymbolica_plugin.wasm"
+              -o "$engine_raw" "target/$target/release/tymbolica_plugin.wasm"
 
-            carrier_tool="target/wasm-carrier"
-            rustc -O tools/wasm-carrier.rs -o "$carrier_tool"
-            "$carrier_tool" "$full_raw" \
-              typst/tymbolica-full-0.wasm typst/tymbolica-full-1.wasm
-            ls -lh typst/tymbolica-full-0.wasm typst/tymbolica-full-1.wasm
+            cargo run --release --package tymbolica-inflate-plugin --bin tymbolica-compress -- \
+              "$engine_raw" typst/tymbolica.wasm.zlib
+            size="$(wc -c < typst/tymbolica.wasm.zlib)"
+            if [ "$size" -gt 10485760 ]; then
+              echo "typst/tymbolica.wasm.zlib is $size bytes; the compressed engine must remain below 10 MiB" >&2
+              exit 1
+            fi
+            ls -lh typst/tymbolica.wasm.zlib
           '';
           idensoBuildScript = ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
             cargo build --release --target "$target" --package tymbolica-idenso-plugin
+            idenso_raw="target/$target/release/tymbolica-idenso.raw.wasm"
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-              -o typst/tymbolica-idenso.wasm "target/$target/release/tymbolica_idenso_plugin.wasm"
-            size="$(wc -c < typst/tymbolica-idenso.wasm)"
+              -o "$idenso_raw" "target/$target/release/tymbolica_idenso_plugin.wasm"
+
+            cargo run --release --package tymbolica-inflate-plugin --bin tymbolica-compress -- \
+              "$idenso_raw" typst/tymbolica-idenso.wasm.zlib
+            size="$(wc -c < typst/tymbolica-idenso.wasm.zlib)"
             if [ "$size" -gt 10485760 ]; then
-              echo "typst/tymbolica-idenso.wasm is $size bytes; the optional Idenso plugin must remain below 10 MiB" >&2
+              echo "typst/tymbolica-idenso.wasm.zlib is $size bytes; the compressed Idenso engine must remain below 10 MiB" >&2
               exit 1
             fi
-            ls -lh typst/tymbolica-idenso.wasm
+            ls -lh typst/tymbolica-idenso.wasm.zlib
           '';
-          buildScript = coreBuildScript + fullBuildScript + idensoBuildScript;
+          buildScript = loaderBuildScript + engineBuildScript + idensoBuildScript;
         in rec {
           default = build;
           build = app "tymbolica-build" buildScript;
-          build-core = app "tymbolica-build-core" coreBuildScript;
-          build-full = app "tymbolica-build-full" fullBuildScript;
-          build-idenso = app "tymbolica-build-idenso" idensoBuildScript;
+          build-engine = app "tymbolica-build-engine" (loaderBuildScript + engineBuildScript);
+          build-idenso = app "tymbolica-build-idenso" (loaderBuildScript + idensoBuildScript);
           manual = app "tymbolica-manual" (buildScript + ''
             out="''${TYMBOLICA_MANUAL_OUT:-typst/manual.pdf}"
             if [ "$#" -gt 0 ]; then
