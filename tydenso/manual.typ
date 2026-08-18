@@ -105,13 +105,13 @@ simplify, inspect, or display a tensor expression.
 
 The first example contracts a Minkowski metric with a vector. A representation
 is an ordinary Typst dictionary; `slot` turns an index label into another
-dictionary; `tensor` creates a callable tensor name.
+dictionary; `vector` creates a callable rank-one tensor name.
 
 ```worked
 #let V = mink(4)
 #let mu = slot(V, "mu")
 #let nu = slot(V, "nu")
-#let p = tensor("p")
+#let p = vector("p")
 
 #let before = mul(metric(V, mu, nu), p(nu))
 #let after = simplify-metrics(before)
@@ -171,7 +171,7 @@ expr = TensorName.g(mu, nu) * p(nu)
 #let V = mink(4)
 #let mu = slot(V, "mu")
 #let nu = slot(V, "nu")
-#let p = tensor("p")
+#let p = vector("p")
 #let expr = mul(metric(V, mu, nu), p(nu))
 ```],
 )
@@ -237,7 +237,7 @@ namespace explicitly.
 ```worked
 #let V = mink("D")
 #let mu = slot(V, "mu")
-#let p = tensor("p")
+#let p = vector("p")
 #let mass = symbol("m", namespace: "model")
 
 #let shell = sub(pow(p(mu), 2), pow(mass, 2))
@@ -263,7 +263,7 @@ eliminates both contracted dummy indices in one pass.
 #let mu = slot(V, "mu")
 #let nu = slot(V, "nu")
 #let rho = slot(V, "rho")
-#let p = tensor("p")
+#let p = vector("p")
 
 #let chain = mul(
   metric(V, mu, nu),
@@ -314,8 +314,8 @@ custom tensor notation. `to-string` uses Spenso's compact Symbolica notation.
 
 ```worked
 #let V = mink(4)
-#let T = tensor("T")
-#let expression = T(slot(V, "mu"), slot(V, "nu", dual: true))
+#let p = vector("p")
+#let expression = p(1, slot(V, "mu"))
 
 #let detailed = print-settings(with-dim: true, commas: true)
 
@@ -327,6 +327,13 @@ Compact Spenso form:
 
 Rendered: $ #to-typst(expression, settings: detailed) $
 ```
+
+In Typst mode, tensor and vector heads use a single `attach` expression. Upper
+and lower scripts occupy matching columns with hidden counterparts, following
+Physica's alignment technique. A plain self-dual slot is placed on the top row;
+self-dual variance wrappers normalize away because the representation is its
+own dual. For a dualizable representation, its dual orientation is placed on
+the bottom row.
 
 `print-settings` exposes the real `SpensoPrintSettings` switches:
 `with-dim`, `parens`, `commas`, `index-subscripts`, and `symbol-scripts`. Start
@@ -377,7 +384,7 @@ Tymbolica expression uses Spenso's tensor representation.
 #import "@local/tymbolica:0.1.0" as algebra
 
 #let V = tensors.mink(4)
-#let p = tensors.tensor("p")
+#let p = tensors.vector("p")
 #let expression = p(tensors.slot(V, "mu"))
 
 #let expanded = algebra.expand(expression)
@@ -396,7 +403,7 @@ surface as a dictionary bound to a selected plugin module.
   (
     title: [Tensor construction],
     names: (
-      "tensor", "symbol", "representation", "mink", "euc", "lor", "bis",
+      "tensor", "vector", "symbol", "representation", "mink", "euc", "lor", "bis",
       "spf", "cof", "coad", "cos", "slot", "metric", "identity-tensor",
       "flat-tensor", "dual-representation",
     ),

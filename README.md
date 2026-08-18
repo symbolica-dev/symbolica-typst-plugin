@@ -72,7 +72,7 @@ export as Tymbolica:
 #import "@local/tydenso:0.1.0": *
 
 #let V = mink(4)
-#let p = tensor("p")
+#let p = vector("p")
 #let expression = mul(metric(V, "mu", "nu"), p(slot(V, "nu")))
 
 #to-typst(simplify-metrics(expression))

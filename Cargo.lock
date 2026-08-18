@@ -2586,6 +2586,7 @@ dependencies = [
  "features",
  "gat-lending-iterator",
  "indexmap",
+ "insta",
  "itertools 0.14.0",
  "linnet",
  "log",

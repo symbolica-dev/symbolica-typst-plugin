@@ -1,5 +1,8 @@
 use symbolica::{
-    atom::{Atom, AtomCore, AtomOrView, AtomView, FunctionBuilder, Symbol},
+    atom::{
+        Atom, AtomCore, AtomOrView, AtomView, FunctionBuilder, NamespacedSymbol, Symbol,
+        SymbolAttribute, SymbolBuilder,
+    },
     coefficient::CoefficientView,
     printer::{PrintOptions, PrintState, PrintUserData},
     symbol, tag,
@@ -29,6 +32,9 @@ pub struct SpensoTags {
     pub scalar: Symbol,
     pub tensor: String,
     pub tensor_: Symbol,
+    /// Internal wrapper used to restore tensor printing after importing an
+    /// Atom whose dynamically registered Rust print callback was not exported.
+    pub tensor_display: Symbol,
     pub index: String,
     pub representation: String,
     pub i_: Symbol,
@@ -67,6 +73,247 @@ pub fn scalar_store_alias_index(value: AtomView<'_>) -> Option<usize> {
         CoefficientView::Natural(index, 1, 0, 1) => usize::try_from(index).ok(),
         _ => None,
     }
+}
+
+fn typst_builtin_name(name: &str) -> bool {
+    matches!(
+        name,
+        "alpha"
+            | "beta"
+            | "gamma"
+            | "delta"
+            | "epsilon"
+            | "zeta"
+            | "eta"
+            | "theta"
+            | "iota"
+            | "kappa"
+            | "lambda"
+            | "mu"
+            | "nu"
+            | "xi"
+            | "omicron"
+            | "pi"
+            | "rho"
+            | "sigma"
+            | "tau"
+            | "upsilon"
+            | "phi"
+            | "chi"
+            | "psi"
+            | "omega"
+            | "Alpha"
+            | "Beta"
+            | "Gamma"
+            | "Delta"
+            | "Epsilon"
+            | "Zeta"
+            | "Eta"
+            | "Theta"
+            | "Iota"
+            | "Kappa"
+            | "Lambda"
+            | "Mu"
+            | "Nu"
+            | "Xi"
+            | "Omicron"
+            | "Pi"
+            | "Rho"
+            | "Sigma"
+            | "Tau"
+            | "Upsilon"
+            | "Phi"
+            | "Chi"
+            | "Psi"
+            | "Omega"
+    )
+}
+
+fn escape_typst_string(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+fn typst_tensor_head(symbol: Symbol) -> String {
+    let name = symbol.get_stripped_name();
+    if name.chars().count() == 1 || typst_builtin_name(name) {
+        name.to_owned()
+    } else {
+        format!(r#"italic("{}")"#, escape_typst_string(name))
+    }
+}
+
+fn typst_index_source(index: AtomView<'_>, options: &PrintOptions) -> Option<String> {
+    if let AtomView::Var(variable) = index {
+        let symbol = variable.get_symbol();
+        let name = symbol.get_stripped_name();
+        if typst_builtin_name(name) {
+            return Some(name.to_owned());
+        }
+    }
+
+    let mut output = String::new();
+    index.format(&mut output, options, PrintState::new()).ok()?;
+    Some(output)
+}
+
+fn tensor_slot(index: AtomView<'_>) -> Option<(AtomView<'_>, bool)> {
+    let (slot, lower) = if let AtomView::Fun(dual) = index
+        && dual.get_symbol() == AIND_SYMBOLS.dind
+        && dual.get_nargs() == 1
+    {
+        (dual.iter().next()?, true)
+    } else {
+        (index, false)
+    };
+
+    let AtomView::Fun(representation) = slot else {
+        return None;
+    };
+    if !representation
+        .get_symbol()
+        .has_tag(&SPENSO_TAG.representation)
+        || representation.get_nargs() != 2
+    {
+        return None;
+    }
+
+    Some((representation.iter().nth(1)?, lower))
+}
+
+/// Print a tagged tensor using native Typst attachments in Spenso's Typst mode.
+///
+/// Every script occupies the same horizontal column in the top and bottom
+/// rows. The opposite row receives a hidden copy, following Physica's tensor
+/// layout technique. Plain self-dual slots default to the top row; `dind`
+/// explicitly moves a slot to the bottom row.
+pub fn tensor_print(
+    atom: AtomView<'_>,
+    options: &PrintOptions,
+    _state: &PrintState,
+) -> Option<String> {
+    if !options.mode.is_typst() {
+        return None;
+    }
+
+    let Some(PrintUserData::Integer(encoded)) = options.custom_print_mode.get("spenso") else {
+        return None;
+    };
+    let settings = SpensoPrintSettings::from(*encoded as usize);
+
+    let AtomView::Fun(function) = atom else {
+        return None;
+    };
+    if !function.get_symbol().has_tag(&SPENSO_TAG.tensor) {
+        return None;
+    }
+
+    let mut top = Vec::new();
+    let mut bottom = Vec::new();
+    let mut ordinary_arguments = Vec::new();
+
+    for argument in function.iter() {
+        let (source, lower) = if let Some((index, lower)) = tensor_slot(argument) {
+            (typst_index_source(index, options)?, lower)
+        } else if settings.symbol_scripts {
+            let mut source = String::new();
+            argument
+                .format(&mut source, options, PrintState::new())
+                .ok()?;
+            (source, true)
+        } else {
+            let mut source = String::new();
+            argument
+                .format(&mut source, options, PrintState::new())
+                .ok()?;
+            ordinary_arguments.push(source);
+            continue;
+        };
+
+        let hidden = format!("std.hide({source})");
+        if lower {
+            top.push(hidden);
+            bottom.push(source);
+        } else {
+            top.push(source);
+            bottom.push(hidden);
+        }
+    }
+
+    let mut base = typst_tensor_head(function.get_symbol());
+    if !ordinary_arguments.is_empty() {
+        let separator = if settings.commas { "," } else { " " };
+        base.push('(');
+        base.push_str(&ordinary_arguments.join(separator));
+        base.push(')');
+    }
+
+    if top.is_empty() {
+        return Some(base);
+    }
+
+    Some(format!(
+        "attach(#(${base}$,std.hide($zws$)).join(),t:{},b:{})",
+        top.join(" "),
+        bottom.join(" ")
+    ))
+}
+
+/// Wrap imported tagged tensors that no longer carry their Rust print callback.
+///
+/// Symbolica exports tensor tags but intentionally does not export custom Rust
+/// functions. This temporary wrapper lets the same generic printer handle such
+/// tensors without changing the algebraic Atom.
+pub fn prepare_tensor_print(atom: &Atom) -> Atom {
+    atom.replace_map(|view, _, output| {
+        let AtomView::Fun(function) = view else {
+            return;
+        };
+        let symbol = function.get_symbol();
+        if symbol.has_tag(&SPENSO_TAG.tensor) && symbol.get_print_function().is_none() {
+            **output = FunctionBuilder::new(SPENSO_TAG.tensor_display)
+                .add_arg(view)
+                .finish();
+        }
+    })
+}
+
+/// Register a generic tensor or vector head, returning an equivalent existing
+/// symbol when it has already been declared.
+///
+/// Reusing an existing symbol is essential for dynamic frontends: Symbolica
+/// deliberately rejects attempts to register the same Rust callback twice.
+pub fn register_tensor_symbol(
+    name: NamespacedSymbol,
+    attributes: Vec<SymbolAttribute>,
+    rank_one: bool,
+) -> Result<Symbol, String> {
+    if let Some(existing) = Symbol::get_symbol(name.clone()) {
+        if !existing.has_tag(&SPENSO_TAG.tensor)
+            || existing.has_tag(&SPENSO_TAG.rank1) != rank_one
+            || existing.get_attributes() != attributes
+        {
+            return Err(format!(
+                "symbol {} already exists with a different tensor declaration",
+                existing.get_name()
+            ));
+        }
+        return Ok(existing);
+    }
+
+    let tags = if rank_one {
+        vec![SPENSO_TAG.tensor.clone(), SPENSO_TAG.rank1.clone()]
+    } else {
+        vec![SPENSO_TAG.tensor.clone()]
+    };
+    SymbolBuilder::new(name)
+        .with_attributes(attributes)
+        .with_tags(tags)
+        .build()
+        .map_err(|error| error.to_string())
 }
 
 /// Builds Symbolica atoms from a symbol and an optional argument list.
@@ -172,7 +419,12 @@ macro_rules! tensor_symbol {
         $crate::tensor_symbol!(stringify!($name); $($attr),+; $($setting = $value),*)
     };
     ($id:expr) => {
-        symbolica::symbol!($id, tag = &$crate::network::tags::SPENSO_TAG.tensor)
+        $crate::network::tags::register_tensor_symbol(
+            symbolica::wrap_symbol!($id),
+            Vec::new(),
+            false,
+        )
+        .unwrap_or_else(|error| panic!("{error}"))
     };
     ($id:expr, tag = $tag:expr $(, $($rest:tt)*)?) => {
         compile_error!("tensor_symbol! owns the Spenso tensor tag; do not pass tag = ...")
@@ -188,7 +440,12 @@ macro_rules! tensor_symbol {
         )
     };
     ($id:expr; $($attr:ident),*) => {
-        symbolica::symbol!($id; $($attr),*; tag = &$crate::network::tags::SPENSO_TAG.tensor)
+        $crate::network::tags::register_tensor_symbol(
+            symbolica::wrap_symbol!($id),
+            vec![$(symbolica::atom::SymbolAttribute::$attr),*],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("{error}"))
     };
     ($id:expr; $($attr:ident),+; tag = $tag:expr $(, $($rest:tt)*)?) => {
         compile_error!("tensor_symbol! owns the Spenso tensor tag; do not pass tag = ...")
@@ -214,13 +471,12 @@ macro_rules! tensor_symbol {
 #[macro_export]
 macro_rules! vector_symbol {
     ($name:ident) => {
-        symbolica::symbol!(
-            stringify!($name),
-            tags = [
-                &$crate::network::tags::SPENSO_TAG.tensor,
-                &$crate::network::tags::SPENSO_TAG.rank1
-            ]
+        $crate::network::tags::register_tensor_symbol(
+            symbolica::wrap_symbol!(stringify!($name)),
+            Vec::new(),
+            true,
         )
+        .unwrap_or_else(|error| panic!("{error}"))
     };
     ($name:ident, $($setting:ident = $value:expr),* $(,)?) => {
         symbolica::symbol!(
@@ -233,13 +489,12 @@ macro_rules! vector_symbol {
         )
     };
     ($name:literal) => {
-        symbolica::symbol!(
-            $name,
-            tags = [
-                &$crate::network::tags::SPENSO_TAG.tensor,
-                &$crate::network::tags::SPENSO_TAG.rank1
-            ]
+        $crate::network::tags::register_tensor_symbol(
+            symbolica::wrap_symbol!($name),
+            Vec::new(),
+            true,
         )
+        .unwrap_or_else(|error| panic!("{error}"))
     };
     ($name:literal, $($setting:ident = $value:expr),* $(,)?) => {
         symbolica::symbol!(
@@ -511,12 +766,24 @@ impl SpensoTags {
                     }
                 }
             ),
-            rank1_: symbol!("rank1_", tags = [&tensor, &rank1]),
+            rank1_: symbol!("rank1_", tags = [&tensor, &rank1], print = tensor_print),
             bracket: symbol!("bracket"),
             pure_scalar: symbol!("pure_scalar"),
             scalar: symbol!("scalar"),
             dot: symbol!("dot";Symmetric,Linear; print = Self::print_dot),
-            tensor_: symbol!("tensor_", tag = tensor),
+            tensor_: symbol!("tensor_", tag = tensor, print = tensor_print),
+            tensor_display: symbol!(
+                "tensor_display",
+                print = |atom, options, state| {
+                    let AtomView::Fun(wrapper) = atom else {
+                        return None;
+                    };
+                    if wrapper.get_nargs() != 1 {
+                        return None;
+                    }
+                    tensor_print(wrapper.iter().next()?, options, state)
+                }
+            ),
             i_: symbol!("i_", tag = &index),
             rep_: symbol!("rep_", tag = &representation),
             self_dual_: symbol!("self_dual_", tags = [&representation, &self_dual]),
@@ -539,7 +806,8 @@ impl SpensoTags {
     }
 
     pub fn tensor_symbol(&self, name: &str) -> Symbol {
-        symbol!(name, tag = &self.tensor)
+        register_tensor_symbol(symbolica::wrap_symbol!(name), Vec::new(), false)
+            .unwrap_or_else(|error| panic!("{error}"))
     }
 
     pub fn representation_symbol(&self, name: &str) -> Symbol {
@@ -555,7 +823,8 @@ impl SpensoTags {
     }
 
     pub fn rank_one_tensor_symbol(&self, name: &str) -> Symbol {
-        symbol!(name, tags = [&self.tensor, &self.rank1])
+        register_tensor_symbol(symbolica::wrap_symbol!(name), Vec::new(), true)
+            .unwrap_or_else(|error| panic!("{error}"))
     }
 
     define_numbered_tag_family_methods! {
@@ -629,13 +898,13 @@ impl SpensoTags {
 #[cfg(test)]
 mod tests {
     use symbolica::{
-        atom::{Atom, AtomCore, AtomView},
-        symbol,
+        atom::{Atom, AtomCore, AtomView, FunctionBuilder, SymbolBuilder},
+        function, symbol, wrap_symbol,
     };
 
-    use crate::{cyclic, shadowing::symbolica_utils::SpensoPrintSettings};
+    use crate::{cyclic, dind, lor, mink, shadowing::symbolica_utils::SpensoPrintSettings};
 
-    use super::{SPENSO_TAG, SymbolAtomExt};
+    use super::{SPENSO_TAG, SymbolAtomExt, prepare_tensor_print};
 
     #[test]
     fn numbered_wildcard_macros_build_variables_without_args() {
@@ -723,6 +992,56 @@ mod tests {
                 .printer(SpensoPrintSettings::typst().nice_symbolica())
                 .to_string(),
             "Tr(1)"
+        );
+    }
+
+    #[test]
+    fn tensors_use_physica_style_typst_attachment_columns() {
+        let head = crate::tensor_symbol!("spenso_typst_tests::T");
+        let tensor = function!(
+            head,
+            Atom::num(1),
+            mink!(4, symbol!("mu")),
+            dind!(lor!(4, symbol!("nu")))
+        );
+
+        assert_eq!(
+            prepare_tensor_print(&tensor)
+                .printer(SpensoPrintSettings::typst_options())
+                .to_string(),
+            "attach(#($T$,std.hide($zws$)).join(),t:std.hide(1) mu std.hide(nu),b:1 std.hide(mu) nu)"
+        );
+    }
+
+    #[test]
+    fn vectors_default_self_dual_slots_to_the_top_row() {
+        let head = crate::vector_symbol!("spenso_typst_tests::p");
+        let vector = function!(head, mink!(4, symbol!("rho")));
+
+        assert_eq!(
+            prepare_tensor_print(&vector)
+                .printer(SpensoPrintSettings::typst_options())
+                .to_string(),
+            "attach(#($p$,std.hide($zws$)).join(),t:rho,b:std.hide(rho))"
+        );
+    }
+
+    #[test]
+    fn tagged_imports_can_recover_the_generic_tensor_printer() {
+        let head = SymbolBuilder::new(wrap_symbol!("spenso_typst_tests::R"))
+            .with_tags([SPENSO_TAG.tensor.clone()])
+            .build()
+            .unwrap();
+        let tensor = FunctionBuilder::new(head)
+            .add_arg(mink!(4, symbol!("sigma")))
+            .finish();
+        assert!(head.get_print_function().is_none());
+
+        assert_eq!(
+            prepare_tensor_print(&tensor)
+                .printer(SpensoPrintSettings::typst_options())
+                .to_string(),
+            "attach(#($R$,std.hide($zws$)).join(),t:sigma,b:std.hide(sigma))"
         );
     }
 }

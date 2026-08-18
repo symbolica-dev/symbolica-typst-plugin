@@ -4,7 +4,7 @@
 #set page(width: auto, height: auto, margin: 12pt)
 
 #let V = tensors.mink(4)
-#let p = tensors.tensor("p")
+#let p = tensors.vector("p")
 #let mu = tensors.slot(V, "mu")
 #let nu = tensors.slot(V, "nu")
 #let expression = tensors.mul(tensors.metric(V, mu, nu), p(nu))

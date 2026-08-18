@@ -8,6 +8,7 @@ use idenso::dirac::GammaSimplifier;
 use idenso::selective_expand::SelectiveExpand;
 use idenso::shorthands::{metric::MetricSimplifier, schoonschip::Schoonschip};
 use idenso::{Cookable, IndexTooling};
+use spenso::network::tags::{SPENSO_TAG, prepare_tensor_print, register_tensor_symbol};
 use spenso::shadowing::symbolica_utils::SpensoPrintSettings;
 use spenso::structure::abstract_index::AbstractIndex;
 use symbolica::atom::{
@@ -192,11 +193,90 @@ fn parse_symbol(
         .map_err(|error| error.to_string())
 }
 
+fn parse_tensor_symbol(
+    name: &str,
+    namespace: &str,
+    map: &[(Value, Value)],
+    rank_one: bool,
+) -> Result<Symbol, String> {
+    let symmetric = map_bool(map, "symmetric", false)?;
+    let antisymmetric = map_bool(map, "antisymmetric", false)?;
+    let cyclesymmetric = map_bool(map, "cycle-symmetric", false)?;
+    let linear = map_bool(map, "linear", false)?;
+    if [symmetric, antisymmetric, cyclesymmetric]
+        .into_iter()
+        .filter(|value| *value)
+        .count()
+        > 1
+    {
+        return Err(
+            "a tensor cannot be symmetric, antisymmetric, and cycle-symmetric at the same time"
+                .to_owned(),
+        );
+    }
+
+    let mut attributes = Vec::new();
+    if symmetric {
+        attributes.push(SymbolAttribute::Symmetric);
+    }
+    if antisymmetric {
+        attributes.push(SymbolAttribute::Antisymmetric);
+    }
+    if cyclesymmetric {
+        attributes.push(SymbolAttribute::Cyclesymmetric);
+    }
+    if linear {
+        attributes.push(SymbolAttribute::Linear);
+    }
+
+    let namespace = DefaultNamespace {
+        namespace: namespace.to_owned().into(),
+        data: "",
+        file: "".into(),
+        line: 0,
+    };
+    register_tensor_symbol(namespace.attach_namespace(name), attributes, rank_one)
+}
+
+fn parse_representation_symbol(
+    name: &str,
+    namespace: &str,
+    map: &[(Value, Value)],
+) -> Result<Symbol, String> {
+    let namespace = DefaultNamespace {
+        namespace: namespace.to_owned().into(),
+        data: "",
+        file: "".into(),
+        line: 0,
+    };
+    let namespaced = namespace.attach_namespace(name);
+    if let Some(symbol) = Symbol::get_symbol(namespaced.clone()) {
+        if symbol.has_tag(&SPENSO_TAG.representation) {
+            return Ok(symbol);
+        }
+        return Err(format!(
+            "symbol {} already exists and is not a Spenso representation",
+            symbol.get_name()
+        ));
+    }
+
+    let mut tags = vec![SPENSO_TAG.representation.clone()];
+    if map_bool(map, "self-dual", false)? {
+        tags.push(SPENSO_TAG.self_dual.clone());
+    } else {
+        tags.push(SPENSO_TAG.dualizable.clone());
+    }
+    SymbolBuilder::new(namespaced)
+        .with_tags(tags)
+        .build()
+        .map_err(|error| error.to_string())
+}
+
 fn representation_atom(map: &[(Value, Value)], index: Option<&Value>) -> Result<Atom, String> {
     let name = map_text(map, "name")?;
     let namespace = map_text_or(map, "namespace", "spenso")?;
     let dimension = map_get(map, "dimension").ok_or_else(|| "missing dimension".to_owned())?;
-    let symbol = parse_symbol(name, namespace, None)?;
+    let symbol = parse_representation_symbol(name, namespace, map)?;
     let mut arguments = vec![atom_from_value(dimension, namespace)?];
     if let Some(index) = index {
         arguments.push(atom_from_value(index, namespace)?);
@@ -242,6 +322,20 @@ fn atom_from_value(value: &Value, namespace: &str) -> Result<Atom, String> {
             "call" => {
                 let symbol_namespace = map_text_or(map, "namespace", namespace)?;
                 let symbol = parse_symbol(map_text(map, "name")?, symbol_namespace, Some(map))?;
+                let arguments = map_array(map, "arguments")?
+                    .iter()
+                    .map(|argument| atom_from_value(argument, symbol_namespace))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(symbol.call_args(arguments))
+            }
+            "tensor" | "vector" => {
+                let symbol_namespace = map_text_or(map, "namespace", namespace)?;
+                let symbol = parse_tensor_symbol(
+                    map_text(map, "name")?,
+                    symbol_namespace,
+                    map,
+                    map_text(map, "kind")? == "vector",
+                )?;
                 let arguments = map_array(map, "arguments")?
                     .iter()
                     .map(|argument| atom_from_value(argument, symbol_namespace))
@@ -388,7 +482,12 @@ fn render_request(input: &[u8], typst: bool) -> Result<Vec<u8>, String> {
         options.terms_on_new_line = false;
         options
     };
-    Ok(expr.printer(options).to_string().into_bytes())
+    let printable = if typst {
+        prepare_tensor_print(&expr)
+    } else {
+        expr
+    };
+    Ok(printable.printer(options).to_string().into_bytes())
 }
 
 fn decode_symbol(input: &[u8], label: &str) -> Result<Symbol, String> {

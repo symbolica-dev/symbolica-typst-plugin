@@ -5,10 +5,13 @@
 #let V = mink(4)
 #let mu = slot(V, "mu")
 #let nu = slot(V, "nu")
-#let p = tensor("p")
+#let p = vector("p")
 
 #let expression = mul(metric(V, mu, nu), p(nu))
 #let contracted = simplify-metrics(expression)
+#let W = lor(4)
+#let T = tensor("T")
+#let mixed = T(slot(W, "mu"), slot(W, "nu", dual: true))
 
 $
   #to-typst(expression)
@@ -31,4 +34,6 @@ $
 
 // Tydenso's printer is independent of Tymbolica.
 #assert(type(to-typst-source(contracted)) == str)
+#assert(to-typst-source(p(mu)).starts-with("attach("))
+#assert(to-typst-source(mixed).contains("b:std.hide(mu) nu"))
 #assert(type(to-string(contracted)) == str)

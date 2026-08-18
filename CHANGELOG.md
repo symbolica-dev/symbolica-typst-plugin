@@ -24,6 +24,9 @@ local `0.1.0` package while its initial public surface is being prepared.
   attributes, and scalar expression trees without parsing strings.
 - Added Tydenso's own Spenso-aware Typst and compact printers, configurable
   through the real `SpensoPrintSettings` fields.
+- Render tensor and vector indices with Typst `attach`, including Physica-style
+  hidden alignment columns. Self-dual indices default to the upper row, while
+  dualizable representations retain an explicit lower orientation.
 - Added recursive CBOR inspection of Symbolica Atom internals while retaining
   the native Atom export as the lossless cross-plugin payload.
 - Documented every public parameter, default, return shape, and current

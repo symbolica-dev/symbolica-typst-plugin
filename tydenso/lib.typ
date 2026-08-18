@@ -76,21 +76,22 @@
 #let _tensor(
   engine,
   name,
+  rank-one: false,
   namespace: "spenso",
   symmetric: false,
   antisymmetric: false,
   cycle-symmetric: false,
   linear: false,
-) = (..arguments) => _call(
-  engine,
-  name,
-  arguments.pos(),
+) = (..arguments) => _construct(engine, (
+  kind: if rank-one { "vector" } else { "tensor" },
+  name: name,
   namespace: namespace,
+  arguments: arguments.pos().map(_portable),
   symmetric: symmetric,
   antisymmetric: antisymmetric,
   cycle-symmetric: cycle-symmetric,
   linear: linear,
-)
+))
 
 #let _representation(
   engine,
@@ -192,7 +193,7 @@
 /// ```example
 /// #let tensors = init()
 /// #let V = (tensors.mink)(4)
-/// #let p = (tensors.tensor)("p")
+/// #let p = (tensors.vector)("p")
 /// #(tensors.to-typst)(p((tensors.slot)(V, "mu")))
 /// ```
 ///
@@ -219,6 +220,12 @@
       cycle-symmetric: cycle-symmetric,
       linear: linear,
     ),
+    vector: (name, namespace: "spenso", linear: false) => _tensor(
+      engine, name,
+      rank-one: true,
+      namespace: namespace,
+      linear: linear,
+    ),
     representation: (name, dimension, namespace: "spenso", self-dual: false, is-dual: false, dual-name: none) => _representation(
       engine, name, dimension,
       namespace: namespace,
@@ -228,7 +235,7 @@
     ),
     mink: dimension => _representation(engine, "mink", dimension, self-dual: true),
     euc: dimension => _representation(engine, "euc", dimension, self-dual: true),
-    lor: dimension => _representation(engine, "lor", dimension, self-dual: true),
+    lor: dimension => _representation(engine, "lor", dimension, dual-name: "lor"),
     bis: dimension => _representation(engine, "bis", dimension, self-dual: true),
     spf: dimension => _representation(engine, "spf", dimension, dual-name: "spf"),
     cof: dimension => _representation(engine, "cof", dimension, dual-name: "cof"),
@@ -306,8 +313,8 @@
 ///
 /// ```example
 /// #let V = mink(4)
-/// #let p = tensor("p")
-/// #to-typst(p(slot(V, "mu")))
+/// #let Z = tensor("Z")
+/// #to-typst(Z(slot(V, "mu"), slot(V, "nu")))
 /// ```
 ///
 /// -> function
@@ -336,6 +343,34 @@
   symmetric: symmetric,
   antisymmetric: antisymmetric,
   cycle-symmetric: cycle-symmetric,
+  linear: linear,
+)
+
+/// Construct a named rank-one tensor function.
+///
+/// Non-slot arguments are rendered as symbol subscripts in Spenso's Typst
+/// mode, while the vector slot is rendered as an abstract index.
+///
+/// ```example
+/// #let V = mink(4)
+/// #let p = vector("p")
+/// #to-typst(p(1, slot(V, "mu")))
+/// ```
+///
+/// -> function
+#let vector(
+  /// Vector name.
+  /// -> str
+  name,
+  /// Symbol namespace.
+  /// -> str
+  namespace: "spenso",
+  /// Mark the vector function as linear.
+  /// -> bool
+  linear: false,
+) = (_default-engine().vector)(
+  name,
+  namespace: namespace,
   linear: linear,
 )
 
@@ -528,7 +563,7 @@
   /// Render indices as subscripts where supported.
   /// -> bool | none
   index-subscripts: none,
-  /// Interpret symbol suffixes as scripts where supported.
+  /// Render non-slot tensor arguments as symbol scripts where supported.
   /// -> bool | none
   symbol-scripts: none,
 ) = (_default-engine().print-settings)(

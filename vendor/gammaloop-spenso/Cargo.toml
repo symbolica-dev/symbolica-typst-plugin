@@ -72,6 +72,9 @@ default-features = false
 features = ["bincode", "serde"]
 optional = true
 
+[dev-dependencies]
+insta = { version = "1.38.0", features = ["json", "ron", "toml", "yaml"] }
+
 [features]
 native-code-generation = []
 python = ["dep:pyo3"]
