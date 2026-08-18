@@ -16,12 +16,16 @@ local `0.1.0` package while its initial public surface is being prepared.
   `symbolica-integrate` Rubi engine. `integrate-with-steps` now returns Rubi's
   actual nested transformations, including rule metadata, input and output
   expressions, and whether the best-effort result is complete.
-- Added Rubi to the single bundled engine. Both it and the optional Idenso
-  tensor plugin are stored as DEFLATE-compressed assets and expanded
-  transparently by a shared small loader. This removes the core/full profiles
-  and keeps every engine asset below 10 MiB.
-- Added an optional Idenso tensor-transformation plugin that exchanges native
-  Symbolica Atom exports with the main engine.
+- Added Rubi to the single bundled Tymbolica engine. Tymbolica and Tydenso are
+  stored as DEFLATE-compressed assets and expanded transparently by small
+  package-local loaders, keeping every engine asset below 10 MiB.
+- Split Tydenso into its own Typst package with a separate manual and examples.
+  Its API now constructs Spenso representations, slots, tensor names, symmetry
+  attributes, and scalar expression trees without parsing strings.
+- Added Tydenso's own Spenso-aware Typst and compact printers, configurable
+  through the real `SpensoPrintSettings` fields.
+- Added recursive CBOR inspection of Symbolica Atom internals while retaining
+  the native Atom export as the lossless cross-plugin payload.
 - Documented every public parameter, default, return shape, and current
   capability boundary in the generated reference.
 - Declared Tymbolica's original source code under the MIT License while keeping

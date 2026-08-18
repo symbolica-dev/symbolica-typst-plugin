@@ -32,14 +32,16 @@
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
             cargo build --release --target "$target" --package tymbolica-inflate-plugin --lib
-            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-              -o typst/tymbolica-inflate.wasm "target/$target/release/tymbolica_inflate_plugin.wasm"
-            size="$(wc -c < typst/tymbolica-inflate.wasm)"
-            if [ "$size" -gt 10485760 ]; then
-              echo "typst/tymbolica-inflate.wasm is $size bytes; the loader must remain below 10 MiB" >&2
-              exit 1
-            fi
-            ls -lh typst/tymbolica-inflate.wasm
+            for output in typst/tymbolica-inflate.wasm tydenso/tydenso-inflate.wasm; do
+              wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
+                -o "$output" "target/$target/release/tymbolica_inflate_plugin.wasm"
+              size="$(wc -c < "$output")"
+              if [ "$size" -gt 10485760 ]; then
+                echo "$output is $size bytes; the loader must remain below 10 MiB" >&2
+                exit 1
+              fi
+              ls -lh "$output"
+            done
           '';
           engineBuildScript = ''
             target=wasm32-unknown-unknown
@@ -59,38 +61,36 @@
             fi
             ls -lh typst/tymbolica.wasm.zlib
           '';
-          idensoBuildScript = ''
+          tydensoBuildScript = ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package tymbolica-idenso-plugin
-            idenso_raw="target/$target/release/tymbolica-idenso.raw.wasm"
+            cargo build --release --target "$target" --package tydenso-plugin
+            tydenso_raw="target/$target/release/tydenso.raw.wasm"
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-              -o "$idenso_raw" "target/$target/release/tymbolica_idenso_plugin.wasm"
+              -o "$tydenso_raw" "target/$target/release/tydenso_plugin.wasm"
 
             cargo run --release --package tymbolica-inflate-plugin --bin tymbolica-compress -- \
-              "$idenso_raw" typst/tymbolica-idenso.wasm.zlib
-            size="$(wc -c < typst/tymbolica-idenso.wasm.zlib)"
+              "$tydenso_raw" tydenso/tydenso.wasm.zlib
+            size="$(wc -c < tydenso/tydenso.wasm.zlib)"
             if [ "$size" -gt 10485760 ]; then
-              echo "typst/tymbolica-idenso.wasm.zlib is $size bytes; the compressed Idenso engine must remain below 10 MiB" >&2
+              echo "tydenso/tydenso.wasm.zlib is $size bytes; the compressed Tydenso engine must remain below 10 MiB" >&2
               exit 1
             fi
-            ls -lh typst/tymbolica-idenso.wasm.zlib
+            ls -lh tydenso/tydenso.wasm.zlib
           '';
-          buildScript = loaderBuildScript + engineBuildScript + idensoBuildScript;
+          buildScript = loaderBuildScript + engineBuildScript + tydensoBuildScript;
         in rec {
           default = build;
           build = app "tymbolica-build" buildScript;
           build-engine = app "tymbolica-build-engine" (loaderBuildScript + engineBuildScript);
-          build-idenso = app "tymbolica-build-idenso" (loaderBuildScript + idensoBuildScript);
+          build-tydenso = app "tymbolica-build-tydenso" (loaderBuildScript + tydensoBuildScript);
           manual = app "tymbolica-manual" (buildScript + ''
-            out="''${TYMBOLICA_MANUAL_OUT:-typst/manual.pdf}"
-            if [ "$#" -gt 0 ]; then
-              out="$1"
-              shift
-            fi
-            mkdir -p "$(dirname "$out")"
-            typst compile --root . typst/manual.typ "$out" "$@"
-            ls -lh "$out"
+            tymbolica_out="''${TYMBOLICA_MANUAL_OUT:-typst/manual.pdf}"
+            tydenso_out="''${TYDENSO_MANUAL_OUT:-tydenso/manual.pdf}"
+            mkdir -p "$(dirname "$tymbolica_out")" "$(dirname "$tydenso_out")"
+            typst compile --root . typst/manual.typ "$tymbolica_out"
+            typst compile --root . tydenso/manual.typ "$tydenso_out"
+            ls -lh "$tymbolica_out" "$tydenso_out"
           '');
           check = app "tymbolica-check" (buildScript + ''
             check_dir="$(mktemp -d)"
@@ -104,8 +104,11 @@
             typst compile --root . typst/examples/api-surface.typ "$check_dir/api-surface.pdf"
             typst compile --root . typst/examples/integration.typ "$check_dir/integration.pdf"
             typst compile --root . typst/examples/parsely-mwe.typ "$check_dir/parsely-mwe.pdf"
-            typst compile --root . typst/examples/idenso.typ "$check_dir/idenso.pdf"
             typst compile --root . typst/manual.typ "$check_dir/manual.pdf"
+            typst compile --root . tydenso/examples/basic.typ "$check_dir/tydenso-basic.pdf"
+            typst compile --root . tydenso/examples/symmetry.typ "$check_dir/tydenso-symmetry.pdf"
+            typst compile --root . tydenso/examples/interop.typ "$check_dir/tydenso-interop.pdf"
+            typst compile --root . tydenso/manual.typ "$check_dir/tydenso-manual.pdf"
 
             package_dir="$check_dir/xdg/typst/packages/local/tymbolica"
             mkdir -p "$package_dir"
@@ -113,8 +116,18 @@
             XDG_DATA_HOME="$check_dir/xdg" \
               typst compile --root . typst/examples/local-package.typ "$check_dir/local-package.pdf"
 
+            tydenso_package_dir="$check_dir/xdg/typst/packages/local/tydenso"
+            mkdir -p "$tydenso_package_dir"
+            ln -s "$PWD/tydenso" "$tydenso_package_dir/0.1.0"
+            XDG_DATA_HOME="$check_dir/xdg" \
+              typst compile --root . tydenso/examples/local-package.typ "$check_dir/tydenso-local-package.pdf"
+
             if ! cmp -s typst/manual.pdf "$check_dir/manual.pdf"; then
               echo "typst/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
+              exit 1
+            fi
+            if ! cmp -s tydenso/manual.pdf "$check_dir/tydenso-manual.pdf"; then
+              echo "tydenso/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
               exit 1
             fi
           '');
@@ -131,6 +144,7 @@
             work="$TMPDIR/tymbolica"
             mkdir -p "$work"
             cp -R ${self}/typst "$work/typst"
+            cp -R ${self}/tydenso "$work/tydenso"
             cp ${self}/typst.toml "$work/typst.toml"
             chmod -R u+w "$work"
             mkdir -p "$out"
@@ -141,7 +155,7 @@
                 echo "$file is $size bytes; Typst web app files must not exceed 20 MiB" >&2
                 exit 1
               fi
-            done < <(find "$work/typst" -type f -print0)
+            done < <(find "$work/typst" "$work/tydenso" -type f -print0)
 
             typst compile --root "$work" "$work/typst/examples/basic.typ" "$out/basic.pdf"
             typst compile --root "$work" "$work/typst/examples/showcase.typ" "$out/showcase.pdf"
@@ -151,8 +165,11 @@
             typst compile --root "$work" "$work/typst/examples/api-surface.typ" "$out/api-surface.pdf"
             typst compile --root "$work" "$work/typst/examples/integration.typ" "$out/integration.pdf"
             typst compile --root "$work" "$work/typst/examples/parsely-mwe.typ" "$out/parsely-mwe.pdf"
-            typst compile --root "$work" "$work/typst/examples/idenso.typ" "$out/idenso.pdf"
             typst compile --root "$work" "$work/typst/manual.typ" "$out/manual.pdf"
+            typst compile --root "$work" "$work/tydenso/examples/basic.typ" "$out/tydenso-basic.pdf"
+            typst compile --root "$work" "$work/tydenso/examples/symmetry.typ" "$out/tydenso-symmetry.pdf"
+            typst compile --root "$work" "$work/tydenso/examples/interop.typ" "$out/tydenso-interop.pdf"
+            typst compile --root "$work" "$work/tydenso/manual.typ" "$out/tydenso-manual.pdf"
 
             package_dir="$TMPDIR/xdg/typst/packages/local/tymbolica"
             mkdir -p "$package_dir"
@@ -160,8 +177,18 @@
             XDG_DATA_HOME="$TMPDIR/xdg" \
               typst compile --root "$work" "$work/typst/examples/local-package.typ" "$out/local-package.pdf"
 
+            tydenso_package_dir="$TMPDIR/xdg/typst/packages/local/tydenso"
+            mkdir -p "$tydenso_package_dir"
+            ln -s "$work/tydenso" "$tydenso_package_dir/0.1.0"
+            XDG_DATA_HOME="$TMPDIR/xdg" \
+              typst compile --root "$work" "$work/tydenso/examples/local-package.typ" "$out/tydenso-local-package.pdf"
+
             if ! cmp -s "$work/typst/manual.pdf" "$out/manual.pdf"; then
               echo "typst/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
+              exit 1
+            fi
+            if ! cmp -s "$work/tydenso/manual.pdf" "$out/tydenso-manual.pdf"; then
+              echo "tydenso/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
               exit 1
             fi
           '';

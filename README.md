@@ -42,7 +42,7 @@ The factorization and derivative are computed exactly while Typst compiles the
 document. Symbolica expressions are opaque values; render them with `to-typst`
 or inspect them with `canonical`.
 
-## Rubi integration and Idenso
+## Rubi integration and Tydenso
 
 Tymbolica ships one Symbolica engine containing its algebra tools and Rubi.
 Most operations are available directly from the imported top-level API.
@@ -60,10 +60,23 @@ with `init()`:
 ```
 
 The Symbolica/Rubi engine is stored as a compressed asset and expanded by a
-small loader when `init()` is first used. Tensor-specific Idenso operations are
-kept in a separate, independently compressed plugin and loaded only by
-`init-idenso()`. The two engines exchange Symbolica's native Atom exports; keep
-values produced after Rubi integration in their originating Tymbolica engine.
+small loader when `init()` is first used.
+
+Tensor algebra is provided by the separate `tydenso` Typst package in this
+repository. Tydenso has its own manual, constructors, Spenso-aware printer, and
+compressed plugin. Representations and slots are inspectable Typst
+dictionaries, while completed expressions use the same native Symbolica Atom
+export as Tymbolica:
+
+```typst
+#import "@local/tydenso:0.1.0": *
+
+#let V = mink(4)
+#let p = tensor("p")
+#let expression = mul(metric(V, "mu", "nu"), p(slot(V, "nu")))
+
+#to-typst(simplify-metrics(expression))
+```
 
 ## Install locally
 
@@ -76,6 +89,9 @@ cd tymbolica
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica"
 ln -s "$PWD" \
   "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica/0.1.0"
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tydenso"
+ln -s "$PWD/tydenso" \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tydenso/0.1.0"
 ```
 
 On macOS, use `~/Library/Application Support/typst/packages` in place of the
@@ -86,11 +102,15 @@ Linux data directory. During repository development, examples instead import
 
 - [User manual](typst/manual.pdf) — quickstart, concepts, recipes, limitations,
   and complete API reference
+- [Tydenso manual](tydenso/manual.pdf) — tensor construction, Spenso printing,
+  CBOR inspection, Idenso transforms, and complete API reference
 - [Minimal example](typst/examples/basic.typ) — a compact first document
 - [Rubi integration](typst/examples/integration.typ) — an antiderivative and
   its nested rule steps
-- [Idenso tensor algebra](typst/examples/idenso.typ) — native Atom exchange
-  between the main engine and the optional Idenso plugin
+- [Tydenso tensor algebra](tydenso/examples/basic.typ) — structural tensor
+  construction and metric contraction
+- [Tydenso interoperability](tydenso/examples/interop.typ) — native Atom
+  exchange between the two independently packaged plugins
 - [Polynomial-system showcase](typst/examples/showcase.typ) — exact solving,
   factorization, substitution, and a Jacobian determinant in one case study
 - [Batched expression grid](typst/examples/expression-grid.typ) — evaluate four
@@ -112,10 +132,10 @@ nix develop
 Use the repository apps for the normal release workflow:
 
 ```sh
-nix run .#build        # rebuild both compressed engines and their loader
+nix run .#build        # rebuild both compressed engines and their loaders
 nix run .#build-engine # rebuild only the compressed Symbolica/Rubi engine
-nix run .#build-idenso # rebuild only the compressed Idenso engine
-nix run .#manual       # rebuild both engines and typst/manual.pdf
+nix run .#build-tydenso # rebuild only the compressed Tydenso engine
+nix run .#manual       # rebuild both engines and both manuals
 nix run .#check       # rebuild, compile the public examples, and verify the PDF
 nix flake check       # validate the Typst distribution using tracked plugins
 ```
@@ -124,9 +144,9 @@ Maintainer checks also compile
 [the API surface](typst/examples/api-surface.typ) and verify the
 [`@local` package import](typst/examples/local-package.typ).
 
-`nix run .#check` verifies the documented `@local` installation layout and
-fails when `typst/manual.pdf` does not match `manual.typ` and the current
-WebAssembly bundle. Commit the source, bundle, and regenerated manual together.
+`nix run .#check` verifies both documented `@local` installation layouts and
+fails when either committed manual PDF is stale. Commit the source, bundles,
+and regenerated manuals together.
 
 ## Attribution and licensing
 

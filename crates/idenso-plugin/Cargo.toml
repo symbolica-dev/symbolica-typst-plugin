@@ -1,12 +1,12 @@
 [package]
-name = "tymbolica-idenso-plugin"
+name = "tydenso-plugin"
 version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MIT"
 
 [lib]
-name = "tymbolica_idenso_plugin"
+name = "tydenso_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]

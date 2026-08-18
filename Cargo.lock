@@ -3134,14 +3134,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tymbolica-atom-payload"
-version = "0.1.0"
-dependencies = [
- "symbolica 2.2.0",
-]
-
-[[package]]
-name = "tymbolica-idenso-plugin"
+name = "tydenso-plugin"
 version = "0.1.0"
 dependencies = [
  "ciborium",
@@ -3153,6 +3146,13 @@ dependencies = [
  "tymbolica-atom-payload",
  "tymbolica-symbol-registry",
  "wasm-minimal-protocol",
+]
+
+[[package]]
+name = "tymbolica-atom-payload"
+version = "0.1.0"
+dependencies = [
+ "symbolica 2.2.0",
 ]
 
 [[package]]

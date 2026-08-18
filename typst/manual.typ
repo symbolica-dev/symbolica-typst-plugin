@@ -6,7 +6,6 @@
 #let repository = "https://github.com/lcnbr/tymbolica"
 #let symbolica-guide = "https://symbolica.io/docs/quick_start.html"
 #let symbolica-integration = "https://symbolica.io/posts/symbolic_integration/"
-#let idenso-guide = "https://symbolica.io/docs/python_api/community/idenso/index.html"
 #let accent = rgb("#315c88")
 #let pale-accent = rgb("#edf4fb")
 #let warning = rgb("#9a5b13")
@@ -200,11 +199,6 @@ custom symbol namespace, or another parser grammar:
 #let x = var("x")
 #let result = integrate(parse($x / (x + 1)$), x)
 ```
-
-Idenso's tensor transformations remain a separate compressed engine so they
-are only loaded by documents that call `init-idenso()`. Tymbolica and Idenso
-exchange native Atom exports. Rubi can extend Tymbolica's symbol registry, so
-keep Atom values produced after integration in their originating engine.
 
 == Where to begin
 
@@ -686,49 +680,17 @@ points uphill everywhere else. `evaluate-grid` pairs each point with one value
 for every requested expression; use `evaluate-many` when your sample points do
 not form a Cartesian product.
 
-= Tensor algebra with Idenso
-
-Idenso supplies domain-specific tensor transformations on top of Symbolica.
-It is an optional plugin, so an ordinary Tymbolica document does not pay its
-decompression or instantiation cost. Both plugins exchange native Symbolica
-Atom exports: Tymbolica can parse and render an expression while Idenso applies
-its tensor-aware transformations.
-
-Here a Minkowski metric contracts the repeated Lorentz index of a vector. The
-multi-letter `mink` constructor uses `op("mink")` because that is how Typst
-marks a multi-letter operator in math content.
-
-```worked
->>>#let sym = init(namespace: "spenso")
->>>#let tensors = init-idenso()
->>>#let input = (sym.math)(
->>>  $g(op("mink")(4, 0), op("mink")(4, 1)) p(op("mink")(4, 1))$,
->>>)
->>>#let contracted = (tensors.simplify-metrics)(input)
-
-$
-  #(sym.to-typst)(input)
-  quad arrow.r.long
-  #(sym.to-typst)(contracted)
-$
-```
-
-`init-idenso()` also exposes gamma, color, index-wrapping, selective-expansion,
-and dot-product transformations. Their notation and mathematical conventions
-follow #link(idenso-guide)[Idenso's documentation].
-
 = What to expect
 
 Tymbolica deliberately presents a smaller surface than Symbolica itself. The
 parts covered in this manual work well for exact algebra in documents, but a
 few boundaries are worth knowing before you choose an approach:
 
-- Rubi integration methods are fields of the dictionary returned by `init()`;
-  Idenso tensor transformations are loaded separately by `init-idenso()`.
+- Rubi integration methods are fields of the dictionary returned by `init()`.
 
-- Tymbolica and Idenso exchange native Atom exports directly. Rubi integration
-  adds symbol state, so post-integration outputs remain with their originating
-  Tymbolica engine. Matrix payloads are separate and remain Tymbolica-only.
+- Rubi integration adds symbol state, so post-integration outputs remain with
+  their originating Tymbolica engine. Matrix payloads are separate from Atom
+  payloads.
 
 - Integration returns a best-effort expression when no Rubi rule finishes the
   job. Check `complete` from `integrate-with-steps` when an unevaluated
@@ -767,7 +729,7 @@ precision, or deeper polynomial algorithms—use Symbolica directly.
   [Display it with `to-typst`.],
   [A symbolic result fails in another API],
   [The bytes hold a matrix or came from an incompatible package version.],
-  [Exchange native Atom exports between Tymbolica and Idenso before integration; keep Rubi-state exports in Tymbolica.],
+  [Use the matching package version and keep matrix values in matrix APIs.],
   [A derivative or series leaves a function unchanged],
   [`sin`, `cos`, or another analytic function was read as an ordinary name.],
   [Use `init(namespace: "symbolica")` for Symbolica built-ins.],
@@ -839,7 +801,7 @@ engine-bound integration methods are documented separately afterwards.
   ),
   (
     title: [Advanced configuration],
-    names: ("init", "init-idenso"),
+    names: ("init",),
   ),
 )
 
@@ -899,34 +861,6 @@ Each step contains `rule` (`int` or `none`), `depth` (`int`), `description`
 payloads `input` and `output` (`bytes`). Steps run from an outer rewrite into
 the nested integrals it creates; `rule: none` marks an auxiliary
 transformation such as a fresh-symbol substitution.
-
-== Idenso tensor methods
-
-These methods are fields of the dictionary returned by `init-idenso()` and
-accept Tymbolica's native Atom exports. Their results can be consumed directly
-by Tymbolica:
-
-```text
-cook-function(expr) -> bytes
-cook-indices(expr) -> bytes
-dirac-adjoint(expr) -> bytes
-expand-bis(expr) -> bytes
-expand-color(expr) -> bytes
-expand-metrics(expr) -> bytes
-expand-mink(expr) -> bytes
-expand-mink-bis(expr) -> bytes
-list-dangling(expr) -> array
-simplify-color(expr) -> bytes
-simplify-gamma(expr) -> bytes
-simplify-metrics(expr) -> bytes
-to-dots(expr) -> bytes
-wrap-dummies(expr, header) -> bytes
-wrap-indices(expr, header) -> bytes
-```
-
-The `header` arguments are ordinary Symbolica variables encoded as Atom
-payloads, for example `(sym.var)("left")`. `list-dangling` is the one method
-that returns an array; each element is again an Atom payload.
 
 = Compatibility and licensing
 
