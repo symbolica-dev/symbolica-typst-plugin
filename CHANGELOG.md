@@ -26,7 +26,9 @@ local `0.1.0` package while its initial public surface is being prepared.
   through the real `SpensoPrintSettings` fields.
 - Render tensor and vector indices with Typst `attach`, including Physica-style
   hidden alignment columns. Self-dual indices default to the upper row, while
-  dualizable representations retain an explicit lower orientation.
+  dualizable representations retain an explicit lower orientation. Built-in
+  metrics use the same Typst-specific notation instead of exposing their
+  internal representation slots.
 - Added recursive CBOR inspection of Symbolica Atom internals while retaining
   the native Atom export as the lossless cross-plugin payload.
 - Documented every public parameter, default, return shape, and current

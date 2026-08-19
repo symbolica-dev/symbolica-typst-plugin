@@ -1027,6 +1027,19 @@ mod tests {
     }
 
     #[test]
+    fn metric_uses_tensor_attachments_in_spenso_typst_mode() {
+        let metric = crate::network::library::symbolic::ETS
+            .metric(mink!(4, symbol!("mu")), mink!(4, symbol!("nu")));
+
+        assert_eq!(
+            metric
+                .printer(SpensoPrintSettings::typst_options())
+                .to_string(),
+            "attach(#($g$,std.hide($zws$)).join(),t:mu nu,b:std.hide(mu) std.hide(nu))"
+        );
+    }
+
+    #[test]
     fn tagged_imports_can_recover_the_generic_tensor_printer() {
         let head = SymbolBuilder::new(wrap_symbol!("spenso_typst_tests::R"))
             .with_tags([SPENSO_TAG.tensor.clone()])

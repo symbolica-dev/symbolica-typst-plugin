@@ -216,12 +216,12 @@ attributes while it constructs the function, not as a later cosmetic step.
 
 ```worked
 #let V = euc(3)
-#let mu = slot(V, "mu")
-#let nu = slot(V, "nu")
+#let mu-slot = slot(V, "mu")
+#let nu-slot = slot(V, "nu")
 #let F = tensor("F", antisymmetric: true)
 
-#let cancellation = add(F(mu, nu), F(nu, mu))
-$ F_(mu nu) + F_(nu mu) = #to-typst(cancellation) $
+#let cancellation = add(F(mu-slot, nu-slot), F(nu-slot, mu-slot))
+$ F^(mu nu) + F^(nu mu) = #to-typst(cancellation) $
 ```
 
 Only one of `symmetric`, `antisymmetric`, and `cycle-symmetric` may be true for
