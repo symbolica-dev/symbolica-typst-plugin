@@ -9,7 +9,7 @@
 Tymbolica turns native Typst mathematics into an exact Symbolica expression and
 places the computed result back into the document.
 
-#let x = var("x")
+#let x = symbol("x")
 #let polynomial = math($x^4 - 5 x^2 + 4$)
 #let factored = factor(polynomial)
 #let slope = derivative(polynomial, x)

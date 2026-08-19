@@ -25,12 +25,12 @@ advances both populations; it is ordinary Typst code rather than a new ODE API.
 
 #let sym = init(namespace: "symbolica")
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
 #let evaluate-many = sym.evaluate-many
 
-#let t = var("t")
-#let x = var("x")
-#let y = var("y")
+#let t = symbol("t")
+#let x = symbol("x")
+#let y = symbol("y")
 #let right-hand-sides = (
   parse($(2 x) / 3 - (4 x y) / 3$),
   parse($x y - y$),

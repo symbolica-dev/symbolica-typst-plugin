@@ -523,6 +523,15 @@ pub fn construct(value: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[wasm_func]
+pub fn from_ast(ast: &[u8], namespace: &[u8]) -> Result<Vec<u8>, String> {
+    let namespace = match decode_cbor(namespace, "namespace")? {
+        Value::Text(namespace) => namespace,
+        other => return Err(format!("namespace must be text, got {other:?}")),
+    };
+    encode_atom(&tymbolica_typst_ast::atom_from_ast(ast, &namespace, "ast")?)
+}
+
+#[wasm_func]
 pub fn inspect(expr: &[u8]) -> Result<Vec<u8>, String> {
     encode_cbor(atom_tree(decode_atom(expr, "expr")?.as_view()))
 }

@@ -1,3 +1,137 @@
+#import "@preview/parsely:0.1.0"
+
+#let _default-grammar = (
+  arg: (infix: $,$, assoc: true, prec: 4),
+  add: (infix: $+$, prec: 1, assoc: true),
+  sub: (infix: $-$, prec: 1),
+  plus: (prefix: $+$, prec: 2),
+  neg: (prefix: $-$, prec: 2),
+  times: (infix: $times$, prec: 2),
+  dot: (infix: $dot$, prec: 2),
+  factorial: (postfix: $#parsely.tight !$, prec: 3),
+  semantic-metadata: (postfix: metadata, prec: 5),
+  mul: (infix: $$, prec: 2.5, assoc: true),
+  "()": (match: $(#parsely.slot("expr*"))$),
+  pow: (match: $#parsely.slot("base")^#parsely.slot("exp")$),
+  attach: math.attach,
+  frac: math.frac,
+  lr: math.lr,
+  root: math.root,
+  op-call: (match: $op(#parsely.slot("op"))(#parsely.slot("args*"))$),
+  call: (match: $#parsely.slot("fn") #parsely.tight (#parsely.slot("body*"))$),
+  op: math.op,
+)
+#let _typst-math = math
+
+#let _leaf(value) = {
+  if type(value) == dictionary {
+    value
+  } else if type(value) == array {
+    value.map(_leaf)
+  } else if type(value) == str {
+    value
+  } else if type(value) == content {
+    let fields = value.fields()
+    if "text" in fields {
+      fields.text
+    } else if "children" in fields {
+      fields.children.map(_leaf).join("")
+    } else {
+      repr(value)
+    }
+  } else {
+    repr(value)
+  }
+}
+
+#let _node-to-ast(node) = (
+  head: node.head,
+  args: node.args,
+  slots: node.slots,
+)
+
+#let _with-semantic-metadata(grammar) = {
+  let enhanced = (
+    semantic-metadata: (postfix: metadata, prec: 5),
+  )
+  for (name, rule) in grammar {
+    if name != "semantic-metadata" { enhanced.insert(name, rule) }
+  }
+  enhanced
+}
+
+#let _is-space(value) = {
+  if type(value) == str { return value.trim() == "" }
+  if type(value) == content {
+    if repr(value.func()) == "space" { return true }
+    if repr(value.func()) == "symbol" and "text" in value.fields() {
+      return value.fields().text.trim() == ""
+    }
+  }
+  false
+}
+
+#let _content-positional-fields = (
+  attach: ("base",),
+  equation: ("body",),
+  frac: ("num", "denom"),
+  lr: ("body",),
+  root: ("index", "radicand"),
+)
+
+#let _call-content(fn, fields) = {
+  let kind = repr(fn)
+  if kind == "sequence" and "children" in fields {
+    return fields.children.join()
+  }
+
+  let positional = ()
+  for field in _content-positional-fields.at(kind, default: ()) {
+    if field in fields { positional.push(fields.remove(field)) }
+  }
+  fn(..positional, ..fields)
+}
+
+#let _trim-math(value) = {
+  let trim-array(values) = {
+    let values = values.map(_trim-math)
+    while values.len() > 0 and _is-space(values.first()) {
+      values = values.slice(1)
+    }
+    while values.len() > 0 and _is-space(values.last()) {
+      values = values.slice(0, values.len() - 1)
+    }
+    values
+  }
+
+  if type(value) == array { return trim-array(value) }
+  if type(value) != content { return value }
+
+  let kind = repr(value.func())
+  if kind != "sequence" and kind not in _content-positional-fields {
+    return value
+  }
+
+  let fields = (:)
+  for (key, field) in value.fields() {
+    fields.insert(key, _trim-math(field))
+  }
+  _call-content(value.func(), fields)
+}
+
+#let _ast-bytes(equation, grammar) = {
+  let parsed = parsely.parse(_trim-math(equation), _with-semantic-metadata(grammar))
+  let tree = parsely.walk(parsed.tree, post: _node-to-ast, leaf: _leaf)
+  cbor.encode(tree)
+}
+
+#let _from-math(engine, equation, grammar: none, namespace: none) = {
+  let grammar = if grammar == none { engine.grammar } else { grammar }
+  let namespace = if namespace == none { engine.namespace } else { namespace }
+  engine.plugin.from_ast(_ast-bytes(equation, grammar), cbor.encode(namespace))
+}
+#let _namespace(engine, namespace) = if namespace == none { engine.namespace } else { namespace }
+
 #let _decompress-bundled(path) = plugin("tydenso-inflate.wasm").decompress(
   read(path, encoding: none),
 )
@@ -13,29 +147,50 @@
   dual-name: value.dual-name,
 )
 
-#let _portable(value) = {
+#let _portable(engine, value) = {
   if type(value) == dictionary and value.at("kind", default: none) == "representation" {
-    return _plain-representation(value)
+    return (
+      kind: "representation",
+      name: value.name,
+      namespace: value.namespace,
+      dimension: _portable(engine, value.dimension),
+      self-dual: value.self-dual,
+      is-dual: value.is-dual,
+      dual-name: value.dual-name,
+    )
   }
   if type(value) == dictionary and value.at("kind", default: none) == "slot" {
     return (
       kind: "slot",
-      representation: _plain-representation(value.representation),
-      index: _portable(value.index),
+      representation: _portable(engine, value.representation),
+      index: _portable(engine, value.index),
       dual: value.dual,
     )
   }
   if type(value) == array {
-    return value.map(_portable)
+    return value.map(item => _portable(engine, item))
+  }
+  if type(value) == dictionary {
+    let result = (:)
+    for (key, item) in value {
+      if type(item) != function {
+        result.insert(key, _portable(engine, item))
+      }
+    }
+    return result
+  }
+  if type(value) == content {
+    return _from-math(engine, value)
   }
   value
 }
 
-#let _construct(engine, value) = engine.plugin.construct(cbor.encode(_portable(value)))
+#let _construct(engine, value) = engine.plugin.construct(cbor.encode(_portable(engine, value)))
 #let _payload(engine, value, label: "expression") = {
   if type(value) == bytes { return value }
+  if type(value) == content { return _from-math(engine, value) }
   if type(value) in (int, float, str, dictionary) { return _construct(engine, value) }
-  panic(label + " must be an Atom payload or a Tydenso constructor value")
+  panic(label + " must be an Atom payload, annotated math, or a Tydenso constructor value")
 }
 
 #let _slot(representation, index, dual: none) = (
@@ -53,6 +208,37 @@
   }
 }
 
+#let _atom-envelope(atom, semantic) = (
+  protocol: "tymbolica",
+  version: 1,
+  kind: "atom",
+  atom: atom,
+  semantic: semantic,
+)
+
+#let _default-typst-settings = (
+  preset: "typst",
+  with-dim: false,
+  parens: true,
+  commas: false,
+  index-subscripts: true,
+  symbol-scripts: true,
+)
+
+#let _annotated(engine, atom, semantic) = {
+  let visual = eval(str(engine.plugin.to_typst(cbor.encode((
+    expr: atom,
+    settings: _default-typst-settings,
+  )))), mode: "math")
+  _typst-math.attach(visual) + metadata(_atom-envelope(atom, _portable(engine, semantic)))
+}
+
+#let _validate-tags(tags) = {
+  if type(tags) != array or not tags.all(tag => type(tag) == str) {
+    panic("tags must be an array of strings")
+  }
+}
+
 #let _call(
   engine,
   name,
@@ -62,16 +248,64 @@
   antisymmetric: false,
   cycle-symmetric: false,
   linear: false,
-) = _construct(engine, (
-  kind: "call",
-  name: name,
-  namespace: namespace,
-  arguments: arguments.map(_portable),
-  symmetric: symmetric,
-  antisymmetric: antisymmetric,
-  cycle-symmetric: cycle-symmetric,
-  linear: linear,
-))
+  semantic-kind: "tensor",
+  tags: (),
+) = {
+  _validate-tags(tags)
+  let constructor = (
+    kind: "call",
+    name: name,
+    namespace: namespace,
+    arguments: arguments,
+    symmetric: symmetric,
+    antisymmetric: antisymmetric,
+    cycle-symmetric: cycle-symmetric,
+    linear: linear,
+  )
+  let atom = _construct(engine, constructor)
+  _annotated(engine, atom, (
+    kind: semantic-kind,
+    name: name,
+    namespace: namespace,
+    arguments: arguments,
+    symmetric: symmetric,
+    antisymmetric: antisymmetric,
+    cycle-symmetric: cycle-symmetric,
+    linear: linear,
+    tags: tags,
+  ))
+}
+
+#let _symbol(engine, name, namespace: "spenso", tags: ()) = {
+  if type(name) != str { panic("symbol name must be a string") }
+  _validate-tags(tags)
+  let constructor = (kind: "symbol", name: name, namespace: namespace)
+  let atom = _construct(engine, constructor)
+  _annotated(engine, atom, (
+    kind: "symbol",
+    name: name,
+    namespace: namespace,
+    tags: tags,
+  ))
+}
+
+#let _function(engine, name, namespace: "spenso", tags: ()) = {
+  if type(name) != str { panic("function name must be a string") }
+  _validate-tags(tags)
+  (..arguments) => {
+    if arguments.named().len() > 0 {
+      panic("symbolic function calls accept only positional arguments")
+    }
+    _call(
+      engine,
+      name,
+      arguments.pos(),
+      namespace: namespace,
+      semantic-kind: "function-call",
+      tags: tags,
+    )
+  }
+}
 
 #let _tensor(
   engine,
@@ -82,16 +316,32 @@
   antisymmetric: false,
   cycle-symmetric: false,
   linear: false,
-) = (..arguments) => _construct(engine, (
-  kind: if rank-one { "vector" } else { "tensor" },
-  name: name,
-  namespace: namespace,
-  arguments: arguments.pos().map(_portable),
-  symmetric: symmetric,
-  antisymmetric: antisymmetric,
-  cycle-symmetric: cycle-symmetric,
-  linear: linear,
-))
+  tags: (),
+) = {
+  if type(name) != str { panic("tensor name must be a string") }
+  _validate-tags(tags)
+  (..arguments) => {
+    if arguments.named().len() > 0 {
+      panic("tensor calls accept only positional arguments")
+    }
+    let kind = if rank-one { "vector" } else { "tensor" }
+    let constructor = (
+      kind: kind,
+      name: name,
+      namespace: namespace,
+      arguments: arguments.pos(),
+      symmetric: symmetric,
+      antisymmetric: antisymmetric,
+      cycle-symmetric: cycle-symmetric,
+      linear: linear,
+    )
+    let atom = _construct(engine, constructor)
+    _annotated(engine, atom, (
+      ..constructor,
+      tags: tags,
+    ))
+  }
+}
 
 #let _representation(
   engine,
@@ -199,32 +449,54 @@
 ///
 /// -> dictionary
 #let init(
+  /// Default namespace for symbols parsed from Typst math.
+  /// -> str
+  namespace: "spenso",
   /// WebAssembly plugin path or uncompressed module bytes. `none` selects the
   /// bundled compressed Tydenso engine.
   /// -> str | bytes | none
   source: none,
+  /// Parser grammar used by `math` unless it receives an explicit override.
+  /// -> dictionary
+  grammar: _default-grammar,
 ) = {
   let plugin-module = if source == none { _bundled-plugin() } else { plugin(source) }
-  let engine = (plugin: plugin-module,)
+  let engine = (
+    plugin: plugin-module,
+    grammar: grammar,
+    namespace: namespace,
+  )
   (
     plugin: plugin-module,
-    construct: value => _construct(engine, value),
-    symbol: (name, namespace: "spenso") => _construct(engine, (
-      kind: "symbol", name: name, namespace: namespace,
-    )),
-    tensor: (name, namespace: "spenso", symmetric: false, antisymmetric: false, cycle-symmetric: false, linear: false) => _tensor(
-      engine, name,
+    math: (equation, grammar: none, namespace: none) => _from-math(
+      engine,
+      equation,
+      grammar: grammar,
       namespace: namespace,
+    ),
+    atom: value => _payload(engine, value),
+    construct: value => _construct(engine, value),
+    symbol: (name, namespace: none, tags: ()) => _symbol(
+      engine, name, namespace: _namespace(engine, namespace), tags: tags,
+    ),
+    function: (name, namespace: none, tags: ()) => _function(
+      engine, name, namespace: _namespace(engine, namespace), tags: tags,
+    ),
+    tensor: (name, namespace: none, symmetric: false, antisymmetric: false, cycle-symmetric: false, linear: false, tags: ()) => _tensor(
+      engine, name,
+      namespace: _namespace(engine, namespace),
       symmetric: symmetric,
       antisymmetric: antisymmetric,
       cycle-symmetric: cycle-symmetric,
       linear: linear,
+      tags: tags,
     ),
-    vector: (name, namespace: "spenso", linear: false) => _tensor(
+    vector: (name, namespace: none, linear: false, tags: ()) => _tensor(
       engine, name,
       rank-one: true,
-      namespace: namespace,
+      namespace: _namespace(engine, namespace),
       linear: linear,
+      tags: tags,
     ),
     representation: (name, dimension, namespace: "spenso", self-dual: false, is-dual: false, dual-name: none) => _representation(
       engine, name, dimension,
@@ -252,22 +524,22 @@
       _as-slot(representation, first), _as-slot(representation, second),
     )),
     dual-representation: representation => (representation.dual)(),
-    add: (..terms) => _construct(engine, (kind: "sum", terms: terms.pos().map(_portable))),
-    mul: (..factors) => _construct(engine, (kind: "product", factors: factors.pos().map(_portable))),
-    neg: expression => _construct(engine, (kind: "negative", expression: _portable(expression))),
+    add: (..terms) => _construct(engine, (kind: "sum", terms: terms.pos())),
+    mul: (..factors) => _construct(engine, (kind: "product", factors: factors.pos())),
+    neg: expression => _construct(engine, (kind: "negative", expression: expression)),
     sub: (left, right) => _construct(engine, (
       kind: "sum",
-      terms: (_portable(left), (kind: "negative", expression: _portable(right))),
+      terms: (left, (kind: "negative", expression: right)),
     )),
     div: (numerator, denominator) => _construct(engine, (
       kind: "product",
       factors: (
-        _portable(numerator),
-        (kind: "power", base: _portable(denominator), exponent: -1),
+        numerator,
+        (kind: "power", base: denominator, exponent: -1),
       ),
     )),
     pow: (base, exponent) => _construct(engine, (
-      kind: "power", base: _portable(base), exponent: _portable(exponent),
+      kind: "power", base: base, exponent: exponent,
     )),
     print-settings: (preset: "typst", with-dim: none, parens: none, commas: none, index-subscripts: none, symbol-scripts: none) => _print-settings(
       preset: preset,
@@ -305,6 +577,30 @@
 
 #let _default-engine() = init()
 
+/// Parse Typst math into an exact Symbolica Atom payload.
+///
+/// Annotated values created by `symbol`, `function`, `tensor`, `vector`, and
+/// the named tensor constructors are imported from their exact Atom metadata.
+/// Use interpolation for callable bindings, for example `#F(mu, nu)`.
+///
+/// -> bytes
+#let math(
+  /// Math content, normally written as `$...$`.
+  /// -> content
+  equation,
+  /// Parser grammar override. `none` uses the engine grammar.
+  /// -> dictionary | none
+  grammar: none,
+  /// Namespace for unannotated parsed symbols.
+  /// -> str | none
+  namespace: none,
+) = (_default-engine().math)(equation, grammar: grammar, namespace: namespace)
+
+/// Convert a supported value or annotated math expression to Atom bytes.
+///
+/// -> bytes
+#let atom(value) = (_default-engine().atom)(value)
+
 /// Construct a named tensor function.
 ///
 /// The result is callable with any mixture of slots, representations, scalar
@@ -337,6 +633,9 @@
   /// Mark the tensor function as linear.
   /// -> bool
   linear: false,
+  /// Portable semantic labels retained in attached metadata.
+  /// -> array
+  tags: (),
 ) = (_default-engine().tensor)(
   name,
   namespace: namespace,
@@ -344,6 +643,7 @@
   antisymmetric: antisymmetric,
   cycle-symmetric: cycle-symmetric,
   linear: linear,
+  tags: tags,
 )
 
 /// Construct a named rank-one tensor function.
@@ -368,15 +668,19 @@
   /// Mark the vector function as linear.
   /// -> bool
   linear: false,
+  /// Portable semantic labels retained in attached metadata.
+  /// -> array
+  tags: (),
 ) = (_default-engine().vector)(
   name,
   namespace: namespace,
   linear: linear,
+  tags: tags,
 )
 
-/// Construct a symbolic scalar.
+/// Construct a symbolic scalar with exact Atom metadata.
 ///
-/// -> bytes
+/// -> content
 #let symbol(
   /// Symbol name.
   /// -> str
@@ -384,7 +688,28 @@
   /// Symbol namespace.
   /// -> str
   namespace: "spenso",
-) = (_default-engine().symbol)(name, namespace: namespace)
+  /// Portable semantic labels retained in attached metadata.
+  /// -> array
+  tags: (),
+) = (_default-engine().symbol)(name, namespace: namespace, tags: tags)
+
+/// Construct a callable symbolic function with exact Atom metadata.
+///
+/// This is distinct from `symbol`: a Typst content value is not callable.
+/// Calling the returned function annotates the complete function call.
+///
+/// -> function
+#let function(
+  /// Function-head name.
+  /// -> str
+  name,
+  /// Symbol namespace.
+  /// -> str
+  namespace: "spenso",
+  /// Portable semantic labels retained in attached metadata.
+  /// -> array
+  tags: (),
+) = (_default-engine().function)(name, namespace: namespace, tags: tags)
 
 /// Describe a representation and attach its tensor-building methods.
 ///
@@ -484,21 +809,21 @@
 /// Index labels are converted to slots automatically; existing slots pass
 /// through unchanged.
 ///
-/// -> bytes
+/// -> content
 #let metric(representation, first, second) = (
   _default-engine().metric
 )(representation, first, second)
 
 /// Construct the identity tensor for a representation.
 ///
-/// -> bytes
+/// -> content
 #let identity-tensor(representation, first, second) = (
   _default-engine().identity-tensor
 )(representation, first, second)
 
 /// Construct Spenso's musical isomorphism tensor for a representation.
 ///
-/// -> bytes
+/// -> content
 #let flat-tensor(representation, first, second) = (
   _default-engine().flat-tensor
 )(representation, first, second)

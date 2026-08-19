@@ -13,8 +13,8 @@ hyperbola $x y = 2$. This small problem combines exact polynomial solving,
 factorization, symbolic matrices, and substitution in one reproducible Typst
 document.
 
-#let x = var("x")
-#let y = var("y")
+#let x = symbol("x")
+#let y = symbol("y")
 #let system = (
   math($x^2 + y^2 - 5$),
   math($x y - 2$),

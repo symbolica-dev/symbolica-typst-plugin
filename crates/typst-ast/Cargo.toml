@@ -1,0 +1,12 @@
+[package]
+name = "tymbolica-typst-ast"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[dependencies]
+ciborium = "0.2.2"
+symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }
+tymbolica-atom-payload = { path = "../atom-payload" }
+tymbolica-symbol-registry = { path = "../symbol-registry" }

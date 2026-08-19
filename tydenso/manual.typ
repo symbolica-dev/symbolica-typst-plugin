@@ -113,7 +113,7 @@ dictionary; `vector` creates a callable rank-one tensor name.
 #let nu = slot(V, "nu")
 #let p = vector("p")
 
-#let before = mul(metric(V, mu, nu), p(nu))
+#let before = math($#metric(V, mu, nu) #p(nu)$)
 #let after = simplify-metrics(before)
 
 $
@@ -123,8 +123,10 @@ $
 $
 ```
 
-The expression itself is a lossless Symbolica Atom payload. Keep that byte
-value for algebra; call `to-typst` where the result belongs on the page.
+The constructor calls already produce readable math. Their hidden, versioned
+metadata contains the exact Symbolica Atom, so `math` does not have to infer a
+tensor from its appearance. It returns Atom bytes for algebra; `to-typst`
+renders transformed results.
 
 == Installation
 
@@ -172,12 +174,13 @@ expr = TensorName.g(mu, nu) * p(nu)
 #let mu = slot(V, "mu")
 #let nu = slot(V, "nu")
 #let p = vector("p")
-#let expr = mul(metric(V, mu, nu), p(nu))
+#let expr = math($#metric(V, mu, nu) #p(nu)$)
 ```],
 )
 
-The Typst representation and slot values stay transparent; only a completed
-symbolic expression becomes Atom bytes.
+Representations and slots stay transparent dictionaries. Symbols and tensor
+calls are visible Typst math with exact Atom metadata; completed algebraic
+expressions are Atom bytes.
 
 = Build tensor expressions
 
@@ -220,32 +223,34 @@ attributes while it constructs the function, not as a later cosmetic step.
 #let nu-slot = slot(V, "nu")
 #let F = tensor("F", antisymmetric: true)
 
-#let cancellation = add(F(mu-slot, nu-slot), F(nu-slot, mu-slot))
+#let cancellation = math($#F(mu-slot, nu-slot) + #F(nu-slot, mu-slot)$)
 $ F^(mu nu) + F^(nu mu) = #to-typst(cancellation) $
 ```
 
 Only one of `symmetric`, `antisymmetric`, and `cycle-symmetric` may be true for
 one tensor name. The `linear` flag is independent.
 
-== Compose without parsing strings
+== Write tensor algebra as math
 
-`add`, `mul`, `neg`, `sub`, `div`, and `pow` accept Atom payloads together with
-integers, floats, strings, slots, and representation dictionaries. Strings are
-symbol names in the `spenso` namespace; use `symbol` to choose another
-namespace explicitly.
+Tensor and vector constructors are Typst functions. Interpolate their calls in
+math with `#F(...)`; interpolate scalar symbols with `#mass`. Parsely reads the
+ordinary arithmetic, while each annotated value contributes its exact Atom.
 
 ```worked
 #let V = mink("D")
 #let mu = slot(V, "mu")
+#let nu = slot(V, "nu")
 #let p = vector("p")
 #let mass = symbol("m", namespace: "model")
 
-#let shell = sub(pow(p(mu), 2), pow(mass, 2))
+#let shell = math($#metric(V, mu, nu) #p(mu) #p(nu) - #mass^2$)
 $ #to-typst(shell) $
 ```
 
-This constructor path is intentionally structural. It does not depend on a
-Typst-math parser guessing which arguments are tensor slots.
+The structural `add`, `mul`, `neg`, `sub`, `div`, and `pow` functions remain
+useful for generated expressions. They accept Atom bytes, annotated content,
+numbers, slots, and representation dictionaries. Both paths construct the
+same Atom; neither reconstructs tensors from printed subscripts.
 
 = Transform tensors
 
@@ -319,21 +324,15 @@ custom tensor notation. `to-string` uses Spenso's compact Symbolica notation.
 
 #let detailed = print-settings(with-dim: true, commas: true)
 
-Typst source:
-#raw(to-typst-source(expression, settings: detailed), block: true)
+Rendered: $ #to-typst(expression, settings: detailed) $
 
 Compact Spenso form:
 #raw(to-string(expression), block: true)
-
-Rendered: $ #to-typst(expression, settings: detailed) $
 ```
 
-In Typst mode, tensor and vector heads use a single `attach` expression. Upper
-and lower scripts occupy matching columns with hidden counterparts, following
-Physica's alignment technique. A plain self-dual slot is placed on the top row;
-self-dual variance wrappers normalize away because the representation is its
-own dual. For a dualizable representation, its dual orientation is placed on
-the bottom row.
+Upper and lower indices align in matching columns. A plain self-dual slot is
+placed on the top row; for a dualizable representation, its dual orientation
+is placed on the bottom row.
 
 `print-settings` exposes the real `SpensoPrintSettings` switches:
 `with-dim`, `parens`, `commas`, `index-subscripts`, and `symbol-scripts`. Start
@@ -342,10 +341,11 @@ document needs.
 
 == Inspect the Atom as CBOR data
 
-Atom bytes remain the lossless interchange format, but they are not the only
-view. `inspect` decodes an expression to recursive Typst data. Every node has a
-`kind`; function nodes also expose their full and short names, arguments, and
-symmetry flags.
+Atom bytes remain the lossless transformation and interchange format. Before a
+transformation, annotated constructor content carries those same bytes in
+metadata. `inspect` accepts either form and decodes it to recursive Typst data.
+Every node has a `kind`; function nodes also expose their full and short names,
+arguments, and symmetry flags.
 
 ```worked
 #let V = euc(3)
@@ -403,14 +403,14 @@ surface as a dictionary bound to a selected plugin module.
   (
     title: [Tensor construction],
     names: (
-      "tensor", "vector", "symbol", "representation", "mink", "euc", "lor", "bis",
+      "tensor", "vector", "symbol", "function", "representation", "mink", "euc", "lor", "bis",
       "spf", "cof", "coad", "cos", "slot", "metric", "identity-tensor",
       "flat-tensor", "dual-representation",
     ),
   ),
   (
     title: [Expression construction],
-    names: ("add", "mul", "neg", "sub", "div", "pow"),
+    names: ("math", "atom", "add", "mul", "neg", "sub", "div", "pow"),
   ),
   (
     title: [Printing and inspection],
@@ -487,4 +487,6 @@ contributors, and to the GammaLoop contributors for
 printers, and identities define this package's mathematics.
 
 Thanks also to #link("https://typst.app/universe/package/tidy/")[Tidy], which
-powers the worked examples and generated reference in this manual.
+powers the worked examples and generated reference, and to
+#link("https://typst.app/universe/package/parsely/")[Parsely], which parses
+Typst math while preserving the semantic Atom metadata.

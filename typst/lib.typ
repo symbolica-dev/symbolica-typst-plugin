@@ -9,6 +9,7 @@
   times: (infix: $times$, prec: 2),
   dot: (infix: $dot$, prec: 2),
   factorial: (postfix: $#parsely.tight !$, prec: 3),
+  semantic-metadata: (postfix: metadata, prec: 5),
   mul: (infix: $$, prec: 2.5, assoc: true),
   "()": (match: $(#parsely.slot("expr*"))$),
   pow: (match: $#parsely.slot("base")^#parsely.slot("exp")$),
@@ -27,7 +28,11 @@
 #let _typst_math = math
 
 #let _leaf(value) = {
-  if type(value) == str {
+  if type(value) == dictionary {
+    value
+  } else if type(value) == array {
+    value.map(_leaf)
+  } else if type(value) == str {
     value
   } else if type(value) == content {
     let fields = value.fields()
@@ -48,6 +53,16 @@
   args: node.args,
   slots: node.slots,
 )
+
+#let _with-semantic-metadata(grammar) = {
+  let enhanced = (
+    semantic-metadata: (postfix: metadata, prec: 5),
+  )
+  for (name, rule) in grammar {
+    if name != "semantic-metadata" { enhanced.insert(name, rule) }
+  }
+  enhanced
+}
 
 #let _is_space(value) = {
   if type(value) == str { return value.trim() == "" }
@@ -116,7 +131,7 @@
 #let _namespace_bytes(engine, namespace: none) = cbor.encode(_namespace(engine, namespace))
 
 #let _ast_bytes(eqn, grammar) = {
-  let parsed = parsely.parse(_trim_math(eqn), grammar)
+  let parsed = parsely.parse(_trim_math(eqn), _with-semantic-metadata(grammar))
   let tree = parsely.walk(parsed.tree, post: _node_to_ast, leaf: _leaf)
   cbor.encode(tree)
 }
@@ -128,7 +143,7 @@
 
 #let _array_tree(engine, eqn, grammar: none) = {
   let grammar = if grammar == none { engine.grammar } else { grammar }
-  let parsed = parsely.parse(_trim_math(eqn), grammar)
+  let parsed = parsely.parse(_trim_math(eqn), _with-semantic-metadata(grammar))
   parsely.walk(parsed.tree, post: it => (
     strong(raw(it.head)),
     ..it.args,
@@ -138,13 +153,7 @@
   ), leaf: _typst_math.equation)
 }
 
-#let _var(engine, name, namespace: none) = engine.plugin.symbol(cbor.encode(name), _namespace_bytes(engine, namespace: namespace))
-#let _wild(engine, name, level: 1, namespace: none) = {
-  let suffix = ""
-  for _ in range(level) { suffix += "_" }
-  _var(engine, name + suffix, namespace: namespace)
-}
-
+#let _symbol-atom(engine, name, namespace: none) = engine.plugin.symbol(cbor.encode(name), _namespace_bytes(engine, namespace: namespace))
 #let _expr_bytes(engine, expr, namespace: none) = {
   if type(expr) == bytes {
     expr
@@ -153,6 +162,80 @@
   } else {
     engine.plugin.from_ast(cbor.encode(expr), _namespace_bytes(engine, namespace: namespace))
   }
+}
+#let _atom-envelope(atom, semantic) = (
+  protocol: "tymbolica",
+  version: 1,
+  kind: "atom",
+  atom: atom,
+  semantic: semantic,
+)
+#let _annotated-atom(engine, atom, semantic) = {
+  let visual = eval(str(engine.plugin.to_typst(atom)), mode: "math")
+  _typst_math.attach(visual) + metadata(_atom-envelope(atom, semantic))
+}
+#let _validate-tags(tags) = {
+  if type(tags) != array or not tags.all(tag => type(tag) == str) {
+    panic("tags must be an array of strings")
+  }
+}
+#let _symbol(engine, name, namespace: none, tags: ()) = {
+  if type(name) != str { panic("symbol name must be a string") }
+  _validate-tags(tags)
+
+  let namespace = _namespace(engine, namespace)
+  let atom = _symbol-atom(engine, name, namespace: namespace)
+  _annotated-atom(engine, atom, (
+    kind: "symbol",
+    name: name,
+    namespace: namespace,
+    tags: tags,
+  ))
+}
+#let _function-atom(engine, name, arguments, namespace: none) = {
+  let namespace = _namespace(engine, namespace)
+  let head = _symbol-atom(engine, name, namespace: namespace)
+  let tree = (
+    head: "call",
+    args: (),
+    slots: (
+      fn: head,
+      body: (
+        head: "arg",
+        args: arguments.map(argument => _expr_bytes(engine, argument)),
+        slots: (:),
+      ),
+    ),
+  )
+  engine.plugin.from_ast(cbor.encode(tree), cbor.encode(namespace))
+}
+#let _function(engine, name, namespace: none, tags: ()) = {
+  if type(name) != str { panic("function name must be a string") }
+  _validate-tags(tags)
+
+  let namespace = _namespace(engine, namespace)
+  (..arguments) => {
+    if arguments.named().len() > 0 {
+      panic("symbolic function calls accept only positional arguments")
+    }
+    let arguments = arguments.pos()
+    let atom = _function-atom(engine, name, arguments, namespace: namespace)
+    _annotated-atom(engine, atom, (
+      kind: "function-call",
+      head: (
+        kind: "function",
+        name: name,
+        namespace: namespace,
+        tags: tags,
+      ),
+      arguments: arguments.map(argument => _expr_bytes(engine, argument)),
+    ))
+  }
+}
+#let _wild(engine, name, level: 1, namespace: none) = {
+  let suffix = ""
+  for _ in range(level) { suffix += "_" }
+  _symbol-atom(engine, name + suffix, namespace: namespace)
 }
 
 #let _atom_array(engine, values, namespace: none) = cbor.encode(values.map(value => _expr_bytes(engine, value, namespace: namespace)))
@@ -496,15 +579,15 @@
 ///
 /// ```example
 /// #let sym = init(namespace: "physics")
-/// #let v = sym.var
+/// #let symbol = sym.symbol
 /// #let render = sym.canonical
-/// #raw(render(v("x"), namespaces: true))
+/// #raw(render(symbol("x"), namespaces: true))
 /// ```
 ///
 /// -> dictionary
 #let init(
   /// Default namespace for symbols parsed from Typst math or strings. A
-  /// per-call `namespace` passed to `math` or `var` takes precedence.
+  /// per-call `namespace` passed to `math` or `symbol` takes precedence.
   /// -> str
   namespace: "typst",
   /// WebAssembly plugin path or bytes passed to Typst's `plugin` constructor.
@@ -531,7 +614,8 @@
   let api = (
     math: (eqn, grammar: none, namespace: none) => _from_math(engine, eqn, grammar: grammar, namespace: namespace),
     atom: value => _expr_bytes(engine, value),
-    var: (name, namespace: none) => _var(engine, name, namespace: namespace),
+    symbol: (name, namespace: none, tags: ()) => _symbol(engine, name, namespace: namespace, tags: tags),
+    function: (name, namespace: none, tags: ()) => _function(engine, name, namespace: namespace, tags: tags),
     wild: (name, level: 1, namespace: none) => _wild(engine, name, level: level, namespace: namespace),
     array-tree: (eqn, grammar: none) => _array_tree(engine, eqn, grammar: grammar),
     canonical: (expr, namespaces: false) => _canonical(engine, expr, namespaces: namespaces),
@@ -651,31 +735,63 @@
   value,
 ) = (_default_engine().atom)(value)
 
-/// Construct a named Symbolica variable.
+/// Construct a named Symbolica symbol with semantic Typst metadata.
 ///
 /// Unlike `wild`, this is an ordinary mathematical symbol and therefore does
-/// not capture subexpressions during pattern matching.
+/// not capture subexpressions during pattern matching. The returned content
+/// can be interpolated into native Typst math; `math` reads its name and
+/// namespace from versioned metadata instead of guessing from its appearance.
+/// Tags travel with that metadata for higher-level notation layers but do not
+/// change Symbolica's algebraic behavior.
 ///
 /// ```example
-/// #to-typst(var("x"))
+/// #let x = symbol("x", namespace: "model", tags: ("positive",))
+/// #to-typst(math($#x^2 + 1$))
 /// ```
 ///
-/// -> bytes
-#let var(
+/// -> content
+#let symbol(
   /// Symbol name without a namespace prefix or wildcard suffix.
   /// -> str
   name,
   /// Namespace override. `none` uses the engine namespace.
   /// -> str | none
   namespace: none,
-) = (_default_engine().var)(name, namespace: namespace)
+  /// Portable semantic labels retained in the attached metadata.
+  /// -> array
+  tags: (),
+) = (_default_engine().symbol)(name, namespace: namespace, tags: tags)
+
+/// Construct a callable Symbolica function with semantic Typst metadata.
+///
+/// Calling the returned Typst function constructs the exact Symbolica call,
+/// prints that Atom, and attaches one metadata envelope to the complete call.
+/// Interpolate callable bindings inside math, for example `#f(x)`.
+///
+/// ```example
+/// #let f = function("f", namespace: "model", tags: ("smooth",))
+/// #to-typst(math($#f(symbol("x")) + 1$))
+/// ```
+///
+/// -> function
+#let function(
+  /// Function-head name.
+  /// -> str
+  name,
+  /// Namespace override. `none` uses the engine namespace.
+  /// -> str | none
+  namespace: none,
+  /// Portable semantic labels retained in the attached metadata.
+  /// -> array
+  tags: (),
+) = (_default_engine().function)(name, namespace: namespace, tags: tags)
 
 /// Construct a Symbolica pattern wildcard.
 ///
 /// This creates the symbol `name` followed by `level` underscores. A wildcard
 /// is a pattern placeholder used by `rule`, `replace`, and
 /// `replace-wildcards`; it is not an ordinary unknown for algebra or solving.
-/// Use `var` for a mathematical variable.
+/// Use `symbol` for an ordinary mathematical symbol.
 ///
 /// ```example
 /// #raw(canonical(wild("a")))
@@ -863,7 +979,7 @@
 /// Denominators are decomposed in the given indeterminate.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #to-typst(apart(math($(2 x + 3)/((x + 1)(x + 2))$), x))
 /// ```
 ///
@@ -880,7 +996,7 @@
 /// Collect terms by powers of one or more variables or functions.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #to-typst(collect(math($5 x + x y + x^2 + 5$), x))
 /// ```
 ///
@@ -900,7 +1016,7 @@
 /// $5x+x y+x^2+y x^2$ returns $1+y$.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #to-typst(coefficient(math($5 x + x y + x^2 + y x^2$), pow(x, 2)))
 /// ```
 ///
@@ -921,7 +1037,7 @@
 /// A coefficient that vanishes only through a deeper identity may remain.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #let pairs = coefficient-list(math($x^2 + 5 x + 7$), x)
 /// #pairs.map(pair => [#to-typst(pair.at(0)): #to-typst(pair.at(1))]).join[, ]
 /// ```
@@ -976,7 +1092,7 @@
 /// contains `x`, but does not contain the regrouped product `x*y` as a node.
 ///
 /// ```example
-/// #contains(math($x y z$), var("x"))
+/// #contains(math($x y z$), symbol("x"))
 /// ```
 ///
 /// -> bool
@@ -1039,7 +1155,7 @@
 /// Differentiate an expression exactly with respect to an indeterminate.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #to-typst(derivative(math($(x + 1)^2$), x))
 /// ```
 ///
@@ -1048,7 +1164,7 @@
   /// Expression to differentiate.
   /// -> bytes | content | int | float | str
   expr,
-  /// Symbolica indeterminate, normally created with `var`.
+  /// Symbolica indeterminate, normally created with `symbol`.
   /// -> bytes | content | str
   var,
 ) = (_default_engine().derivative)(expr, var)
@@ -1062,7 +1178,7 @@
 /// ```example
 /// #let sym = init(namespace: "symbolica")
 /// #let m = sym.math
-/// #let v = sym.var
+/// #let v = sym.symbol
 /// #let ser = sym.series
 /// #let render = sym.to-typst
 /// #render(ser(m($cos(x)/(x + 1)$), v("x"), 0, 3))
@@ -1073,7 +1189,7 @@
   /// Expression to expand.
   /// -> bytes | content | int | float | str
   expr,
-  /// Expansion variable, normally created with `var`.
+  /// Expansion variable, normally created with `symbol`.
   /// -> bytes | content | str
   var,
   /// Point about which to expand.
@@ -1216,7 +1332,7 @@
 ///
 /// ```example
 /// #let r1 = rule(math($f("a_")$), math($h("a_")$))
-/// #let r2 = rule(var("x"), var("z"))
+/// #let r2 = rule(symbol("x"), symbol("z"))
 /// #to-typst(replace-multiple(math($f(x) + x$), (r1, r2)))
 /// ```
 ///
@@ -1271,8 +1387,8 @@
 /// `(re: float, im: float)`, even when it is real.
 ///
 /// ```example
-/// #let x = var("x")
-/// #let y = var("y")
+/// #let x = symbol("x")
+/// #let y = symbol("y")
 /// #repr(evaluate(math($x^2 + y$), values: ((x, 2.0), (y, 3.0))))
 /// ```
 ///
@@ -1318,8 +1434,8 @@
 /// dictionary per expression in expression order.
 ///
 /// ```example
-/// #let x = var("x")
-/// #let y = var("y")
+/// #let x = symbol("x")
+/// #let y = symbol("y")
 /// #let rows = evaluate-many((math($x + y$), math($x y$)), (x, y), ((1, 2), (3, 4)))
 /// #repr(rows)
 /// ```
@@ -1348,8 +1464,8 @@
 /// `(re: float, im: float)` dictionary per expression.
 ///
 /// ```example
-/// #let x = var("x")
-/// #let y = var("y")
+/// #let x = symbol("x")
+/// #let y = symbol("y")
 /// #let grid = evaluate-grid(math($x^2 + y$), (x, y), (domain(-1, 1, samples: 3), domain(0, 1, samples: 2)))
 /// shape: #repr(grid.shape); values: #repr(grid.values)
 /// ```
@@ -1378,8 +1494,8 @@
 /// Inconsistent or nonlinear systems produce an error.
 ///
 /// ```example
-/// #let x = var("x")
-/// #let y = var("y")
+/// #let x = symbol("x")
+/// #let y = symbol("y")
 /// #let sol = solve-linear((math($2 x + y - 5$), math($x - y - 1$)), (x, y))
 /// #sol.map(to-typst).join[, ]
 /// ```
@@ -1404,8 +1520,8 @@
 /// empty array means there are no solutions.
 ///
 /// ```example
-/// #let x = var("x")
-/// #let y = var("y")
+/// #let x = symbol("x")
+/// #let y = symbol("y")
 /// #let solutions = solve-system((math($x^2 - 1$), math($y - x$)), (x, y))
 /// #repr(solutions.map(row => row.map(canonical)))
 /// ```
@@ -1427,7 +1543,7 @@
 /// within `max-iterations` produces an error.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #repr(nsolve(math($x^2 - 2$), x, 1.0))
 /// ```
 ///
@@ -1436,7 +1552,7 @@
   /// Expression understood to equal zero.
   /// -> bytes | content | int | float | str
   expr,
-  /// Real solve variable, normally created with `var`.
+  /// Real solve variable, normally created with `symbol`.
   /// -> bytes | content | str
   var,
   /// Initial real guess.
@@ -1458,8 +1574,8 @@
 /// Convergence is local and is not guaranteed for an arbitrary initial guess.
 ///
 /// ```example
-/// #let x = var("x")
-/// #let y = var("y")
+/// #let x = symbol("x")
+/// #let y = symbol("y")
 /// #repr(nsolve-system((math($x^2 + y - 3$), math($x - y$)), (x, y), (1.0, 1.0)))
 /// ```
 ///
@@ -1776,7 +1892,7 @@
 /// The result is the primitive matrix whose coefficient GCD has been removed.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #let P = matrix(((mul(2, x), mul(4, x)), (mul(6, x), mul(8, x))))
 /// #to-typst(primitive-part(P))
 /// ```
@@ -1794,7 +1910,7 @@
 /// payload.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #let P = matrix(((mul(2, x), mul(4, x)), (mul(6, x), mul(8, x))))
 /// #to-typst(content(P))
 /// ```
@@ -1875,7 +1991,7 @@
 /// Differentiate every matrix entry with respect to an indeterminate.
 ///
 /// ```example
-/// #let x = var("x")
+/// #let x = symbol("x")
 /// #to-typst(matrix-derivative(matrix(((pow(x, 2), x), (1, 0))), x))
 /// ```
 ///

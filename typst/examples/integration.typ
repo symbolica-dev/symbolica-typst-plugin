@@ -7,10 +7,10 @@
 
 #let sym = init()
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
 #let render = sym.to-typst
 #let integrate-with-steps = sym.integrate-with-steps
-#let x = var("x")
+#let x = symbol("x")
 #let f = parse($x / (x + 1)$)
 #let integration = integrate-with-steps(f, x)
 

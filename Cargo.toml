@@ -22,6 +22,7 @@ symbolica = { path = "vendor/symbolica-wasm", features = ["wasm"] }
 symbolica-integrate = { git = "https://github.com/symbolica-dev/symbolica-integrate", rev = "3f5d745bbd09848b4e1fca8018a73430ab177905", features = ["steps"], optional = true }
 tymbolica-atom-payload = { path = "crates/atom-payload" }
 tymbolica-symbol-registry = { path = "crates/symbol-registry" }
+tymbolica-typst-ast = { path = "crates/typst-ast" }
 wasm-minimal-protocol = "0.1"
 
 [patch.crates-io]
@@ -41,6 +42,7 @@ members = [
   "crates/idenso-plugin",
   "crates/inflate-plugin",
   "crates/symbol-registry",
+  "crates/typst-ast",
   "vendor/gammaloop-spenso",
 ]
 resolver = "3"

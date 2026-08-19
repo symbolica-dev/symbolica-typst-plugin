@@ -3,13 +3,17 @@
 #let sym = init()
 #assert("integrate" in sym)
 #assert("integrate-with-steps" in sym)
+#assert("symbol" in sym)
+#assert("function" in sym)
+#assert("var" not in sym)
 #let integrate-parse = sym.math
-#let integrate-var = sym.var
+#let integrate-symbol = sym.symbol
 #let integrate-to-typst = sym.to-typst
 #let integrate = sym.integrate
 #let integrate-with-steps = sym.integrate-with-steps
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
+#let symbolic-function = sym.function
 #let wild = sym.wild
 #let to-typst = sym.to-typst
 #let to-float = sym.to-float
@@ -58,10 +62,17 @@
 #let matrix-is-diagonal = sym.matrix-is-diagonal
 #let matrix-derivative = sym.matrix-derivative
 
-#let x = var("x")
-#let y = var("y")
-#let xp = var("x", namespace: "physics")
+#let x = symbol("x")
+#let y = symbol("y")
+#let xp = symbol("x", namespace: "physics")
 #let namespaced = add(xp, x)
+#let tagged = symbol("q", namespace: "model", tags: ("positive", "parameter"))
+#let tagged-expression = parse($#tagged + x$)
+#let f = symbolic-function("f", namespace: "model")
+#let function-expression = parse($#f(tagged) + x$)
+#assert(canonical(namespaced, namespaces: true).contains("physics"))
+#assert(canonical(tagged-expression, namespaces: true).contains("model"))
+#assert(canonical(function-expression, namespaces: true).contains("model"))
 
 #let value = evaluate(parse($x^2 + y$), values: ((x, 2.0), (y, 3.0)))
 #let many = evaluate-many((parse($x + y$), parse($x y$)), (x, y), ((1, 2), (3, 4)))
@@ -105,12 +116,12 @@
 
 #let builtin = init(namespace: "symbolica")
 #let bparse = builtin.math
-#let bvar = builtin.var
+#let bsymbol = builtin.symbol
 #let bseries = builtin.series
 #let bto-typst = builtin.to-typst
 #let bto-float = builtin.to-float
 #let bcanonical = builtin.canonical
-#let sx = bvar("x")
+#let sx = bsymbol("x")
 #let ser = bseries(bparse($cos(x)/(x + 1)$), sx, 0, 3)
 #let builtin-input = bparse($cos(1/3) + 1/2$)
 #let builtin-approximation = bto-float(builtin-input, decimal-prec: 6)
@@ -157,7 +168,7 @@
 #let rhs-only = replace(parse($f(x)$), parse($f("a_")$), parse($g("a_", "fresh_")$), allow-new-wildcards-on-rhs: true)
 
 #let exact = solve-linear((parse($2 x + y - 5$), parse($x - y - 1$)), (x, y))
-#let integration-x = integrate-var("x")
+#let integration-x = integrate-symbol("x")
 #let integrand = integrate-parse($x / (x + 1)$)
 #let integral = integrate(integrand, integration-x)
 #let integration = integrate-with-steps(integrand, integration-x)
@@ -181,6 +192,8 @@
 #assert.eq(canonical(matrix-at(diagonal-prime, 1, 1)), canonical(parse($2 x$)))
 
 Namespaces: #raw(canonical(namespaced, namespaces: true))
+
+Tagged symbol: #raw(canonical(tagged-expression, namespaces: true))
 
 Evaluate: #repr(value)
 

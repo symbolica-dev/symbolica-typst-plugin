@@ -21,3 +21,20 @@ The same native Atom payload can be inspected or transformed by Tymbolica:
 // Keep the cross-plugin payload contract in the compiled test suite.
 #assert(type(expanded) == bytes)
 #assert(type(tensors.inspect(expanded)) == dictionary)
+
+// Tydenso content is accepted directly by Tymbolica. Antisymmetry surviving
+// the round trip proves that the exact Atom, including its symbol state, won.
+#let W = tensors.euc(3)
+#let a = tensors.slot(W, "a")
+#let b = tensors.slot(W, "b")
+#let F = tensors.tensor("Finterop", antisymmetric: true)
+#let carried = algebra.expand(F(a, b))
+#assert.eq(tensors.to-string(tensors.add(carried, F(b, a))), "0")
+
+// The other direction retains a namespace that is not visible in the glyph.
+#let mass = algebra.symbol("m", namespace: "model")
+#let roundtrip = tensors.add(mass, 0)
+#assert.eq(
+  algebra.canonical(roundtrip, namespaces: true),
+  algebra.canonical(mass, namespaces: true),
+)

@@ -28,7 +28,7 @@ After installing the local package below, this is a complete Typst document:
 ```typst
 #import "@local/tymbolica:0.1.0": *
 
-#let x = var("x")
+#let x = symbol("x")
 #let f = math($x^4 - 5 x^2 + 4$)
 
 $
@@ -52,10 +52,10 @@ with `init()`:
 ```typst
 #let sym = init()
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
 #let integrate = sym.integrate
 #let render = sym.to-typst
-#let x = var("x")
+#let x = symbol("x")
 #render(integrate(parse($x / (x + 1)$), x))
 ```
 
@@ -65,18 +65,25 @@ small loader when `init()` is first used.
 Tensor algebra is provided by the separate `tydenso` Typst package in this
 repository. Tydenso has its own manual, constructors, Spenso-aware printer, and
 compressed plugin. Representations and slots are inspectable Typst
-dictionaries, while completed expressions use the same native Symbolica Atom
-export as Tymbolica:
+dictionaries. Symbols and tensor calls look like ordinary math and carry the
+same exact Symbolica Atom export understood by both plugins:
 
 ```typst
 #import "@local/tydenso:0.1.0": *
 
 #let V = mink(4)
+#let mu = slot(V, "mu")
+#let nu = slot(V, "nu")
 #let p = vector("p")
-#let expression = mul(metric(V, "mu", "nu"), p(slot(V, "nu")))
+#let expression = math($#metric(V, mu, nu) #p(nu)$)
 
 #to-typst(simplify-metrics(expression))
 ```
+
+Tymbolica and Tydenso share one Parsely-to-Atom bridge. The metadata's native
+Atom bytes are authoritative, so namespaces, Symbolica attributes, and Spenso
+tensor state survive cross-plugin use without being reconstructed from the
+printed indices.
 
 ## Install locally
 

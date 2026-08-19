@@ -226,44 +226,7 @@ fn atom_from_cbor_value(value: &Value, label: &str) -> Result<Atom, String> {
 }
 
 fn atom_from_ast(input: &[u8], namespace: &str, label: &str) -> Result<Atom, String> {
-    initialize_shared_symbol_registry();
-    let value = decode_cbor(input, label)?;
-    atom_from_value(&value, namespace)
-}
-
-fn atom_from_value(value: &Value, namespace: &str) -> Result<Atom, String> {
-    match value {
-        Value::Integer(n) => {
-            let n: i64 = (*n)
-                .try_into()
-                .map_err(|_| "integer literal is out of range".to_owned())?;
-            Ok(Atom::num(n))
-        }
-        Value::Float(n) => Ok(Atom::num(*n)),
-        Value::Text(text) => atom_from_leaf(text, namespace),
-        Value::Map(map) => atom_from_node(map, namespace),
-        other => Err(format!("unsupported Parsely AST value: {other:?}")),
-    }
-}
-
-fn atom_from_leaf(text: &str, namespace: &str) -> Result<Atom, String> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("empty math leaf".to_owned());
-    }
-
-    if let Ok(n) = text.parse::<i64>() {
-        return Ok(Atom::num(n));
-    }
-
-    if (text.contains('.') || text.contains('e') || text.contains('E'))
-        && let Ok(n) = text.parse::<f64>()
-        && n.is_finite()
-    {
-        return Ok(Atom::num(n));
-    }
-
-    symbol_atom(text, namespace)
+    tymbolica_typst_ast::atom_from_ast(input, namespace, label)
 }
 
 fn symbol_atom(name: &str, namespace: &str) -> Result<Atom, String> {
@@ -275,160 +238,6 @@ fn initialize_shared_symbol_registry() {
     tymbolica_symbol_registry::initialize();
 }
 
-fn atom_from_node(map: &[(Value, Value)], namespace: &str) -> Result<Atom, String> {
-    let head = map_text(map, "head")?;
-    let args = map_array(map, "args")?;
-    let slots = map_map(map, "slots")?;
-
-    match head {
-        "add" => Ok(Atom::add_many(atoms_from_values(args, namespace)?)),
-        "arg" => Ok(Symbol::ARG.call_args(atoms_from_values(args, namespace)?)),
-        "mul" | "times" | "dot" => Ok(Atom::mul_many(atoms_from_values(args, namespace)?)),
-        "sub" => Ok(atom_arg(args, 0, head, namespace)? - atom_arg(args, 1, head, namespace)?),
-        "neg" => Ok(-atom_arg(args, 0, head, namespace)?),
-        "plus" | "group" | "()" => slot_or_arg_atom(slots, "expr", args, 0, head, namespace),
-        "lr" => slot_or_arg_atom(slots, "body", args, 0, head, namespace),
-        "attach" => {
-            let base = slot_or_arg_atom(slots, "base", args, 0, head, namespace)?;
-            if let Some(exp) = slot_atom(slots, "t", namespace) {
-                Ok(base.pow(exp?))
-            } else {
-                Ok(base)
-            }
-        }
-        "factorial" => {
-            let arg = atom_arg(args, 0, head, namespace)?;
-            Ok(Symbol::parse("gamma", "symbolica")?.call(arg + Atom::num(1)))
-        }
-        "frac" => {
-            let num = slot_or_arg_atom(slots, "num", args, 0, head, namespace)?;
-            let denom = slot_or_arg_atom(slots, "denom", args, 1, head, namespace)?;
-            Ok(num / denom)
-        }
-        "pow" => {
-            let base = slot_or_arg_atom(slots, "base", args, 0, head, namespace)?;
-            let exp = slot_or_arg_atom(slots, "exp", args, 1, head, namespace)?;
-            Ok(base.pow(exp))
-        }
-        "sqrt" => {
-            let radicand = slot_atom(slots, "radicand", namespace)
-                .or_else(|| slot_atom(slots, "body", namespace))
-                .unwrap_or_else(|| atom_arg(args, 0, head, namespace))?;
-            Ok(Symbol::SQRT.call(radicand))
-        }
-        "root" => {
-            let radicand = slot_atom(slots, "radicand", namespace)
-                .or_else(|| slot_atom(slots, "body", namespace))
-                .unwrap_or_else(|| {
-                    atom_arg(args, 1, head, namespace)
-                        .or_else(|_| atom_arg(args, 0, head, namespace))
-                })?;
-            if let Some(index) = slot_atom(slots, "index", namespace)
-                .or_else(|| args.first().map(|v| atom_from_value(v, namespace)))
-            {
-                Ok(radicand.pow(Atom::num(1) / index?))
-            } else {
-                Ok(Symbol::SQRT.call(radicand))
-            }
-        }
-        "abs" | "norm" => {
-            let body = slot_atom(slots, "body", namespace)
-                .unwrap_or_else(|| atom_arg(args, 0, head, namespace))?;
-            Ok(Symbol::ABS.call(body))
-        }
-        "call" => {
-            let symbol = slot_symbol(slots, "fn", namespace)?;
-            let args = slot_atoms(slots, "body", namespace)?.unwrap_or_default();
-            Ok(symbol.call_args(args))
-        }
-        "op-call" => {
-            let symbol = slot_symbol(slots, "op", namespace)?;
-            let args = slot_atoms(slots, "args", namespace)?.unwrap_or_default();
-            Ok(symbol.call_args(args))
-        }
-        "mat" | "vec" => Err(format!(
-            "{head} is matrix-valued; use matrix(...) or vec(...)"
-        )),
-        _ => {
-            let symbol = Symbol::parse(head, namespace.to_owned())?;
-            Ok(symbol.call_args(atoms_from_values(args, namespace)?))
-        }
-    }
-}
-
-fn atoms_from_values(values: &[Value], namespace: &str) -> Result<Vec<Atom>, String> {
-    values
-        .iter()
-        .map(|v| atom_from_value(v, namespace))
-        .collect()
-}
-
-fn atoms_from_arg_value(value: &Value, namespace: &str) -> Result<Vec<Atom>, String> {
-    if let Value::Map(map) = value
-        && map_text(map, "head").ok() == Some("arg")
-    {
-        return atoms_from_values(map_array(map, "args")?, namespace);
-    }
-
-    Ok(vec![atom_from_value(value, namespace)?])
-}
-
-fn slot_atoms(
-    slots: &[(Value, Value)],
-    key: &str,
-    namespace: &str,
-) -> Result<Option<Vec<Atom>>, String> {
-    map_get(slots, key)
-        .map(|value| atoms_from_arg_value(value, namespace))
-        .transpose()
-}
-
-fn symbol_from_value(value: &Value, namespace: &str) -> Result<Symbol, String> {
-    match value {
-        Value::Text(text) => Symbol::parse(text.trim(), namespace.to_owned()),
-        Value::Map(map) if map_text(map, "head").ok() == Some("op") => {
-            if let Some(Value::Text(text)) = map_get(map, "text") {
-                Symbol::parse(text.trim(), namespace.to_owned())
-            } else if let Some(Value::Text(text)) = map_get(map_map(map, "slots")?, "text") {
-                Symbol::parse(text.trim(), namespace.to_owned())
-            } else {
-                Err("op missing text".to_owned())
-            }
-        }
-        other => atom_from_value(other, namespace).and_then(|atom| {
-            atom.get_symbol()
-                .ok_or_else(|| "function head must be a symbol".to_owned())
-        }),
-    }
-}
-
-fn slot_symbol(slots: &[(Value, Value)], key: &str, namespace: &str) -> Result<Symbol, String> {
-    map_get(slots, key)
-        .ok_or_else(|| format!("missing {key}"))
-        .and_then(|v| symbol_from_value(v, namespace))
-}
-
-fn atom_arg(args: &[Value], index: usize, head: &str, namespace: &str) -> Result<Atom, String> {
-    args.get(index)
-        .ok_or_else(|| format!("{head} missing argument {index}"))
-        .and_then(|v| atom_from_value(v, namespace))
-}
-
-fn slot_or_arg_atom(
-    slots: &[(Value, Value)],
-    key: &str,
-    args: &[Value],
-    index: usize,
-    head: &str,
-    namespace: &str,
-) -> Result<Atom, String> {
-    slot_atom(slots, key, namespace).unwrap_or_else(|| atom_arg(args, index, head, namespace))
-}
-
-fn slot_atom(slots: &[(Value, Value)], key: &str, namespace: &str) -> Option<Result<Atom, String>> {
-    map_get(slots, key).map(|v| atom_from_value(v, namespace))
-}
-
 fn map_get<'a>(map: &'a [(Value, Value)], key: &str) -> Option<&'a Value> {
     map.iter().find_map(|(candidate, value)| match candidate {
         Value::Text(candidate) if candidate == key => Some(value),
@@ -436,26 +245,10 @@ fn map_get<'a>(map: &'a [(Value, Value)], key: &str) -> Option<&'a Value> {
     })
 }
 
-fn map_text<'a>(map: &'a [(Value, Value)], key: &str) -> Result<&'a str, String> {
-    match map_get(map, key) {
-        Some(Value::Text(text)) => Ok(text),
-        Some(_) => Err(format!("{key} must be text")),
-        None => Err(format!("missing {key}")),
-    }
-}
-
 fn map_array<'a>(map: &'a [(Value, Value)], key: &str) -> Result<&'a [Value], String> {
     match map_get(map, key) {
         Some(Value::Array(values)) => Ok(values),
         Some(_) => Err(format!("{key} must be an array")),
-        None => Err(format!("missing {key}")),
-    }
-}
-
-fn map_map<'a>(map: &'a [(Value, Value)], key: &str) -> Result<&'a [(Value, Value)], String> {
-    match map_get(map, key) {
-        Some(Value::Map(values)) => Ok(values),
-        Some(_) => Err(format!("{key} must be a dictionary")),
         None => Err(format!("missing {key}")),
     }
 }
@@ -2876,10 +2669,11 @@ mod tests {
             .unwrap()
         };
         let exact_half = symbolica::parse!("1/2");
+        let encoded_leaf = encode_cbor(Value::Text("0.5".to_owned())).unwrap();
         for half in [
-            atom_from_value(&Value::Float(0.5), "symbolica").unwrap(),
+            tymbolica_typst_ast::atom_from_value(&Value::Float(0.5), "symbolica").unwrap(),
             atom_from_cbor_value(&Value::Float(0.5), "half").unwrap(),
-            atom_from_leaf("0.5", "symbolica").unwrap(),
+            atom_from_ast(&encoded_leaf, "symbolica", "leaf").unwrap(),
         ] {
             assert!(matches!(
                 half.as_view(),

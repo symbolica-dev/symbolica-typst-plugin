@@ -9,9 +9,14 @@
 
 #let expression = mul(metric(V, mu, nu), p(nu))
 #let contracted = simplify-metrics(expression)
+#let parsed-expression = math($#metric(V, mu, nu) #p(nu)$)
+#let parsed-contracted = simplify-metrics(parsed-expression)
 #let W = lor(4)
 #let T = tensor("T")
 #let mixed = T(slot(W, "mu"), slot(W, "nu", dual: true))
+#let mass = symbol("m", namespace: "model", tags: ("parameter",))
+#let kernel = function("K", namespace: "model")
+#let generic-call = math($#kernel(mass)$)
 
 $
   #to-typst(expression)
@@ -31,6 +36,8 @@ $
 // Atom internals are available as a recursive CBOR-decoded tree.
 #let tree = inspect(contracted)
 #assert(tree.kind in ("function", "product"))
+#assert.eq(inspect(parsed-contracted), inspect(p(mu)))
+#assert.eq(inspect(generic-call).kind, "function")
 
 // Tydenso's printer is independent of Tymbolica.
 #assert(type(to-typst-source(contracted)) == str)

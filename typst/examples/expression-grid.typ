@@ -23,13 +23,13 @@ $f(x,y)+g(x)$ for $f(x,y)=x^2+y^2$ and $g(x)=x sin(x)$.
 
 #let sym = init(namespace: "symbolica")
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
 #let evaluate-many = sym.evaluate-many
 
-#let x = var("x")
-#let y = var("y")
-#let p = var("p")
-#let q = var("q")
+#let x = symbol("x")
+#let y = symbol("y")
+#let p = symbol("p")
+#let q = symbol("q")
 #let expressions = (
   parse($x^2 + 2 y + 1$),
   parse($sin(p x) + cos(y - q)$),

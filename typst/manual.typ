@@ -194,9 +194,9 @@ custom symbol namespace, or another parser grammar:
 ```typst
 #let sym = init()
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
 #let integrate = sym.integrate
-#let x = var("x")
+#let x = symbol("x")
 #let result = integrate(parse($x / (x + 1)$), x)
 ```
 
@@ -211,7 +211,7 @@ custom symbol namespace, or another parser grammar:
     [*Start with…*],
   ),
   [Turn Typst mathematics into a symbolic expression],
-  [`math`, `var`, and `atom`],
+  [`math`, `symbol`, and `atom`],
   [Put an answer back into the document],
   [`to-typst`],
   [Factor, expand, differentiate, or take a series],
@@ -253,7 +253,7 @@ For ordinary documents, `to-typst` is usually all you need. `to-latex` is handy
 when exporting to another system, while `canonical` shows Symbolica's plain
 text form when you are diagnosing a difficult expression.
 
-== Variables and wildcards have different jobs
+== Symbols and wildcards have different jobs
 
 #table(
   columns: (0.8fr, 1.4fr, 2.8fr),
@@ -262,7 +262,8 @@ text form when you are diagnosing a difficult expression.
   table.header([*Function*], [*Typical input*], [*Use*]),
   [`math`], [`$x^2 + 1$`], [Read a Typst formula.],
   [`atom`], [a number, string, formula, or expression], [Turn a general value into an expression.],
-  [`var`], [`"x"`], [Create a variable that belongs to the mathematics.],
+  [`symbol`], [`"x"`], [Create an ordinary symbol that belongs to the mathematics.],
+  [`function`], [`"f"`], [Create a callable function whose complete calls carry metadata.],
   [`wild`], [`"a"`], [Create a placeholder used only while matching a pattern.],
 )
 
@@ -270,7 +271,7 @@ text form when you are diagnosing a difficult expression.
   [The distinction that matters],
   [
     A variable is part of the formula. A wildcard is a blank in a pattern. Use
-    `var("x")` for the $x$ in $x^2+1$; use `wild("a")` when a replacement rule
+    `symbol("x")` for the $x$ in $x^2+1$; use `wild("a")` when a replacement rule
     should accept any expression in place of $a$.
   ],
 )
@@ -278,6 +279,35 @@ text form when you are diagnosing a difficult expression.
 Repeated occurrences of the same wildcard in one pattern must capture the same
 expression. Different matches can bind it differently; the rewriting guide
 below turns that rule into a concrete example.
+
+`symbol` can also carry information that should not alter the printed formula.
+Interpolate it with `#` when that information matters to the calculation:
+
+```worked
+#let mass = symbol("m", namespace: "model", tags: ("positive",))
+#let shell = math($p^2 - #mass^2$)
+
+$ p^2 - m^2 = #to-typst(shell) $
+```
+
+The page still shows an ordinary $m$. Behind it, a versioned envelope carries
+the exact Symbolica Atom plus an inspectable description containing its
+namespace and tags. The Atom is authoritative when `math` reads the formula;
+packages layered on top can give the tags their own meaning. Algebraic
+transformations return Atom bytes, so arbitrary Typst-only tags are not copied
+onto later printed results. There is no separate `notation.symbol` or `var`
+alias.
+
+A content value is not callable in Typst, so a custom function head uses the
+separate `function` constructor. Its metadata belongs to the whole call:
+
+```worked
+#let response = function("R", namespace: "model", tags: ("response",))
+#let time = symbol("t", namespace: "model")
+#let value = math($#response(time) + 1$)
+
+$ R(t) + 1 = #to-typst(value) $
+```
 
 == Built-in functions such as sine and cosine
 
@@ -288,10 +318,10 @@ so that differentiation and numerical evaluation recognize them:
 ```typst
 #let sym = init(namespace: "symbolica")
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
 #let derivative = sym.derivative
 #let render = sym.to-typst
-#let x = var("x")
+#let x = symbol("x")
 
 #render(derivative(parse($sin(x)$), x))
 ```
@@ -332,7 +362,7 @@ as the analytic cosine rather than as an arbitrary function name.
 ```worked
 #let sym = init(namespace: "symbolica")
 #let (
-  math: m, var: v, to-typst: render,
+  math: m, symbol: v, to-typst: render,
   derivative, series, neg, add,
 ) = sym
 
@@ -358,7 +388,7 @@ leaves a model that is linear in the two unknown parameters.
 
 ```worked
 >>>#let sym = init(namespace: "symbolica")
->>>#let (math: m, var: v, to-typst: render, derivative, series, replace, solve-linear, neg, add, sub) = sym
+>>>#let (math: m, symbol: v, to-typst: render, derivative, series, replace, solve-linear, neg, add, sub) = sym
 >>>#let potential = m($kappa (1 - cos(theta))$)
 >>>#let q = v("θ")
 >>>#let k = v("κ")
@@ -389,7 +419,7 @@ $(theta_2,tau_2)=(0.20,-0.9545)$.
 
 ```worked
 >>>#let sym = init(namespace: "symbolica")
->>>#let (math: m, var: v, derivative, series, replace, solve-linear, evaluate-many, neg, add, sub) = sym
+>>>#let (math: m, symbol: v, derivative, series, replace, solve-linear, evaluate-many, neg, add, sub) = sym
 >>>#let potential = m($kappa (1 - cos(theta))$)
 >>>#let q = v("θ")
 >>>#let k = v("κ")
@@ -451,7 +481,7 @@ repeat to a fixed point: #to-typst(reduced)
 
 Within one match, both occurrences of `a_` capture the same expression. Across
 matches it first captures one argument and then another. This is the practical
-difference between an ordinary `var("a")` and `wild("a")`.
+difference between an ordinary `symbol("a")` and `wild("a")`.
 
 #callout(
   [Repeating rules],
@@ -473,13 +503,13 @@ rule path. This is the same example used in
 ```worked
 #let sym = init()
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
 #let render = sym.to-typst
 #let integrate-with-steps = sym.integrate-with-steps
 #let derivative = sym.derivative
 #let subtract = sym.sub
 #let together = sym.together
-#let x = var("x")
+#let x = symbol("x")
 #let f = parse($x / (x + 1)$)
 #let integration = integrate-with-steps(f, x)
 #let residual = together(
@@ -531,7 +561,7 @@ This follows the
 #link(symbolica-guide)[rational-expression workflow in Symbolica's First Steps].
 
 ```worked
-#let s = var("s")
+#let s = symbol("s")
 #let response = math($((s + 3)(2 s + 5)) / (s^3 + 6 s^2 + 11 s + 6)$)
 #let reduced = cancel(response)
 #let modes = apart(reduced, s)
@@ -557,8 +587,8 @@ find both intersections; the numerical solver should find the one nearest its
 starting point.
 
 ```worked
-#let x = var("x")
-#let y = var("y")
+#let x = symbol("x")
+#let y = symbol("y")
 #let system = (
   math($x^2 + y^2 - 25$),
   math($x - y - 1$),
@@ -603,7 +633,7 @@ $p(t)=a_0+a_1 t+a_2 t^2$ turns interpolation into the exact matrix equation
 $A a=b$.
 
 ```worked
-#let t = var("t")
+#let t = symbol("t")
 #let A = matrix((
   (1, 0, 0),
   (1, 1, 1),
@@ -638,8 +668,8 @@ gradient components, then sample the height and gradient together on a small
 Cartesian grid.
 
 ```worked
-#let x = var("x")
-#let y = var("y")
+#let x = symbol("x")
+#let y = symbol("y")
 #let f = math($x^2 + x y + y^2$)
 #let fx = derivative(f, x)
 #let fy = derivative(f, y)
@@ -760,7 +790,7 @@ engine-bound integration methods are documented separately afterwards.
   (
     title: [Parsing, symbols, and rendering],
     names: (
-      "math", "atom", "var", "wild", "array-tree", "canonical",
+      "math", "atom", "symbol", "function", "wild", "array-tree", "canonical",
       "to-typst-source", "to-typst", "to-latex", "to-float",
     ),
   ),

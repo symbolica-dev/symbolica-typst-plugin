@@ -5,6 +5,11 @@ local `0.1.0` package while its initial public surface is being prepared.
 
 ## Unreleased
 
+- Replaced the `var` alias with `symbol` and added a distinct callable
+  `function` constructor. Both use one versioned metadata envelope containing
+  authoritative native Atom bytes plus inspectable namespace and tag data;
+  Parsely consumes the annotation before implicit multiplication, while
+  unrelated package metadata remains transparent.
 - Added independently adapted batched-evaluation, Lotka–Volterra, and complex
   phase-portrait examples inspired by TimeTravelPenguin's `symbolic-eval`.
 - Reorganized the manual around installation, concepts, task-oriented worked
@@ -20,8 +25,12 @@ local `0.1.0` package while its initial public surface is being prepared.
   stored as DEFLATE-compressed assets and expanded transparently by small
   package-local loaders, keeping every engine asset below 10 MiB.
 - Split Tydenso into its own Typst package with a separate manual and examples.
-  Its API now constructs Spenso representations, slots, tensor names, symmetry
-  attributes, and scalar expression trees without parsing strings.
+  Its scope-free API constructs Spenso representations, slots, tensor names,
+  symmetry attributes, and annotated math calls; the structural constructors
+  remain available for generated expressions.
+- Added one shared Parsely-to-Atom Rust bridge to both plugins. Tydenso's
+  `math` accepts annotated tensor calls, and annotated values move between
+  Tydenso and Tymbolica through their exact native Atom payload.
 - Added Tydenso's own Spenso-aware Typst and compact printers, configurable
   through the real `SpensoPrintSettings` fields.
 - Render tensor and vector indices with Typst `attach`, including Physica-style

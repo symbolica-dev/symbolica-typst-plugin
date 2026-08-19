@@ -3146,6 +3146,7 @@ dependencies = [
  "symbolica 2.2.0",
  "tymbolica-atom-payload",
  "tymbolica-symbol-registry",
+ "tymbolica-typst-ast",
  "wasm-minimal-protocol",
 ]
 
@@ -3175,6 +3176,7 @@ dependencies = [
  "symbolica-integrate",
  "tymbolica-atom-payload",
  "tymbolica-symbol-registry",
+ "tymbolica-typst-ast",
  "wasm-minimal-protocol",
 ]
 
@@ -3185,6 +3187,16 @@ dependencies = [
  "idenso",
  "symbolica 2.2.0",
  "symbolica-integrate",
+]
+
+[[package]]
+name = "tymbolica-typst-ast"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "symbolica 2.2.0",
+ "tymbolica-atom-payload",
+ "tymbolica-symbol-registry",
 ]
 
 [[package]]

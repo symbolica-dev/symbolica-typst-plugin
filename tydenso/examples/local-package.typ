@@ -6,4 +6,4 @@
 #let p = vector("p")
 #let mu = slot(V, "mu")
 
-$ p^mu = #to-typst(p(mu)) $
+$ #p(mu) = #to-typst(p(mu)) $

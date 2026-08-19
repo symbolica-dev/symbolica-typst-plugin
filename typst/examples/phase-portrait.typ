@@ -17,11 +17,11 @@ batch; Typst then turns the returned grid into coloured cells.
 
 #let sym = init(namespace: "symbolica")
 #let parse = sym.math
-#let var = sym.var
+#let symbol = sym.symbol
 #let evaluate-many = sym.evaluate-many
 
-#let z = var("z")
-#let imaginary-unit = var("i")
+#let z = symbol("z")
+#let imaginary-unit = symbol("i")
 #let expression = parse($(z^2 - 1 - i) / (z^2 + 1 + i)$)
 
 #let x-min = -calc.pi
