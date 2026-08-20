@@ -190,6 +190,34 @@ Built-in constructors cover the representations initialized by Spenso and
 Idenso: `mink`, `euc`, `lor`, `bis`, `spf`, `cof`, `coad`, and `cos`. Use
 `representation` when a model introduces another representation.
 
+A custom representation can name its automatic indices. The palette repeats;
+each pass adds a subscript. Manually written indices use the same notation but
+keep their own symbolic identity.
+
+```worked
+#let M = representation(
+  "M",
+  4,
+  namespace: "example",
+  self-dual: true,
+  indices: ($mu$, $nu$),
+)
+#let T = tensor("T", namespace: "example")
+#let expression = T(
+  slot(M, 1),       // mu
+  slot(M, 2),       // nu
+  slot(M, 3),       // mu_1
+  slot(M, $rho_2$), // exactly the index written here
+)
+
+#let detailed = print-settings(with-dim: true)
+$ #to-typst(expression, settings: detailed) $
+```
+
+Here the qualified form distinguishes the indices as members of $M_4$. Leave
+`indices` unset to keep the ordinary numeric display used by the built-in
+representations.
+
 ```worked
 #let color = cof(3)
 #let a = slot(color, "a")

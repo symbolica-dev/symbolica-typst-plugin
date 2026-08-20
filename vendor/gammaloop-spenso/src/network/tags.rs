@@ -10,7 +10,11 @@ use symbolica::{
 use symbolica_utils::PrintSettingsExt;
 
 use crate::{
-    shadowing::symbolica_utils::SpensoPrintSettings, structure::abstract_index::AIND_SYMBOLS,
+    shadowing::symbolica_utils::SpensoPrintSettings,
+    structure::{
+        abstract_index::AIND_SYMBOLS,
+        representation::{IndexDisplay, RepresentationMetadata},
+    },
 };
 
 pub struct SpensoTags {
@@ -139,16 +143,48 @@ fn escape_typst_string(value: &str) -> String {
 
 fn typst_tensor_head(symbol: Symbol) -> String {
     let name = symbol.get_stripped_name();
-    if name.chars().count() == 1 || typst_builtin_name(name) {
+    if (name.chars().count() == 1
+        && name
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_alphanumeric()))
+        || typst_builtin_name(name)
+    {
         name.to_owned()
     } else {
         format!(r#"italic("{}")"#, escape_typst_string(name))
     }
 }
 
-fn typst_index_source(index: AtomView<'_>, options: &PrintOptions) -> Option<String> {
+fn natural_index(index: AtomView<'_>) -> Option<usize> {
+    let AtomView::Num(index) = index else {
+        return None;
+    };
+    match index.get_coeff_view() {
+        CoefficientView::Natural(index, 1, 0, 1) => usize::try_from(index).ok(),
+        _ => None,
+    }
+}
+
+fn typst_index_source(
+    representation: Symbol,
+    index: AtomView<'_>,
+    options: &PrintOptions,
+) -> Option<String> {
+    if let Some(index) = natural_index(index)
+        && let Some(display) = RepresentationMetadata::from_symbol(representation)
+            .and_then(|metadata| metadata.index_palette.resolve(index))
+    {
+        return Some(display.to_typst_source());
+    }
+
     if let AtomView::Var(variable) = index {
         let symbol = variable.get_symbol();
+        if symbol.has_tag(&SPENSO_TAG.index)
+            && let Some(display) = IndexDisplay::from_symbol(symbol)
+        {
+            return Some(display.to_typst_source());
+        }
         let name = symbol.get_stripped_name();
         if typst_builtin_name(name) {
             return Some(name.to_owned());
@@ -160,7 +196,15 @@ fn typst_index_source(index: AtomView<'_>, options: &PrintOptions) -> Option<Str
     Some(output)
 }
 
-fn tensor_slot(index: AtomView<'_>) -> Option<(AtomView<'_>, bool)> {
+#[derive(Clone, Copy)]
+struct TensorSlot<'a> {
+    representation: Symbol,
+    dimension: AtomView<'a>,
+    index: AtomView<'a>,
+    lower: bool,
+}
+
+fn tensor_slot(index: AtomView<'_>) -> Option<TensorSlot<'_>> {
     let (slot, lower) = if let AtomView::Fun(dual) = index
         && dual.get_symbol() == AIND_SYMBOLS.dind
         && dual.get_nargs() == 1
@@ -181,7 +225,32 @@ fn tensor_slot(index: AtomView<'_>) -> Option<(AtomView<'_>, bool)> {
         return None;
     }
 
-    Some((representation.iter().nth(1)?, lower))
+    let mut arguments = representation.iter();
+    Some(TensorSlot {
+        representation: representation.get_symbol(),
+        dimension: arguments.next()?,
+        index: arguments.next()?,
+        lower,
+    })
+}
+
+fn qualified_typst_index(
+    slot: TensorSlot<'_>,
+    index_source: String,
+    options: &PrintOptions,
+) -> Option<String> {
+    let representation_source = RepresentationMetadata::from_symbol(slot.representation)
+        .map(|metadata| metadata.label.to_typst_source())
+        .unwrap_or_else(|| typst_tensor_head(slot.representation));
+
+    let mut dimension_source = String::new();
+    slot.dimension
+        .format(&mut dimension_source, options, PrintState::new())
+        .ok()?;
+
+    Some(format!(
+        "attach({index_source},t:attach({representation_source},b:{dimension_source}))"
+    ))
 }
 
 /// Print a tagged tensor using native Typst attachments in Spenso's Typst mode.
@@ -216,8 +285,14 @@ pub fn tensor_print(
     let mut ordinary_arguments = Vec::new();
 
     for argument in function.iter() {
-        let (source, lower) = if let Some((index, lower)) = tensor_slot(argument) {
-            (typst_index_source(index, options)?, lower)
+        let (source, lower) = if let Some(slot) = tensor_slot(argument) {
+            let source = typst_index_source(slot.representation, slot.index, options)?;
+            let source = if settings.with_dim {
+                qualified_typst_index(slot, source, options)?
+            } else {
+                source
+            };
+            (source, slot.lower)
         } else if settings.symbol_scripts {
             let mut source = String::new();
             argument
@@ -898,13 +973,64 @@ impl SpensoTags {
 #[cfg(test)]
 mod tests {
     use symbolica::{
-        atom::{Atom, AtomCore, AtomView, FunctionBuilder, SymbolBuilder},
-        function, symbol, wrap_symbol,
+        atom::{Atom, AtomCore, AtomView, FunctionBuilder, SymbolBuilder, UserData},
+        function,
+        printer::PrintOptions,
+        symbol, wrap_symbol,
     };
 
-    use crate::{cyclic, dind, lor, mink, shadowing::symbolica_utils::SpensoPrintSettings};
+    use crate::{
+        cyclic, dind, lor, mink, shadowing::symbolica_utils::SpensoPrintSettings,
+        structure::representation::IndexDisplay,
+    };
 
-    use super::{SPENSO_TAG, SymbolAtomExt, prepare_tensor_print};
+    use super::{SPENSO_TAG, SymbolAtomExt, prepare_tensor_print, typst_tensor_head};
+
+    fn typst_options(settings: SpensoPrintSettings) -> PrintOptions {
+        PrintOptions {
+            custom_print_mode: settings.into(),
+            ..PrintOptions::typst()
+        }
+    }
+
+    fn palette_metadata() -> UserData {
+        let label = UserData::List(vec![
+            UserData::String("symbol".to_owned()),
+            UserData::String("M".to_owned()),
+        ]);
+        let palette_label = |name: &str| {
+            UserData::List(vec![
+                UserData::String("symbol".to_owned()),
+                UserData::String(name.to_owned()),
+            ])
+        };
+        UserData::List(vec![
+            UserData::String("spenso::representation-v1".to_owned()),
+            UserData::String("self-dual".to_owned()),
+            label,
+            UserData::List(vec![
+                UserData::String("cyclic".to_owned()),
+                UserData::Integer(1),
+                UserData::List(vec![palette_label("mu"), palette_label("nu")]),
+            ]),
+        ])
+    }
+
+    fn palette_representation(index: i64) -> Atom {
+        let representation =
+            SymbolBuilder::new(wrap_symbol!("spenso_typst_tests::palette_representation"))
+                .with_tags([
+                    SPENSO_TAG.representation.clone(),
+                    SPENSO_TAG.self_dual.clone(),
+                ])
+                .with_user_data(palette_metadata())
+                .build()
+                .unwrap();
+        FunctionBuilder::new(representation)
+            .add_arg(Atom::num(4))
+            .add_arg(Atom::num(index))
+            .finish()
+    }
 
     #[test]
     fn numbered_wildcard_macros_build_variables_without_args() {
@@ -1055,6 +1181,65 @@ mod tests {
                 .printer(SpensoPrintSettings::typst_options())
                 .to_string(),
             "attach(#($R$,std.hide($zws$)).join(),t:sigma,b:std.hide(sigma))"
+        );
+    }
+
+    #[test]
+    fn punctuation_tensor_heads_are_quoted_as_typst_strings() {
+        let head = SymbolBuilder::new(wrap_symbol!("spenso_typst_tests::#"))
+            .with_tags([SPENSO_TAG.tensor.clone()])
+            .build()
+            .unwrap();
+
+        assert_eq!(typst_tensor_head(head), r##"italic("#")"##);
+    }
+
+    #[test]
+    fn tensor_indices_resolve_the_representations_fixed_palette() {
+        let head = crate::tensor_symbol!("spenso_typst_tests::PaletteTensor");
+        let tensor = function!(head, palette_representation(3));
+
+        assert_eq!(
+            prepare_tensor_print(&tensor)
+                .printer(SpensoPrintSettings::typst_options())
+                .to_string(),
+            "attach(#($italic(\"PaletteTensor\")$,std.hide($zws$)).join(),t:attach(mu,b:1),b:std.hide(attach(mu,b:1)))"
+        );
+    }
+
+    #[test]
+    fn tensor_dimension_qualification_decorates_the_index_inside_its_variance() {
+        let head = crate::tensor_symbol!("spenso_typst_tests::QualifiedTensor");
+        let tensor = function!(head, palette_representation(3));
+        let mut settings = SpensoPrintSettings::typst();
+        settings.with_dim = true;
+
+        assert_eq!(
+            prepare_tensor_print(&tensor)
+                .printer(typst_options(settings))
+                .to_string(),
+            "attach(#($italic(\"QualifiedTensor\")$,std.hide($zws$)).join(),t:attach(attach(mu,b:1),t:attach(M,b:4)),b:std.hide(attach(attach(mu,b:1),t:attach(M,b:4))))"
+        );
+    }
+
+    #[test]
+    fn tensor_indices_use_portable_manual_display_metadata() {
+        let index_display = IndexDisplay::symbol("mu")
+            .unwrap()
+            .with_bottom(IndexDisplay::Number(1));
+        let index = SymbolBuilder::new(wrap_symbol!("spenso_typst_tests::manual_index"))
+            .with_tags([SPENSO_TAG.index.clone()])
+            .with_user_data(index_display.symbol_user_data())
+            .build()
+            .unwrap();
+        let head = crate::vector_symbol!("spenso_typst_tests::manual_vector");
+        let vector = function!(head, mink!(4, Atom::var(index)));
+
+        assert_eq!(
+            prepare_tensor_print(&vector)
+                .printer(SpensoPrintSettings::typst_options())
+                .to_string(),
+            "attach(#($italic(\"manual_vector\")$,std.hide($zws$)).join(),t:attach(mu,b:1),b:std.hide(attach(mu,b:1)))"
         );
     }
 }

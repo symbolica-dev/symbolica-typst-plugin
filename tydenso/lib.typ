@@ -145,7 +145,24 @@
   self-dual: value.self-dual,
   is-dual: value.is-dual,
   dual-name: value.dual-name,
+  indices: value.at("indices", default: none),
+  index-start: value.at("index-start", default: 1),
 )
+
+#let _portable-index(engine, value) = {
+  if type(value) == content {
+    return (
+      kind: "display-index",
+      version: 1,
+      ast: _ast-bytes(value, engine.grammar),
+    )
+  }
+  value
+}
+
+#let _portable-indices(engine, values) = {
+  if values == none { none } else { values.map(value => _portable-index(engine, value)) }
+}
 
 #let _portable(engine, value) = {
   if type(value) == dictionary and value.at("kind", default: none) == "representation" {
@@ -157,13 +174,15 @@
       self-dual: value.self-dual,
       is-dual: value.is-dual,
       dual-name: value.dual-name,
+      indices: _portable-indices(engine, value.at("indices", default: none)),
+      index-start: value.at("index-start", default: 1),
     )
   }
   if type(value) == dictionary and value.at("kind", default: none) == "slot" {
     return (
       kind: "slot",
       representation: _portable(engine, value.representation),
-      index: _portable(engine, value.index),
+      index: _portable-index(engine, value.index),
       dual: value.dual,
     )
   }
@@ -351,7 +370,29 @@
   self-dual: false,
   is-dual: false,
   dual-name: none,
+  indices: none,
+  index-start: 1,
 ) = {
+  if dual-name != none and dual-name != name {
+    panic(
+      "dual-name cannot name a different representation symbol; " +
+      "duality is stored as slot variance, so omit dual-name or set it to name",
+    )
+  }
+  if indices != none {
+    if type(indices) != array or indices.len() == 0 {
+      panic("indices must be a non-empty array, or none for numeric indices")
+    }
+    if not indices.all(index => type(index) in (content, str, int)) {
+      panic("indices must contain only Typst math content, strings, or integers")
+    }
+  }
+  if type(index-start) != int or index-start < 0 {
+    panic("index-start must be a non-negative integer")
+  }
+  if indices == none and index-start != 1 {
+    panic("index-start requires an indices palette")
+  }
   let descriptor = (
     kind: "representation",
     name: name,
@@ -359,19 +400,25 @@
     dimension: dimension,
     self-dual: self-dual,
     is-dual: is-dual,
-    dual-name: if dual-name == none { name } else { dual-name },
+    // Both orientations share one canonical representation head. The slot's
+    // `dual` flag is the only algebraic variance marker.
+    dual-name: name,
+    indices: indices,
+    index-start: index-start,
   )
   (
     ..descriptor,
     slot: (index, dual: none) => _slot(descriptor, index, dual: dual),
     dual: () => _representation(
       engine,
-      descriptor.dual-name,
+      descriptor.name,
       dimension,
       namespace: namespace,
       self-dual: self-dual,
       is-dual: if self-dual { false } else { not is-dual },
-      dual-name: name,
+      dual-name: descriptor.name,
+      indices: indices,
+      index-start: index-start,
     ),
     metric: (first, second) => _call(engine, "g", (
       _as-slot(descriptor, first),
@@ -498,12 +545,14 @@
       linear: linear,
       tags: tags,
     ),
-    representation: (name, dimension, namespace: "spenso", self-dual: false, is-dual: false, dual-name: none) => _representation(
+    representation: (name, dimension, namespace: none, self-dual: false, is-dual: false, dual-name: none, indices: none, index-start: 1) => _representation(
       engine, name, dimension,
-      namespace: namespace,
+      namespace: _namespace(engine, namespace),
       self-dual: self-dual,
       is-dual: is-dual,
       dual-name: dual-name,
+      indices: indices,
+      index-start: index-start,
     ),
     mink: dimension => _representation(engine, "mink", dimension, self-dual: true),
     euc: dimension => _representation(engine, "euc", dimension, self-dual: true),
@@ -734,15 +783,26 @@
   /// representation.
   /// -> bool
   is-dual: false,
-  /// Name used by the representation returned from `dual`.
+  /// Deprecated compatibility parameter. A representation and its dual must
+  /// use the same canonical symbol; omit this or set it equal to `name`.
   /// -> str | none
   dual-name: none,
+  /// Fixed cyclic display palette for automatic integer indices. Entries may
+  /// be Typst math content, strings, or integers. `none` keeps numeric display.
+  /// -> array | none
+  indices: none,
+  /// Integer represented by the first palette entry. Each wrap adds a numeric
+  /// subscript, so `($mu$, $nu$)` maps 1, 2, 3 to $mu$, $nu$, $mu_1$.
+  /// -> int
+  index-start: 1,
 ) = (_default-engine().representation)(
   name, dimension,
   namespace: namespace,
   self-dual: self-dual,
   is-dual: is-dual,
   dual-name: dual-name,
+  indices: indices,
+  index-start: index-start,
 )
 
 /// Construct a Minkowski representation.
@@ -795,8 +855,9 @@
   /// Representation dictionary.
   /// -> dictionary
   representation,
-  /// Abstract index label.
-  /// -> int | str | bytes
+  /// Abstract index label. Typst math content such as `$mu_1$` is retained as
+  /// safe display metadata on a symbolic index.
+  /// -> int | str | bytes | content
   index,
   /// Wrap the slot with Spenso's dual-index marker. `none` inherits the
   /// representation's `is-dual` field.
