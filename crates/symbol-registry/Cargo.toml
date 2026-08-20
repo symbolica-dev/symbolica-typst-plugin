@@ -6,6 +6,9 @@ publish = false
 license = "MIT"
 
 [dependencies]
+ciborium = "0.2.2"
 idenso = { path = "../../../gammaloop/crates/idenso" }
+spenso = { path = "../../../gammaloop/crates/spenso", features = ["shadowing"] }
 symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }
 symbolica-integrate = { git = "https://github.com/symbolica-dev/symbolica-integrate", rev = "3f5d745bbd09848b4e1fca8018a73430ab177905" }
+tymbolica-atom-payload = { path = "../atom-payload" }

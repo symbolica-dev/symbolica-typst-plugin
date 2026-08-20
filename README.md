@@ -80,10 +80,10 @@ same exact Symbolica Atom export understood by both plugins:
 #to-typst(simplify-metrics(expression))
 ```
 
-Tymbolica and Tydenso share one Parsely-to-Atom bridge. The metadata's native
-Atom bytes are authoritative, so namespaces, Symbolica attributes, and Spenso
-tensor state survive cross-plugin use without being reconstructed from the
-printed indices.
+Tymbolica and Tydenso share one Parsely-to-Atom bridge and one Atom payload.
+Namespaces and Symbolica attributes remain exact, while Tydenso carries the
+representation declarations it needs across plugin calls instead of rebuilding
+them from printed indices.
 
 ## Install locally
 

@@ -3185,9 +3185,12 @@ dependencies = [
 name = "tymbolica-symbol-registry"
 version = "0.1.0"
 dependencies = [
+ "ciborium",
  "idenso",
+ "spenso",
  "symbolica 2.2.0",
  "symbolica-integrate",
+ "tymbolica-atom-payload",
 ]
 
 [[package]]

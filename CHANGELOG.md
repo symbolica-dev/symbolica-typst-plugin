@@ -31,6 +31,10 @@ local `0.1.0` package while its initial public surface is being prepared.
 - Added one shared Parsely-to-Atom Rust bridge to both plugins. Tydenso's
   `math` accepts annotated tensor calls, and annotated values move between
   Tydenso and Tymbolica through their exact native Atom payload.
+- Added portable attachments to the shared Atom payload. Tymbolica preserves
+  attachments through algebra and matrix operations; Tydenso uses them to
+  restore custom representation classes and index palettes before importing an
+  expression in another plugin runtime.
 - Added Tydenso's own Spenso-aware Typst and compact printers, configurable
   through the real `SpensoPrintSettings` fields.
 - Render tensor and vector indices with Typst `attach`, including Physica-style

@@ -402,18 +402,24 @@ arguments, and symmetry flags.
 
 = Work alongside Tymbolica
 
-Tydenso and Tymbolica use the same versioned native Atom export. A package can
-construct and simplify tensors with Tydenso, then pass the result to Tymbolica
-for a general algebraic operation. It can also go the other way when a
-Tymbolica expression uses Spenso's tensor representation.
+Tydenso and Tymbolica share the same Atom payload. A package can construct and
+simplify tensors with Tydenso, then pass the result to Tymbolica for a general
+algebraic operation. Custom representations keep the information Tydenso needs
+to use them again, including their index palette.
 
 ```typst
 #import "@local/tydenso:0.1.0" as tensors
 #import "@local/tymbolica:0.1.0" as algebra
 
-#let V = tensors.mink(4)
+#let V = tensors.representation(
+  "M",
+  4,
+  namespace: "model",
+  self-dual: true,
+  indices: ($mu$, $nu$),
+)
 #let p = tensors.vector("p")
-#let expression = p(tensors.slot(V, "mu"))
+#let expression = p(tensors.slot(V, 1))
 
 #let expanded = algebra.expand(expression)
 #tensors.to-typst(expanded)

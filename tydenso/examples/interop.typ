@@ -22,8 +22,8 @@ The same native Atom payload can be inspected or transformed by Tymbolica:
 #assert(type(expanded) == bytes)
 #assert(type(tensors.inspect(expanded)) == dictionary)
 
-// Tydenso content is accepted directly by Tymbolica. Antisymmetry surviving
-// the round trip proves that the exact Atom, including its symbol state, won.
+// Tydenso content is accepted directly by Tymbolica. Antisymmetry survives the
+// round trip because the exact Atom is carried instead of being reparsed.
 #let W = tensors.euc(3)
 #let a = tensors.slot(W, "a")
 #let b = tensors.slot(W, "b")
@@ -38,3 +38,17 @@ The same native Atom payload can be inspected or transformed by Tymbolica:
   algebra.canonical(roundtrip, namespaces: true),
   algebra.canonical(mass, namespaces: true),
 )
+
+// A custom representation also survives a trip through the algebra plugin,
+// including the palette that turns its first index into mu.
+#let M = tensors.representation(
+  "M",
+  3,
+  namespace: "interop_representation",
+  self-dual: true,
+  indices: ($std.sym.mu$, $std.sym.nu$),
+)
+#let q = tensors.vector("q", namespace: "interop_representation")
+#let custom = q(tensors.slot(M, 1))
+#let custom-roundtrip = algebra.expand(custom)
+#assert(tensors.to-typst-source(custom-roundtrip).contains("t:μ"))

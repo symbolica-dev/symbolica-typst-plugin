@@ -11,18 +11,25 @@ use idenso::{Cookable, IndexTooling};
 use spenso::network::tags::{SPENSO_TAG, prepare_tensor_print, register_tensor_symbol};
 use spenso::shadowing::symbolica_utils::SpensoPrintSettings;
 use spenso::structure::abstract_index::AbstractIndex;
-use spenso::structure::representation::{
-    IndexDisplay, IndexPalette, LibraryRep, RepName, initialize as initialize_representations,
-};
+use spenso::structure::representation::{IndexDisplay, IndexPalette, LibraryRep, RepName};
 use symbolica::atom::{
     Atom, AtomCore, AtomView, DefaultNamespace, NamespacedSymbol, Symbol, SymbolAttribute,
     SymbolBuilder,
 };
 use symbolica::printer::PrintOptions;
 use tymbolica_atom_payload::{
-    decode_atom as decode_shared_atom, encode_atom as encode_shared_atom,
+    AttachmentSet, ParsedPayload, PayloadFormat, encode_atom_from_set, parse_payload,
+};
+use tymbolica_symbol_registry::{
+    PortableRepresentationClass, REPRESENTATION_ATTACHMENT_SCHEMA, RepresentationDeclaration,
+    RepresentationDeclarations, canonical_representation_name,
 };
 use wasm_minimal_protocol::*;
+
+#[cfg(test)]
+use tymbolica_atom_payload::{Attachment, AttachmentKey};
+#[cfg(test)]
+use tymbolica_symbol_registry::REPRESENTATION_ATTACHMENT_VERSION;
 
 initiate_protocol!();
 
@@ -30,6 +37,12 @@ const DISPLAY_INDEX_VERSION: i64 = 1;
 const MAX_DISPLAY_INDEX_AST_BYTES: usize = 64 * 1024;
 const MAX_DISPLAY_INDEX_DEPTH: usize = 16;
 const MAX_DISPLAY_INDEX_NODES: usize = 64;
+
+fn legacy_payload_error(label: &str) -> String {
+    format!(
+        "{label} uses legacy raw Atom bytes, which cannot carry portable representation declarations; recreate the payload with aligned Tymbolica/Tydenso package versions"
+    )
+}
 
 getrandom_02::register_custom_getrandom!(tymbolica_getrandom_v02);
 
@@ -63,14 +76,99 @@ unsafe extern "Rust" fn __getrandom_v03_custom(
     Ok(())
 }
 
-fn decode_atom(input: &[u8], label: &str) -> Result<Atom, String> {
-    tymbolica_symbol_registry::initialize();
-    decode_shared_atom(input)
+#[derive(Clone, Debug, Default)]
+struct InputContext {
+    /// Raw input attachments enforce the common fail-closed key invariant even
+    /// when a known schema has two semantically equivalent CBOR encodings.
+    all_input: AttachmentSet,
+    /// Attachments not interpreted by this plugin. Known representation
+    /// attachments are regenerated canonically and only for output references.
+    passthrough: AttachmentSet,
+    representations: RepresentationDeclarations,
+}
+
+impl InputContext {
+    fn merge_representation(
+        &mut self,
+        name: String,
+        declaration: RepresentationDeclaration,
+    ) -> Result<(), String> {
+        self.representations
+            .insert(name, declaration)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn inspect_payload<'a>(
+        &mut self,
+        input: &'a [u8],
+        label: &str,
+    ) -> Result<ParsedPayload<'a>, String> {
+        let parsed = parse_payload(input)
+            .map_err(|error| format!("{label} must be Atom payload bytes: {error}"))?;
+        if parsed.format() == PayloadFormat::LegacyRawAtom {
+            return Err(legacy_payload_error(label));
+        }
+        parsed
+            .ensure_import_compatible()
+            .map_err(|error| format!("{label} is incompatible: {error}"))?;
+
+        let incoming = parsed.attachment_set();
+        self.absorb_attachment_set(&incoming)?;
+        Ok(parsed)
+    }
+
+    fn absorb_attachment_set(&mut self, incoming: &AttachmentSet) -> Result<(), String> {
+        // Mutate a candidate so a malformed known declaration cannot leave a
+        // partially absorbed multi-input context behind.
+        let mut candidate = self.clone();
+        candidate
+            .all_input
+            .merge(incoming)
+            .map_err(|error| format!("could not merge Atom attachments: {error}"))?;
+        candidate
+            .representations
+            .absorb_attachments(incoming)
+            .map_err(|error| error.to_string())?;
+
+        for attachment in incoming.iter() {
+            if attachment.schema() != REPRESENTATION_ATTACHMENT_SCHEMA {
+                candidate
+                    .passthrough
+                    .insert(attachment.to_owned_attachment())
+                    .map_err(|error| format!("could not merge Atom attachments: {error}"))?;
+            }
+        }
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Register every declaration only after every input has been inspected and
+    /// merged. This must precede `Atom::import`, otherwise Symbolica can intern a
+    /// representation head without its local callback.
+    fn register_representations(&self) -> Result<(), String> {
+        self.representations
+            .register_before_atom_import()
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn import_payload(parsed: &ParsedPayload<'_>, label: &str) -> Result<Atom, String> {
+    parsed
+        .import_atom()
         .map_err(|error| format!("{label} must be Atom payload bytes: {error}"))
 }
 
-fn encode_atom(atom: &Atom) -> Result<Vec<u8>, String> {
-    encode_shared_atom(atom).map_err(|error| format!("could not encode Tydenso result: {error}"))
+fn decode_atom_with_context(input: &[u8], label: &str) -> Result<(Atom, InputContext), String> {
+    let mut context = InputContext::default();
+    let parsed = context.inspect_payload(input, label)?;
+    context.register_representations()?;
+    let atom = import_payload(&parsed, label)?;
+    Ok((atom, context))
+}
+
+fn decode_atom(input: &[u8], label: &str) -> Result<Atom, String> {
+    decode_atom_with_context(input, label).map(|(atom, _)| atom)
 }
 
 fn decode_cbor(input: &[u8], label: &str) -> Result<Value, String> {
@@ -83,6 +181,31 @@ fn encode_cbor(value: Value) -> Result<Vec<u8>, String> {
     ciborium::into_writer(&value, &mut output)
         .map_err(|error| format!("could not encode Tydenso data: {error}"))?;
     Ok(output)
+}
+
+#[cfg(test)]
+fn decode_cbor_exact(input: &[u8], label: &str) -> Result<Value, String> {
+    let mut cursor = Cursor::new(input);
+    let value = ciborium::from_reader::<Value, _>(&mut cursor)
+        .map_err(|error| format!("{label} must be CBOR-encoded: {error}"))?;
+    if cursor.position() != input.len() as u64 {
+        return Err(format!("{label} has trailing bytes"));
+    }
+    Ok(value)
+}
+
+fn encode_atom_with_context(atom: &Atom, context: &InputContext) -> Result<Vec<u8>, String> {
+    let mut attachments = context.passthrough.clone();
+    RepresentationDeclarations::referenced_by_atom(atom)
+        .and_then(|declarations| declarations.append_attachments_to(&mut attachments))
+        .map_err(|error| error.to_string())?;
+    encode_atom_from_set(atom, &attachments)
+        .map_err(|error| format!("could not encode Tydenso result: {error}"))
+}
+
+#[cfg(test)]
+fn encode_atom(atom: &Atom) -> Result<Vec<u8>, String> {
+    encode_atom_with_context(atom, &InputContext::default())
 }
 
 fn map_get<'a>(map: &'a [(Value, Value)], key: &str) -> Option<&'a Value> {
@@ -309,7 +432,7 @@ fn index_display_from_bytes(input: &[u8]) -> Result<IndexDisplay, String> {
 /// an index expression. This preserves symbol namespaces and identity without
 /// evaluating any Typst source. Ordinary handwritten math has no such envelope
 /// and continues through the restricted `IndexDisplay` parser.
-fn exact_atom_from_index_ast(value: &Value) -> Result<Option<Atom>, String> {
+fn semantic_atom_payload_bytes(value: &Value) -> Result<Option<&[u8]>, String> {
     let Value::Map(node) = value else {
         return Ok(None);
     };
@@ -339,12 +462,18 @@ fn exact_atom_from_index_ast(value: &Value) -> Result<Option<Atom>, String> {
         ));
     }
     match map_get(payload, "atom") {
-        Some(Value::Bytes(bytes)) => decode_atom(bytes, "tymbolica index metadata").map(Some),
+        Some(Value::Bytes(bytes)) => Ok(Some(bytes)),
         Some(other) => Err(format!(
             "tymbolica index metadata atom must be bytes, got {other:?}"
         )),
         None => Err("tymbolica index metadata missing atom".to_owned()),
     }
+}
+
+fn exact_atom_from_index_ast(value: &Value) -> Result<Option<Atom>, String> {
+    semantic_atom_payload_bytes(value)?
+        .map(|bytes| decode_atom(bytes, "tymbolica index metadata"))
+        .transpose()
 }
 
 fn hash_index_display(display: &IndexDisplay, hasher: &mut blake3::Hasher) {
@@ -521,6 +650,30 @@ fn validate_canonical_dual_name(map: &[(Value, Value)], name: &str) -> Result<()
     }
 }
 
+fn representation_declaration_from_map(
+    map: &[(Value, Value)],
+) -> Result<(String, RepresentationDeclaration), String> {
+    let name = map_text(map, "name")?;
+    let namespace = map_text_or(map, "namespace", "spenso")?;
+    validate_canonical_dual_name(map, name)?;
+    let qualified_name =
+        canonical_representation_name(name, namespace).map_err(|error| error.to_string())?;
+    let self_dual = map_bool(map, "self-dual", false)?;
+    let declaration = RepresentationDeclaration {
+        class: if self_dual && qualified_name == "spenso::mink" {
+            // Typst's public constructor models variance, so the locally known
+            // Minkowski inline metric is presented as self-dual there.
+            PortableRepresentationClass::InlineMetric
+        } else if self_dual {
+            PortableRepresentationClass::SelfDual
+        } else {
+            PortableRepresentationClass::Dualizable
+        },
+        index_palette: representation_index_palette(map)?,
+    };
+    Ok((qualified_name, declaration))
+}
+
 fn parse_symbol(
     name: &str,
     namespace: &str,
@@ -625,44 +778,24 @@ fn parse_representation(
     namespace: &str,
     map: &[(Value, Value)],
 ) -> Result<LibraryRep, String> {
-    initialize_representations();
-    validate_canonical_dual_name(map, name)?;
-    let qualified_name = if name.contains("::") {
-        name.to_owned()
-    } else {
-        format!("{namespace}::{name}")
-    };
-    let namespaced = NamespacedSymbol::parse(&qualified_name);
-    let self_dual = map_bool(map, "self-dual", false)?;
-    let index_palette = representation_index_palette(map)?;
-
-    if let Some(symbol) = Symbol::get_symbol(namespaced)
-        && let Ok(representation) = LibraryRep::try_from_symbol_coerced(symbol)
-    {
-        if representation.is_self_dual() != self_dual {
-            return Err(format!(
-                "symbol {} already exists with a different representation type",
-                symbol.get_name()
-            ));
-        }
-        if representation
-            .metadata()
-            .is_none_or(|metadata| metadata.index_palette != index_palette)
-        {
-            return Err(format!(
-                "symbol {} already exists with a different fixed index palette",
-                symbol.get_name()
-            ));
-        }
-        return Ok(representation);
+    let (qualified_name, declaration) = representation_declaration_from_map(map)?;
+    let expected_name =
+        canonical_representation_name(name, namespace).map_err(|error| error.to_string())?;
+    debug_assert_eq!(qualified_name, expected_name);
+    let symbol = Symbol::get_symbol(NamespacedSymbol::parse(&qualified_name)).ok_or_else(|| {
+        format!("representation {qualified_name} was not registered during input preparation")
+    })?;
+    let representation = LibraryRep::try_from_symbol_coerced(symbol)
+        .map_err(|error| format!("representation {qualified_name} is not registered: {error}"))?;
+    if representation.metadata().is_none_or(|metadata| {
+        PortableRepresentationClass::from(metadata.class) != declaration.class
+            || metadata.index_palette != declaration.index_palette
+    }) {
+        return Err(format!(
+            "symbol {qualified_name} already exists with a different representation declaration"
+        ));
     }
-
-    if self_dual {
-        LibraryRep::new_self_dual_with_index_palette(&qualified_name, index_palette)
-    } else {
-        LibraryRep::new_dual_with_index_palette(&qualified_name, index_palette)
-    }
-    .map_err(|error| error.to_string())
+    Ok(representation)
 }
 
 fn representation_atom(map: &[(Value, Value)], index: Option<&Value>) -> Result<Atom, String> {
@@ -671,9 +804,9 @@ fn representation_atom(map: &[(Value, Value)], index: Option<&Value>) -> Result<
     let dimension = map_get(map, "dimension").ok_or_else(|| "missing dimension".to_owned())?;
     let representation = parse_representation(name, namespace, map)?;
     let symbol = representation.symbol();
-    let mut arguments = vec![atom_from_value(dimension, namespace)?];
+    let mut arguments = vec![atom_from_value_prepared(dimension, namespace)?];
     if let Some(index) = index {
-        arguments.push(atom_from_value(index, namespace)?);
+        arguments.push(atom_from_value_prepared(index, namespace)?);
     }
     Ok(symbol.call_args(arguments))
 }
@@ -692,10 +825,128 @@ fn slot_atom(map: &[(Value, Value)]) -> Result<Atom, String> {
     }
 }
 
-fn atom_from_value(value: &Value, namespace: &str) -> Result<Atom, String> {
-    tymbolica_symbol_registry::initialize();
+fn collect_construct_value(
+    value: &Value,
+    namespace: &str,
+    context: &mut InputContext,
+) -> Result<(), String> {
     match value {
-        Value::Bytes(bytes) => decode_atom(bytes, "expression"),
+        Value::Bytes(bytes) => {
+            context.inspect_payload(bytes, "embedded expression")?;
+            Ok(())
+        }
+        Value::Integer(_) | Value::Float(_) | Value::Text(_) => Ok(()),
+        Value::Map(map) => match map_text(map, "kind")? {
+            "display-index" => {
+                let version = value_i64(
+                    map_get(map, "version")
+                        .ok_or_else(|| "display index missing version".to_owned())?,
+                    "display index version",
+                )?;
+                if version != DISPLAY_INDEX_VERSION {
+                    return Err(format!("unsupported display index version {version}"));
+                }
+                let ast = match map_get(map, "ast") {
+                    Some(Value::Bytes(ast)) => ast,
+                    Some(other) => {
+                        return Err(format!("display index AST must be bytes, got {other:?}"));
+                    }
+                    None => return Err("display index missing AST".to_owned()),
+                };
+                let ast = index_ast_from_bytes(ast)?;
+                if let Some(bytes) = semantic_atom_payload_bytes(&ast)? {
+                    context.inspect_payload(bytes, "tymbolica index metadata")?;
+                } else {
+                    let mut nodes = 0;
+                    index_display_from_ast(&ast, 0, &mut nodes)?;
+                }
+                Ok(())
+            }
+            "symbol" => Ok(()),
+            "call" | "tensor" | "vector" => {
+                let child_namespace = map_text_or(map, "namespace", namespace)?;
+                for argument in map_array(map, "arguments")? {
+                    collect_construct_value(argument, child_namespace, context)?;
+                }
+                Ok(())
+            }
+            "representation" => {
+                let (name, declaration) = representation_declaration_from_map(map)?;
+                context.merge_representation(name, declaration)?;
+                let child_namespace = map_text_or(map, "namespace", namespace)?;
+                collect_construct_value(
+                    map_get(map, "dimension").ok_or_else(|| "missing dimension".to_owned())?,
+                    child_namespace,
+                    context,
+                )
+            }
+            "slot" => {
+                let representation = map_get(map, "representation")
+                    .ok_or_else(|| "missing representation".to_owned())?;
+                collect_construct_value(representation, namespace, context)?;
+                collect_construct_value(
+                    map_get(map, "index").ok_or_else(|| "missing index".to_owned())?,
+                    namespace,
+                    context,
+                )
+            }
+            "sum" => {
+                for term in map_array(map, "terms")? {
+                    collect_construct_value(term, namespace, context)?;
+                }
+                Ok(())
+            }
+            "product" => {
+                for factor in map_array(map, "factors")? {
+                    collect_construct_value(factor, namespace, context)?;
+                }
+                Ok(())
+            }
+            "negative" => collect_construct_value(
+                map_get(map, "expression").ok_or_else(|| "missing expression".to_owned())?,
+                namespace,
+                context,
+            ),
+            "power" => {
+                collect_construct_value(
+                    map_get(map, "base").ok_or_else(|| "missing base".to_owned())?,
+                    namespace,
+                    context,
+                )?;
+                collect_construct_value(
+                    map_get(map, "exponent").ok_or_else(|| "missing exponent".to_owned())?,
+                    namespace,
+                    context,
+                )
+            }
+            kind => Err(format!("unsupported Tydenso value kind {kind:?}")),
+        },
+        other => Err(format!("unsupported Tydenso value: {other:?}")),
+    }
+}
+
+fn atom_from_value_with_context(
+    value: &Value,
+    namespace: &str,
+) -> Result<(Atom, InputContext), String> {
+    let mut context = InputContext::default();
+    collect_construct_value(value, namespace, &mut context)?;
+    context.register_representations()?;
+    let atom = atom_from_value_prepared(value, namespace)?;
+    Ok((atom, context))
+}
+
+fn atom_from_value(value: &Value, namespace: &str) -> Result<Atom, String> {
+    atom_from_value_with_context(value, namespace).map(|(atom, _)| atom)
+}
+
+fn atom_from_value_prepared(value: &Value, namespace: &str) -> Result<Atom, String> {
+    match value {
+        Value::Bytes(bytes) => {
+            let parsed = parse_payload(bytes)
+                .map_err(|error| format!("expression must be Atom payload bytes: {error}"))?;
+            import_payload(&parsed, "expression")
+        }
         Value::Integer(value) => {
             let value: i64 = (*value)
                 .try_into()
@@ -719,7 +970,7 @@ fn atom_from_value(value: &Value, namespace: &str) -> Result<Atom, String> {
                 let symbol = parse_symbol(map_text(map, "name")?, symbol_namespace, Some(map))?;
                 let arguments = map_array(map, "arguments")?
                     .iter()
-                    .map(|argument| atom_from_value(argument, symbol_namespace))
+                    .map(|argument| atom_from_value_prepared(argument, symbol_namespace))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(symbol.call_args(arguments))
             }
@@ -733,7 +984,7 @@ fn atom_from_value(value: &Value, namespace: &str) -> Result<Atom, String> {
                 )?;
                 let arguments = map_array(map, "arguments")?
                     .iter()
-                    .map(|argument| atom_from_value(argument, symbol_namespace))
+                    .map(|argument| atom_from_value_prepared(argument, symbol_namespace))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(symbol.call_args(arguments))
             }
@@ -742,24 +993,24 @@ fn atom_from_value(value: &Value, namespace: &str) -> Result<Atom, String> {
             "sum" => Ok(Atom::add_many(
                 map_array(map, "terms")?
                     .iter()
-                    .map(|term| atom_from_value(term, namespace))
+                    .map(|term| atom_from_value_prepared(term, namespace))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
             "product" => Ok(Atom::mul_many(
                 map_array(map, "factors")?
                     .iter()
-                    .map(|factor| atom_from_value(factor, namespace))
+                    .map(|factor| atom_from_value_prepared(factor, namespace))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
-            "negative" => Ok(-atom_from_value(
+            "negative" => Ok(-atom_from_value_prepared(
                 map_get(map, "expression").ok_or_else(|| "missing expression".to_owned())?,
                 namespace,
             )?),
-            "power" => Ok(atom_from_value(
+            "power" => Ok(atom_from_value_prepared(
                 map_get(map, "base").ok_or_else(|| "missing base".to_owned())?,
                 namespace,
             )?
-            .pow(atom_from_value(
+            .pow(atom_from_value_prepared(
                 map_get(map, "exponent").ok_or_else(|| "missing exponent".to_owned())?,
                 namespace,
             )?)),
@@ -885,8 +1136,8 @@ fn render_request(input: &[u8], typst: bool) -> Result<Vec<u8>, String> {
     Ok(printable.printer(options).to_string().into_bytes())
 }
 
-fn decode_symbol(input: &[u8], label: &str) -> Result<Symbol, String> {
-    match decode_atom(input, label)?.as_view() {
+fn symbol_from_atom(atom: &Atom, label: &str) -> Result<Symbol, String> {
+    match atom.as_view() {
         AtomView::Var(variable) => Ok(variable.get_symbol()),
         _ => Err(format!("{label} must be a symbol")),
     }
@@ -900,10 +1151,10 @@ fn expanded(terms: Vec<(Atom, Atom)>) -> Atom {
         })
 }
 
-fn encode_atom_array(atoms: Vec<Atom>) -> Result<Vec<u8>, String> {
+fn encode_atom_array(atoms: Vec<Atom>, context: &InputContext) -> Result<Vec<u8>, String> {
     let values = atoms
         .iter()
-        .map(|atom| encode_atom(atom).map(Value::Bytes))
+        .map(|atom| encode_atom_with_context(atom, context).map(Value::Bytes))
         .collect::<Result<Vec<_>, _>>()?;
     let mut output = Vec::new();
     ciborium::into_writer(&Value::Array(values), &mut output)
@@ -914,7 +1165,8 @@ fn encode_atom_array(atoms: Vec<Atom>) -> Result<Vec<u8>, String> {
 #[wasm_func]
 pub fn construct(value: &[u8]) -> Result<Vec<u8>, String> {
     let value = decode_cbor(value, "value")?;
-    encode_atom(&atom_from_value(&value, "spenso")?)
+    let (atom, context) = atom_from_value_with_context(&value, "spenso")?;
+    encode_atom_with_context(&atom, &context)
 }
 
 #[wasm_func]
@@ -923,7 +1175,16 @@ pub fn from_ast(ast: &[u8], namespace: &[u8]) -> Result<Vec<u8>, String> {
         Value::Text(namespace) => namespace,
         other => return Err(format!("namespace must be text, got {other:?}")),
     };
-    encode_atom(&tymbolica_typst_ast::atom_from_ast(ast, &namespace, "ast")?)
+    let mut context = InputContext::default();
+    let preflight = tymbolica_typst_ast::preflight_payloads_from_ast(ast, "ast")?;
+    if preflight.has_legacy_payload {
+        return Err(legacy_payload_error("ast"));
+    }
+    context.absorb_attachment_set(&preflight.attachments)?;
+    context.register_representations()?;
+    let attached = tymbolica_typst_ast::attached_atom_from_ast(ast, &namespace, "ast")?;
+    debug_assert_eq!(attached.attachments, preflight.attachments);
+    encode_atom_with_context(&attached.atom, &context)
 }
 
 #[wasm_func]
@@ -943,92 +1204,116 @@ pub fn to_string(request: &[u8]) -> Result<Vec<u8>, String> {
 
 #[wasm_func]
 pub fn cook_function(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(
-        &decode_atom(expr, "expr")?
-            .cook_function()
-            .map_err(|error| format!("{error:?}"))?,
-    )
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    let result = atom.cook_function().map_err(|error| format!("{error:?}"))?;
+    encode_atom_with_context(&result, &context)
 }
 
 #[wasm_func]
 pub fn cook_indices(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&decode_atom(expr, "expr")?.cook_indices())
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&atom.cook_indices(), &context)
 }
 
 #[wasm_func]
 pub fn dirac_adjoint(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(
-        &decode_atom(expr, "expr")?
-            .dirac_adjoint::<AbstractIndex>()
-            .map_err(|error| error.to_string())?,
-    )
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    let result = atom
+        .dirac_adjoint::<AbstractIndex>()
+        .map_err(|error| error.to_string())?;
+    encode_atom_with_context(&result, &context)
 }
 
 #[wasm_func]
 pub fn expand_bis(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&expanded(decode_atom(expr, "expr")?.expand_bis()))
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&expanded(atom.expand_bis()), &context)
 }
 
 #[wasm_func]
 pub fn expand_color(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&expanded(decode_atom(expr, "expr")?.expand_color()))
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&expanded(atom.expand_color()), &context)
 }
 
 #[wasm_func]
 pub fn expand_metrics(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&expanded(decode_atom(expr, "expr")?.expand_metrics()))
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&expanded(atom.expand_metrics()), &context)
 }
 
 #[wasm_func]
 pub fn expand_mink(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&expanded(decode_atom(expr, "expr")?.expand_mink()))
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&expanded(atom.expand_mink()), &context)
 }
 
 #[wasm_func]
 pub fn expand_mink_bis(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&expanded(decode_atom(expr, "expr")?.expand_mink_bis()))
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&expanded(atom.expand_mink_bis()), &context)
 }
 
 #[wasm_func]
 pub fn list_dangling(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom_array(decode_atom(expr, "expr")?.list_dangling::<AbstractIndex>())
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_array(atom.list_dangling::<AbstractIndex>(), &context)
 }
 
 #[wasm_func]
 pub fn simplify_color(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&decode_atom(expr, "expr")?.simplify_color())
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&atom.simplify_color(), &context)
 }
 
 #[wasm_func]
 pub fn simplify_gamma(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&decode_atom(expr, "expr")?.simplify_gamma())
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&atom.simplify_gamma(), &context)
 }
 
 #[wasm_func]
 pub fn simplify_metrics(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&decode_atom(expr, "expr")?.simplify_metrics())
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&atom.simplify_metrics(), &context)
 }
 
 #[wasm_func]
 pub fn to_dots(expr: &[u8]) -> Result<Vec<u8>, String> {
-    encode_atom(&decode_atom(expr, "expr")?.to_dots())
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    encode_atom_with_context(&atom.to_dots(), &context)
 }
 
 #[wasm_func]
 pub fn wrap_dummies(expr: &[u8], header: &[u8]) -> Result<Vec<u8>, String> {
-    let header = decode_symbol(header, "header")?;
-    encode_atom(&decode_atom(expr, "expr")?.wrap_dummies::<AbstractIndex>(header))
+    let mut context = InputContext::default();
+    let expr_payload = context.inspect_payload(expr, "expr")?;
+    let header_payload = context.inspect_payload(header, "header")?;
+    context.register_representations()?;
+    let expr = import_payload(&expr_payload, "expr")?;
+    let header_atom = import_payload(&header_payload, "header")?;
+    let header = symbol_from_atom(&header_atom, "header")?;
+    encode_atom_with_context(&expr.wrap_dummies::<AbstractIndex>(header), &context)
 }
 
 #[wasm_func]
 pub fn wrap_indices(expr: &[u8], header: &[u8]) -> Result<Vec<u8>, String> {
-    let header = decode_symbol(header, "header")?;
-    encode_atom(&decode_atom(expr, "expr")?.wrap_indices(header))
+    let mut context = InputContext::default();
+    let expr_payload = context.inspect_payload(expr, "expr")?;
+    let header_payload = context.inspect_payload(header, "header")?;
+    context.register_representations()?;
+    let expr = import_payload(&expr_payload, "expr")?;
+    let header_atom = import_payload(&header_payload, "header")?;
+    let header = symbol_from_atom(&header_atom, "header")?;
+    encode_atom_with_context(&expr.wrap_indices(header), &context)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tymbolica_symbol_registry::{
+        decode_representation_declaration, encode_representation_declaration,
+    };
 
     fn ast_node(head: &str, args: Vec<Value>, slots: Vec<(&str, Value)>) -> Value {
         Value::Map(vec![
@@ -1122,7 +1407,40 @@ mod tests {
         ])
     }
 
-    fn semantic_atom_ast(atom: &Atom) -> Value {
+    fn tensor_value(name: &str, namespace: &str, arguments: Vec<Value>) -> Value {
+        cbor_map([
+            ("kind", Value::Text("tensor".to_owned())),
+            ("name", Value::Text(name.to_owned())),
+            ("namespace", Value::Text(namespace.to_owned())),
+            ("arguments", Value::Array(arguments)),
+            ("symmetric", Value::Bool(false)),
+            ("antisymmetric", Value::Bool(false)),
+            ("cycle-symmetric", Value::Bool(false)),
+            ("linear", Value::Bool(false)),
+        ])
+    }
+
+    fn representation_attachment(
+        name: &str,
+        declaration: &RepresentationDeclaration,
+    ) -> Attachment {
+        tymbolica_symbol_registry::representation_attachment(name, declaration).unwrap()
+    }
+
+    fn unknown_attachment(identity: &[u8], data: &[u8]) -> (AttachmentKey, Attachment) {
+        let key = AttachmentKey::new("tydenso.test.unknown", 7, identity.to_vec()).unwrap();
+        let attachment = Attachment::new(key.clone(), data.to_vec()).unwrap();
+        (key, attachment)
+    }
+
+    fn add_attachment(payload: &[u8], attachment: Attachment) -> Vec<u8> {
+        let parsed = parse_payload(payload).unwrap();
+        let mut attachments = parsed.attachment_set();
+        attachments.insert(attachment).unwrap();
+        encode_atom_from_set(&parsed.import_atom().unwrap(), &attachments).unwrap()
+    }
+
+    fn semantic_atom_payload_ast(payload: Vec<u8>) -> Value {
         ast_node(
             "semantic-metadata",
             vec![Value::Text("visible".to_owned())],
@@ -1132,10 +1450,14 @@ mod tests {
                     ("protocol", Value::Text("tymbolica".to_owned())),
                     ("version", Value::Integer(1.into())),
                     ("kind", Value::Text("atom".to_owned())),
-                    ("atom", Value::Bytes(encode_atom(atom).unwrap())),
+                    ("atom", Value::Bytes(payload)),
                 ]),
             )],
         )
+    }
+
+    fn semantic_atom_ast(atom: &Atom) -> Value {
+        semantic_atom_payload_ast(encode_atom(atom).unwrap())
     }
 
     #[test]
@@ -1368,5 +1690,284 @@ mod tests {
                 .unwrap_err()
                 .contains("cannot name a different representation symbol")
         );
+    }
+
+    #[test]
+    fn custom_palette_sidecar_round_trips_without_visual_or_identity_data() {
+        let name = "SidecarPalette";
+        let qualified = format!("tydenso_palette_registration_test::{name}");
+        let descriptor = representation_value(
+            name,
+            vec![
+                display_index_value(DISPLAY_INDEX_VERSION, &Value::Text("mu".to_owned())),
+                display_index_value(DISPLAY_INDEX_VERSION, &mu_one_ast()),
+            ],
+        );
+        let payload = construct(&value_bytes(&descriptor)).unwrap();
+        let key = AttachmentKey::new(
+            REPRESENTATION_ATTACHMENT_SCHEMA,
+            REPRESENTATION_ATTACHMENT_VERSION,
+            qualified.as_bytes().to_vec(),
+        )
+        .unwrap();
+        let parsed = parse_payload(&payload).unwrap();
+        let data = parsed.attachment(&key).expect("custom sidecar");
+        let Value::Array(fields) = decode_cbor_exact(data, "sidecar").unwrap() else {
+            panic!("sidecar DATA should be an array");
+        };
+        assert_eq!(fields.len(), 2, "DATA is only class plus palette");
+        let declaration = decode_representation_declaration(data).unwrap();
+        assert_eq!(declaration.class, PortableRepresentationClass::SelfDual);
+        assert_eq!(
+            declaration
+                .index_palette
+                .resolve(1)
+                .unwrap()
+                .to_native_string(),
+            "mu"
+        );
+        assert_eq!(
+            declaration
+                .index_palette
+                .resolve(2)
+                .unwrap()
+                .to_native_string(),
+            "mu_(1)"
+        );
+
+        let round_tripped = cook_indices(&payload).unwrap();
+        let round_tripped = parse_payload(&round_tripped).unwrap();
+        assert_eq!(round_tripped.attachment(&key), Some(data));
+    }
+
+    #[test]
+    fn minkowski_descriptor_uses_its_local_inline_metric_class() {
+        let descriptor = cbor_map([
+            ("kind", Value::Text("representation".to_owned())),
+            ("name", Value::Text("mink".to_owned())),
+            ("namespace", Value::Text("spenso".to_owned())),
+            ("dimension", Value::Integer(4.into())),
+            ("self-dual", Value::Bool(true)),
+            ("indices", Value::Null),
+        ]);
+        let payload = construct(&value_bytes(&descriptor)).unwrap();
+        let key = AttachmentKey::new(
+            REPRESENTATION_ATTACHMENT_SCHEMA,
+            REPRESENTATION_ATTACHMENT_VERSION,
+            b"spenso::mink".to_vec(),
+        )
+        .unwrap();
+        let parsed = parse_payload(&payload).unwrap();
+        let declaration =
+            decode_representation_declaration(parsed.attachment(&key).unwrap()).unwrap();
+        assert_eq!(declaration.class, PortableRepresentationClass::InlineMetric);
+    }
+
+    #[test]
+    fn raw_representation_conflict_is_rejected_before_registration_or_import() {
+        let name = "tydenso_sidecar_raw_conflict_test::R";
+        assert!(Symbol::get_symbol(NamespacedSymbol::parse(name)).is_none());
+        let numeric = RepresentationDeclaration {
+            class: PortableRepresentationClass::SelfDual,
+            index_palette: IndexPalette::Numeric,
+        };
+        let dual = RepresentationDeclaration {
+            class: PortableRepresentationClass::Dualizable,
+            index_palette: IndexPalette::Numeric,
+        };
+        let x = Atom::var(parse_symbol("x", "tydenso_sidecar_raw_conflict_test", None).unwrap());
+        let h = Atom::var(parse_symbol("h", "tydenso_sidecar_raw_conflict_test", None).unwrap());
+        let first = tymbolica_atom_payload::encode_atom_with_attachments(
+            &x,
+            [representation_attachment(name, &numeric)],
+        )
+        .unwrap();
+        let second = tymbolica_atom_payload::encode_atom_with_attachments(
+            &h,
+            [representation_attachment(name, &dual)],
+        )
+        .unwrap();
+
+        assert!(
+            wrap_indices(&first, &second)
+                .unwrap_err()
+                .contains("conflicting data for attachment")
+        );
+        assert!(Symbol::get_symbol(NamespacedSymbol::parse(name)).is_none());
+    }
+
+    #[test]
+    fn unsupported_representation_attachment_versions_fail_preflight() {
+        let name = "tydenso_sidecar_future_version_test::R";
+        let declaration = RepresentationDeclaration {
+            class: PortableRepresentationClass::SelfDual,
+            index_palette: IndexPalette::Numeric,
+        };
+        let attachment = Attachment::new(
+            AttachmentKey::new(
+                REPRESENTATION_ATTACHMENT_SCHEMA,
+                REPRESENTATION_ATTACHMENT_VERSION + 1,
+                name.as_bytes().to_vec(),
+            )
+            .unwrap(),
+            encode_representation_declaration(&declaration).unwrap(),
+        )
+        .unwrap();
+        let atom =
+            Atom::var(parse_symbol("x", "tydenso_sidecar_future_version_test", None).unwrap());
+        let payload =
+            tymbolica_atom_payload::encode_atom_with_attachments(&atom, [attachment]).unwrap();
+
+        let error = decode_atom(&payload, "future representation payload").unwrap_err();
+        assert!(error.contains("unsupported spenso.representation attachment version 2"));
+        assert!(Symbol::get_symbol(NamespacedSymbol::parse(name)).is_none());
+    }
+
+    #[test]
+    fn legacy_raw_atoms_are_rejected_but_current_generic_envelopes_are_accepted() {
+        let atom = Atom::var(parse_symbol("x", "tydenso_legacy_payload_test", None).unwrap());
+        let current = tymbolica_atom_payload::encode_atom(&atom).unwrap();
+        assert_eq!(decode_atom(&current, "current payload").unwrap(), atom);
+
+        let legacy = parse_payload(&current).unwrap().atom_bytes().to_vec();
+        let error = decode_atom(&legacy, "legacy payload").unwrap_err();
+        assert!(error.contains("legacy raw Atom bytes"));
+        assert!(error.contains("aligned Tymbolica/Tydenso package versions"));
+    }
+
+    #[test]
+    fn from_ast_rejects_legacy_semantic_atoms_before_import() {
+        let namespace = "tydenso_legacy_ast_test";
+        let atom = Atom::var(parse_symbol("x", namespace, None).unwrap());
+        let current = tymbolica_atom_payload::encode_atom(&atom).unwrap();
+        let legacy = parse_payload(&current).unwrap().atom_bytes().to_vec();
+        let namespace = value_bytes(&Value::Text(namespace.to_owned()));
+
+        let current_ast = value_bytes(&semantic_atom_payload_ast(current));
+        let output = from_ast(&current_ast, &namespace).unwrap();
+        assert_eq!(decode_atom(&output, "current AST output").unwrap(), atom);
+
+        let legacy_ast = value_bytes(&semantic_atom_payload_ast(legacy));
+        let error = from_ast(&legacy_ast, &namespace).unwrap_err();
+        assert!(error.contains("ast uses legacy raw Atom bytes"));
+        assert!(error.contains("aligned Tymbolica/Tydenso package versions"));
+    }
+
+    #[test]
+    fn unary_and_list_outputs_preserve_unknown_and_referenced_representation_sidecars() {
+        let namespace = "tydenso_sidecar_fanout_test";
+        let representation = dualizable_representation_value("R", namespace);
+        let expression = tensor_value(
+            "T",
+            namespace,
+            vec![
+                slot_value(representation.clone(), "i", false),
+                slot_value(representation, "j", true),
+            ],
+        );
+        let payload = construct(&value_bytes(&expression)).unwrap();
+        let (unknown_key, unknown) = unknown_attachment(b"fanout", b"preserve me");
+        let payload = add_attachment(&payload, unknown);
+        let rep_key = AttachmentKey::new(
+            REPRESENTATION_ATTACHMENT_SCHEMA,
+            REPRESENTATION_ATTACHMENT_VERSION,
+            format!("{namespace}::R").into_bytes(),
+        )
+        .unwrap();
+
+        let unary = cook_indices(&payload).unwrap();
+        let unary = parse_payload(&unary).unwrap();
+        assert_eq!(
+            unary.attachment(&unknown_key),
+            Some(b"preserve me".as_slice())
+        );
+        assert!(unary.attachment(&rep_key).is_some());
+
+        let fanout = list_dangling(&payload).unwrap();
+        let Value::Array(outputs) = decode_cbor(&fanout, "fanout").unwrap() else {
+            panic!("list_dangling should return an array");
+        };
+        assert_eq!(outputs.len(), 2);
+        for output in outputs {
+            let Value::Bytes(output) = output else {
+                panic!("fanout entry should be an Atom payload");
+            };
+            let parsed = parse_payload(&output).unwrap();
+            assert_eq!(
+                parsed.attachment(&unknown_key),
+                Some(b"preserve me".as_slice())
+            );
+            assert!(parsed.attachment(&rep_key).is_some());
+        }
+    }
+
+    #[test]
+    fn multi_input_operation_merges_attachment_contexts_before_import() {
+        let namespace = "tydenso_sidecar_multi_input_test";
+        let representation = representation_value("R", vec![Value::Text("mu".to_owned())]);
+        let expression = tensor_value("T", namespace, vec![slot_value(representation, "i", false)]);
+        let expr = construct(&value_bytes(&expression)).unwrap();
+        let (expr_key, expr_unknown) = unknown_attachment(b"multi-expr", b"expr-data");
+        let expr = add_attachment(&expr, expr_unknown);
+
+        let header_atom =
+            Atom::var(parse_symbol("wrap", "tydenso_sidecar_multi_input_test", None).unwrap());
+        // Duplicate the expression's representation declaration in the second
+        // input: identical raw entries must merge, not count twice or conflict.
+        let expr_attachments = parse_payload(&expr).unwrap().attachment_set();
+        let header = encode_atom_from_set(&header_atom, &expr_attachments).unwrap();
+        let (header_key, header_unknown) = unknown_attachment(b"multi-header", b"header-data");
+        let header = add_attachment(&header, header_unknown);
+
+        let output = wrap_indices(&expr, &header).unwrap();
+        let parsed = parse_payload(&output).unwrap();
+        assert_eq!(parsed.attachment(&expr_key), Some(b"expr-data".as_slice()));
+        assert_eq!(
+            parsed.attachment(&header_key),
+            Some(b"header-data".as_slice())
+        );
+        assert!(parsed.attachments().iter().any(|attachment| {
+            attachment.schema() == REPRESENTATION_ATTACHMENT_SCHEMA
+                && attachment.version() == REPRESENTATION_ATTACHMENT_VERSION
+        }));
+    }
+
+    #[test]
+    fn from_ast_preflights_embedded_representation_attachments() {
+        let namespace = "tydenso_sidecar_ast_test";
+        let representation = dualizable_representation_value("R", namespace);
+        let payload = construct(&value_bytes(&representation)).unwrap();
+        let (unknown_key, unknown) = unknown_attachment(b"ast", b"ast-data");
+        let payload = add_attachment(&payload, unknown);
+        let ast = ast_node(
+            "semantic-metadata",
+            vec![Value::Text("visible".to_owned())],
+            vec![(
+                "value",
+                cbor_map([
+                    ("protocol", Value::Text("tymbolica".to_owned())),
+                    ("version", Value::Integer(1.into())),
+                    ("kind", Value::Text("atom".to_owned())),
+                    ("atom", Value::Bytes(payload)),
+                ]),
+            )],
+        );
+        let output = from_ast(
+            &value_bytes(&ast),
+            &value_bytes(&Value::Text(namespace.to_owned())),
+        )
+        .unwrap();
+        let parsed = parse_payload(&output).unwrap();
+        assert_eq!(
+            parsed.attachment(&unknown_key),
+            Some(b"ast-data".as_slice())
+        );
+        let rep_key = AttachmentKey::new(
+            REPRESENTATION_ATTACHMENT_SCHEMA,
+            REPRESENTATION_ATTACHMENT_VERSION,
+            format!("{namespace}::R").into_bytes(),
+        )
+        .unwrap();
+        assert!(parsed.attachment(&rep_key).is_some());
     }
 }
