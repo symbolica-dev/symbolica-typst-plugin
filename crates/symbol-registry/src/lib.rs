@@ -10,7 +10,7 @@ use ciborium::value::Value;
 use spenso::{
     network::tags::SPENSO_TAG,
     structure::representation::{
-        IndexDisplay, IndexPalette, LibraryRep, RepName, RepresentationClass,
+        IndexDisplay, IndexPalette, IndexRow, LibraryRep, RepName, RepresentationClass,
         RepresentationMetadata, initialize as initialize_representations,
     },
 };
@@ -21,7 +21,9 @@ use tymbolica_atom_payload::{Attachment, AttachmentKey, AttachmentSet};
 /// Attachment schema used for portable Spenso representation declarations.
 pub const REPRESENTATION_ATTACHMENT_SCHEMA: &str = "spenso.representation";
 /// Current version of [`REPRESENTATION_ATTACHMENT_SCHEMA`].
-pub const REPRESENTATION_ATTACHMENT_VERSION: u32 = 1;
+pub const REPRESENTATION_ATTACHMENT_VERSION: u32 = 2;
+
+const LEGACY_REPRESENTATION_ATTACHMENT_VERSION: u32 = 1;
 
 const MAX_DISPLAY_INDEX_DEPTH: usize = 16;
 const MAX_DISPLAY_INDEX_NODES: usize = 64;
@@ -138,13 +140,28 @@ impl From<PortableRepresentationClass> for RepresentationClass {
 pub struct RepresentationDeclaration {
     pub class: PortableRepresentationClass,
     pub index_palette: IndexPalette,
+    pub index_row: IndexRow,
 }
 
 impl RepresentationDeclaration {
+    /// Construct a declaration using the legacy top-row default.
+    ///
+    /// This two-argument constructor is retained for source compatibility with
+    /// the v1 interface. Use [`Self::with_index_row`] when the representation
+    /// owns a different Typst row.
     pub fn new(class: PortableRepresentationClass, index_palette: IndexPalette) -> Self {
+        Self::with_index_row(class, index_palette, IndexRow::Top)
+    }
+
+    pub fn with_index_row(
+        class: PortableRepresentationClass,
+        index_palette: IndexPalette,
+        index_row: IndexRow,
+    ) -> Self {
         Self {
             class,
             index_palette,
+            index_row,
         }
     }
 
@@ -165,6 +182,7 @@ impl RepresentationDeclaration {
             Self {
                 class: metadata.class.into(),
                 index_palette: metadata.index_palette,
+                index_row: metadata.index_row,
             },
         )))
     }
@@ -172,7 +190,7 @@ impl RepresentationDeclaration {
 
 /// Validated declarations, ordered by fully-qualified representation name.
 ///
-/// [`Self::absorb_attachments`] is transactional.  It retains the raw v1
+/// [`Self::absorb_attachments`] is transactional.  It retains the raw wire
 /// records as well as their decoded meaning, so two differently encoded values
 /// for one attachment key fail closed instead of being accepted merely because
 /// they decode to equal declarations.
@@ -202,15 +220,22 @@ impl RepresentationDeclarations {
             if attachment.schema() != REPRESENTATION_ATTACHMENT_SCHEMA {
                 continue;
             }
-            if attachment.version() != REPRESENTATION_ATTACHMENT_VERSION {
+            if !matches!(
+                attachment.version(),
+                LEGACY_REPRESENTATION_ATTACHMENT_VERSION | REPRESENTATION_ATTACHMENT_VERSION
+            ) {
                 return Err(RepresentationAttachmentError::new(format!(
-                    "unsupported {REPRESENTATION_ATTACHMENT_SCHEMA} attachment version {}; expected {REPRESENTATION_ATTACHMENT_VERSION}",
+                    "unsupported {REPRESENTATION_ATTACHMENT_SCHEMA} attachment version {}; expected {LEGACY_REPRESENTATION_ATTACHMENT_VERSION} or {REPRESENTATION_ATTACHMENT_VERSION}",
                     attachment.version()
                 )));
             }
 
             let name = representation_identity(attachment.identity())?;
-            let declaration = decode_representation_declaration(attachment.data())?;
+            let declaration = decode_representation_declaration_versioned(
+                attachment.data(),
+                attachment.version(),
+                &name,
+            )?;
             candidate
                 .raw_attachments
                 .insert(attachment.to_owned_attachment())
@@ -300,7 +325,7 @@ impl RepresentationDeclarations {
         Ok(())
     }
 
-    /// Add canonical v1 records for these declarations to an attachment set.
+    /// Add canonical current-version records for these declarations to an attachment set.
     pub fn append_attachments_to(&self, attachments: &mut AttachmentSet) -> Result<()> {
         for (name, declaration) in &self.entries {
             attachments
@@ -405,13 +430,32 @@ pub fn canonical_representation_name(name: &str, namespace: &str) -> Result<Stri
     representation_identity(qualified.as_bytes())
 }
 
-/// Encode the v1 DATA field: canonical CBOR `[class, palette]`.
+fn default_index_row(name: &str) -> IndexRow {
+    if name == "spenso::bis" {
+        IndexRow::Bottom
+    } else {
+        IndexRow::Top
+    }
+}
+
+fn index_row_from_wire(value: &str) -> Result<IndexRow> {
+    match value {
+        "top" => Ok(IndexRow::Top),
+        "bottom" => Ok(IndexRow::Bottom),
+        other => Err(RepresentationAttachmentError::new(format!(
+            "unknown representation index row {other:?}"
+        ))),
+    }
+}
+
+/// Encode the v2 DATA field: canonical CBOR `[class, palette, index-row]`.
 pub fn encode_representation_declaration(
     declaration: &RepresentationDeclaration,
 ) -> Result<Vec<u8>> {
     let value = Value::Array(vec![
         Value::Text(declaration.class.as_str().to_owned()),
         index_palette_to_wire(&declaration.index_palette)?,
+        Value::Text(declaration.index_row.as_str().to_owned()),
     ]);
     let mut output = Vec::new();
     ciborium::into_writer(&value, &mut output).map_err(|error| {
@@ -422,8 +466,34 @@ pub fn encode_representation_declaration(
     Ok(output)
 }
 
-/// Decode the exact v1 DATA field, rejecting trailing bytes.
+/// Decode either the v1 or v2 DATA field, rejecting trailing bytes.
+///
+/// A standalone v1 DATA field does not contain its attachment identity, so its
+/// row falls back to `Top`. Attachment consumers should use
+/// [`decode_representation_declaration_versioned`] to recover the canonical
+/// `spenso::bis` v1 default.
 pub fn decode_representation_declaration(input: &[u8]) -> Result<RepresentationDeclaration> {
+    match decode_representation_declaration_versioned(
+        input,
+        REPRESENTATION_ATTACHMENT_VERSION,
+        "spenso::__wire_decode__",
+    ) {
+        Ok(declaration) => Ok(declaration),
+        Err(current_error) => decode_representation_declaration_versioned(
+            input,
+            LEGACY_REPRESENTATION_ATTACHMENT_VERSION,
+            "spenso::__wire_decode__",
+        )
+        .or(Err(current_error)),
+    }
+}
+
+/// Decode a DATA field with its attachment version and representation name.
+pub fn decode_representation_declaration_versioned(
+    input: &[u8],
+    version: u32,
+    name: &str,
+) -> Result<RepresentationDeclaration> {
     let mut cursor = Cursor::new(input);
     let value = ciborium::from_reader::<Value, _>(&mut cursor).map_err(|error| {
         RepresentationAttachmentError::new(format!(
@@ -440,18 +510,38 @@ pub fn decode_representation_declaration(input: &[u8]) -> Result<RepresentationD
             "representation attachment data must be an array",
         ));
     };
-    let [Value::Text(class), palette] = fields.as_slice() else {
-        return Err(RepresentationAttachmentError::new(
-            "representation attachment data must contain exactly class and index palette",
-        ));
+    let (class, palette, index_row) = match (version, fields.as_slice()) {
+        (LEGACY_REPRESENTATION_ATTACHMENT_VERSION, [Value::Text(class), palette]) => {
+            (class, palette, default_index_row(name))
+        }
+        (
+            REPRESENTATION_ATTACHMENT_VERSION,
+            [Value::Text(class), palette, Value::Text(index_row)],
+        ) => (class, palette, index_row_from_wire(index_row)?),
+        (LEGACY_REPRESENTATION_ATTACHMENT_VERSION, _) => {
+            return Err(RepresentationAttachmentError::new(
+                "v1 representation attachment data must contain exactly class and index palette",
+            ));
+        }
+        (REPRESENTATION_ATTACHMENT_VERSION, _) => {
+            return Err(RepresentationAttachmentError::new(
+                "v2 representation attachment data must contain exactly class, index palette, and index row",
+            ));
+        }
+        (other, _) => {
+            return Err(RepresentationAttachmentError::new(format!(
+                "unsupported {REPRESENTATION_ATTACHMENT_SCHEMA} attachment version {other}; expected {LEGACY_REPRESENTATION_ATTACHMENT_VERSION} or {REPRESENTATION_ATTACHMENT_VERSION}"
+            )));
+        }
     };
     Ok(RepresentationDeclaration {
         class: PortableRepresentationClass::from_str(class)?,
         index_palette: index_palette_from_wire(palette)?,
+        index_row,
     })
 }
 
-/// Construct one canonical `spenso.representation` v1 attachment.
+/// Construct one canonical current-version `spenso.representation` attachment.
 pub fn representation_attachment(
     name: &str,
     declaration: &RepresentationDeclaration,
@@ -677,6 +767,7 @@ fn expected_representation_metadata(
         label: IndexDisplay::symbol(label)
             .map_err(|error| RepresentationAttachmentError::new(error.to_string()))?,
         index_palette: declaration.index_palette.clone(),
+        index_row: declaration.index_row,
     })
 }
 
@@ -730,11 +821,17 @@ fn register_representation_declaration(
 ) -> Result<LibraryRep> {
     match declaration.class {
         PortableRepresentationClass::SelfDual => {
-            LibraryRep::new_self_dual_with_index_palette(name, declaration.index_palette.clone())
+            LibraryRep::new_self_dual_with_index_palette_and_row(
+                name,
+                declaration.index_palette.clone(),
+                declaration.index_row,
+            )
         }
-        PortableRepresentationClass::Dualizable => {
-            LibraryRep::new_dual_with_index_palette(name, declaration.index_palette.clone())
-        }
+        PortableRepresentationClass::Dualizable => LibraryRep::new_dual_with_index_palette_and_row(
+            name,
+            declaration.index_palette.clone(),
+            declaration.index_row,
+        ),
         PortableRepresentationClass::InlineMetric => {
             let symbol = Symbol::get_symbol(NamespacedSymbol::parse(name)).ok_or_else(|| {
                 RepresentationAttachmentError::new(format!(
@@ -760,7 +857,7 @@ mod tests {
     use super::*;
 
     fn cyclic_declaration() -> RepresentationDeclaration {
-        RepresentationDeclaration::new(
+        RepresentationDeclaration::with_index_row(
             PortableRepresentationClass::SelfDual,
             IndexPalette::cyclic(
                 1,
@@ -772,16 +869,104 @@ mod tests {
                 ],
             )
             .unwrap(),
+            IndexRow::Bottom,
         )
     }
 
+    fn encode_v1_declaration(declaration: &RepresentationDeclaration) -> Vec<u8> {
+        let value = Value::Array(vec![
+            Value::Text(declaration.class.as_str().to_owned()),
+            index_palette_to_wire(&declaration.index_palette).unwrap(),
+        ]);
+        let mut output = Vec::new();
+        ciborium::into_writer(&value, &mut output).unwrap();
+        output
+    }
+
     #[test]
-    fn v1_wire_round_trip_preserves_class_and_palette() {
+    fn v2_wire_round_trip_preserves_class_palette_and_row() {
         let declaration = cyclic_declaration();
         let encoded = encode_representation_declaration(&declaration).unwrap();
         assert_eq!(
             decode_representation_declaration(&encoded).unwrap(),
             declaration
+        );
+    }
+
+    #[test]
+    fn legacy_constructor_and_standalone_decoder_remain_compatible() {
+        let declaration = RepresentationDeclaration::new(
+            PortableRepresentationClass::SelfDual,
+            IndexPalette::Numeric,
+        );
+        assert_eq!(declaration.index_row, IndexRow::Top);
+
+        let encoded = encode_v1_declaration(&declaration);
+        assert_eq!(
+            decode_representation_declaration(&encoded).unwrap(),
+            declaration
+        );
+        assert_eq!(
+            decode_representation_declaration_versioned(
+                &encoded,
+                LEGACY_REPRESENTATION_ATTACHMENT_VERSION,
+                "spenso::bis",
+            )
+            .unwrap()
+            .index_row,
+            IndexRow::Bottom
+        );
+    }
+
+    #[test]
+    fn v1_attachments_recover_name_based_default_rows() {
+        let declaration = RepresentationDeclaration::new(
+            PortableRepresentationClass::SelfDual,
+            IndexPalette::Numeric,
+        );
+        let legacy_data = encode_v1_declaration(&declaration);
+        let legacy = |name: &str| {
+            Attachment::new(
+                AttachmentKey::new(
+                    REPRESENTATION_ATTACHMENT_SCHEMA,
+                    LEGACY_REPRESENTATION_ATTACHMENT_VERSION,
+                    name.as_bytes().to_vec(),
+                )
+                .unwrap(),
+                legacy_data.clone(),
+            )
+            .unwrap()
+        };
+        let attachments =
+            AttachmentSet::from_attachments([legacy("spenso::bis"), legacy("example::bis")])
+                .unwrap();
+        let declarations = RepresentationDeclarations::from_attachment_set(&attachments).unwrap();
+
+        assert_eq!(
+            declarations.get("spenso::bis").unwrap().index_row,
+            IndexRow::Bottom
+        );
+        assert_eq!(
+            declarations.get("example::bis").unwrap().index_row,
+            IndexRow::Top
+        );
+    }
+
+    #[test]
+    fn v2_wire_rejects_unknown_index_rows() {
+        let value = Value::Array(vec![
+            Value::Text("self-dual".to_owned()),
+            Value::Array(vec![Value::Text("numeric".to_owned())]),
+            Value::Text("middle".to_owned()),
+        ]);
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&value, &mut encoded).unwrap();
+
+        assert!(
+            decode_representation_declaration(&encoded)
+                .unwrap_err()
+                .to_string()
+                .contains("unknown representation index row")
         );
     }
 

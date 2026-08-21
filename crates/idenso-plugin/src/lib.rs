@@ -11,7 +11,9 @@ use idenso::{Cookable, IndexTooling};
 use spenso::network::tags::{SPENSO_TAG, prepare_tensor_print, register_tensor_symbol};
 use spenso::shadowing::symbolica_utils::SpensoPrintSettings;
 use spenso::structure::abstract_index::AbstractIndex;
-use spenso::structure::representation::{IndexDisplay, IndexPalette, LibraryRep, RepName};
+use spenso::structure::representation::{
+    IndexDisplay, IndexPalette, IndexRow, LibraryRep, RepName,
+};
 use symbolica::atom::{
     Atom, AtomCore, AtomView, DefaultNamespace, NamespacedSymbol, Symbol, SymbolAttribute,
     SymbolBuilder,
@@ -650,6 +652,28 @@ fn validate_canonical_dual_name(map: &[(Value, Value)], name: &str) -> Result<()
     }
 }
 
+fn default_index_row(name: &str) -> IndexRow {
+    if name == "spenso::bis" {
+        IndexRow::Bottom
+    } else {
+        IndexRow::Top
+    }
+}
+
+fn representation_index_row(map: &[(Value, Value)], name: &str) -> Result<IndexRow, String> {
+    match map_get(map, "index-row") {
+        None => Ok(default_index_row(name)),
+        Some(Value::Text(value)) if value == "top" => Ok(IndexRow::Top),
+        Some(Value::Text(value)) if value == "bottom" => Ok(IndexRow::Bottom),
+        Some(Value::Text(value)) => Err(format!(
+            "representation index-row must be \"top\" or \"bottom\", got {value:?}"
+        )),
+        Some(other) => Err(format!(
+            "representation index-row must be text, got {other:?}"
+        )),
+    }
+}
+
 fn representation_declaration_from_map(
     map: &[(Value, Value)],
 ) -> Result<(String, RepresentationDeclaration), String> {
@@ -670,6 +694,7 @@ fn representation_declaration_from_map(
             PortableRepresentationClass::Dualizable
         },
         index_palette: representation_index_palette(map)?,
+        index_row: representation_index_row(map, &qualified_name)?,
     };
     Ok((qualified_name, declaration))
 }
@@ -790,6 +815,7 @@ fn parse_representation(
     if representation.metadata().is_none_or(|metadata| {
         PortableRepresentationClass::from(metadata.class) != declaration.class
             || metadata.index_palette != declaration.index_palette
+            || metadata.index_row != declaration.index_row
     }) {
         return Err(format!(
             "symbol {qualified_name} already exists with a different representation declaration"
@@ -808,7 +834,12 @@ fn representation_atom(map: &[(Value, Value)], index: Option<&Value>) -> Result<
     if let Some(index) = index {
         arguments.push(atom_from_value_prepared(index, namespace)?);
     }
-    Ok(symbol.call_args(arguments))
+    let representation = symbol.call_args(arguments);
+    if index.is_none() && map_bool(map, "is-dual", false)? {
+        Ok(parse_symbol("dind", "spenso", None)?.call(representation))
+    } else {
+        Ok(representation)
+    }
 }
 
 fn slot_atom(map: &[(Value, Value)]) -> Result<Atom, String> {
@@ -1369,7 +1400,7 @@ mod tests {
         variable.get_symbol()
     }
 
-    fn representation_value(name: &str, indices: Vec<Value>) -> Value {
+    fn representation_value_with_row(name: &str, indices: Vec<Value>, index_row: &str) -> Value {
         cbor_map([
             ("kind", Value::Text("representation".to_owned())),
             ("name", Value::Text(name.to_owned())),
@@ -1381,7 +1412,12 @@ mod tests {
             ("self-dual", Value::Bool(true)),
             ("indices", Value::Array(indices)),
             ("index-start", Value::Integer(1.into())),
+            ("index-row", Value::Text(index_row.to_owned())),
         ])
+    }
+
+    fn representation_value(name: &str, indices: Vec<Value>) -> Value {
+        representation_value_with_row(name, indices, "top")
     }
 
     fn dualizable_representation_value(name: &str, namespace: &str) -> Value {
@@ -1395,6 +1431,7 @@ mod tests {
             ("dual-name", Value::Text(name.to_owned())),
             ("indices", Value::Null),
             ("index-start", Value::Integer(1.into())),
+            ("index-row", Value::Text("top".to_owned())),
         ])
     }
 
@@ -1673,6 +1710,78 @@ mod tests {
     }
 
     #[test]
+    fn stripped_dual_representations_keep_the_dind_wrapper() {
+        let base =
+            dualizable_representation_value("R", "tydenso_stripped_dual_representation_test");
+        let base_atom = atom_from_value(&base, "spenso").unwrap();
+        let AtomView::Fun(base_representation) = base_atom.as_view() else {
+            panic!("base representation should be an unwrapped function call");
+        };
+        assert_eq!(base_representation.get_symbol().get_stripped_name(), "R");
+        assert_eq!(base_representation.get_nargs(), 1);
+
+        let Value::Map(mut representation) = base else {
+            unreachable!();
+        };
+        representation
+            .iter_mut()
+            .find(|(key, _)| key == &Value::Text("is-dual".to_owned()))
+            .unwrap()
+            .1 = Value::Bool(true);
+
+        let atom = atom_from_value(&Value::Map(representation), "spenso").unwrap();
+        let AtomView::Fun(dual) = atom.as_view() else {
+            panic!("dual representation should be a dind call");
+        };
+        assert_eq!(dual.get_symbol().get_stripped_name(), "dind");
+        assert_eq!(dual.get_nargs(), 1);
+        let AtomView::Fun(representation) = dual.iter().next().unwrap() else {
+            panic!("dind should wrap the stripped representation call");
+        };
+        assert_eq!(representation.get_symbol().get_stripped_name(), "R");
+        assert_eq!(representation.get_nargs(), 1);
+    }
+
+    #[test]
+    fn representation_index_rows_are_validated_and_registered() {
+        let bottom =
+            representation_value_with_row("Bottom", vec![Value::Text("i".to_owned())], "bottom");
+        let atom = atom_from_value(&bottom, "spenso").unwrap();
+        let AtomView::Fun(representation) = atom.as_view() else {
+            panic!("representation should be a function atom");
+        };
+        assert_eq!(
+            spenso::structure::representation::RepresentationMetadata::from_symbol(
+                representation.get_symbol(),
+            )
+            .unwrap()
+            .index_row,
+            IndexRow::Bottom
+        );
+
+        let invalid =
+            representation_value_with_row("Invalid", vec![Value::Text("i".to_owned())], "middle");
+        assert!(
+            atom_from_value(&invalid, "spenso")
+                .unwrap_err()
+                .contains("index-row must be \"top\" or \"bottom\"")
+        );
+    }
+
+    #[test]
+    fn missing_index_row_defaults_only_the_canonical_bispinor_to_bottom() {
+        let descriptor = Vec::<(Value, Value)>::new();
+        assert_eq!(
+            representation_index_row(&descriptor, "spenso::bis").unwrap(),
+            IndexRow::Bottom
+        );
+        assert_eq!(
+            representation_index_row(&descriptor, "example::bis").unwrap(),
+            IndexRow::Top
+        );
+    }
+
+    #[test]
     fn a_distinct_dual_name_is_rejected_instead_of_creating_a_second_representation() {
         let Value::Map(mut representation) =
             dualizable_representation_value("R", "tydenso_distinct_dual_name_test")
@@ -1696,12 +1805,13 @@ mod tests {
     fn custom_palette_sidecar_round_trips_without_visual_or_identity_data() {
         let name = "SidecarPalette";
         let qualified = format!("tydenso_palette_registration_test::{name}");
-        let descriptor = representation_value(
+        let descriptor = representation_value_with_row(
             name,
             vec![
                 display_index_value(DISPLAY_INDEX_VERSION, &Value::Text("mu".to_owned())),
                 display_index_value(DISPLAY_INDEX_VERSION, &mu_one_ast()),
             ],
+            "bottom",
         );
         let payload = construct(&value_bytes(&descriptor)).unwrap();
         let key = AttachmentKey::new(
@@ -1715,9 +1825,14 @@ mod tests {
         let Value::Array(fields) = decode_cbor_exact(data, "sidecar").unwrap() else {
             panic!("sidecar DATA should be an array");
         };
-        assert_eq!(fields.len(), 2, "DATA is only class plus palette");
+        assert_eq!(
+            fields.len(),
+            3,
+            "v2 DATA is class, palette, and preferred index row"
+        );
         let declaration = decode_representation_declaration(data).unwrap();
         assert_eq!(declaration.class, PortableRepresentationClass::SelfDual);
+        assert_eq!(declaration.index_row, IndexRow::Bottom);
         assert_eq!(
             declaration
                 .index_palette
@@ -1761,6 +1876,7 @@ mod tests {
         let declaration =
             decode_representation_declaration(parsed.attachment(&key).unwrap()).unwrap();
         assert_eq!(declaration.class, PortableRepresentationClass::InlineMetric);
+        assert_eq!(declaration.index_row, IndexRow::Top);
     }
 
     #[test]
@@ -1770,10 +1886,12 @@ mod tests {
         let numeric = RepresentationDeclaration {
             class: PortableRepresentationClass::SelfDual,
             index_palette: IndexPalette::Numeric,
+            index_row: IndexRow::Top,
         };
         let dual = RepresentationDeclaration {
             class: PortableRepresentationClass::Dualizable,
             index_palette: IndexPalette::Numeric,
+            index_row: IndexRow::Top,
         };
         let x = Atom::var(parse_symbol("x", "tydenso_sidecar_raw_conflict_test", None).unwrap());
         let h = Atom::var(parse_symbol("h", "tydenso_sidecar_raw_conflict_test", None).unwrap());
@@ -1802,6 +1920,7 @@ mod tests {
         let declaration = RepresentationDeclaration {
             class: PortableRepresentationClass::SelfDual,
             index_palette: IndexPalette::Numeric,
+            index_row: IndexRow::Top,
         };
         let attachment = Attachment::new(
             AttachmentKey::new(
@@ -1819,7 +1938,7 @@ mod tests {
             tymbolica_atom_payload::encode_atom_with_attachments(&atom, [attachment]).unwrap();
 
         let error = decode_atom(&payload, "future representation payload").unwrap_err();
-        assert!(error.contains("unsupported spenso.representation attachment version 2"));
+        assert!(error.contains("unsupported spenso.representation attachment version 3"));
         assert!(Symbol::get_symbol(NamespacedSymbol::parse(name)).is_none());
     }
 

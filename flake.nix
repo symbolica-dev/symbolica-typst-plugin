@@ -108,6 +108,7 @@
             typst compile --root . tydenso/examples/basic.typ "$check_dir/tydenso-basic.pdf"
             typst compile --root . tydenso/examples/symmetry.typ "$check_dir/tydenso-symmetry.pdf"
             typst compile --root . tydenso/examples/interop.typ "$check_dir/tydenso-interop.pdf"
+            typst compile --root . tydenso/examples/spenso-notation.typ "$check_dir/tydenso-spenso-notation.pdf"
             typst compile --root . tydenso/manual.typ "$check_dir/tydenso-manual.pdf"
 
             package_dir="$check_dir/xdg/typst/packages/local/tymbolica"
@@ -169,6 +170,7 @@
             typst compile --root "$work" "$work/tydenso/examples/basic.typ" "$out/tydenso-basic.pdf"
             typst compile --root "$work" "$work/tydenso/examples/symmetry.typ" "$out/tydenso-symmetry.pdf"
             typst compile --root "$work" "$work/tydenso/examples/interop.typ" "$out/tydenso-interop.pdf"
+            typst compile --root "$work" "$work/tydenso/examples/spenso-notation.typ" "$out/tydenso-spenso-notation.pdf"
             typst compile --root "$work" "$work/tydenso/manual.typ" "$out/tydenso-manual.pdf"
 
             package_dir="$TMPDIR/xdg/typst/packages/local/tymbolica"

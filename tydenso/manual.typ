@@ -280,6 +280,49 @@ useful for generated expressions. They accept Atom bytes, annotated content,
 numbers, slots, and representation dictionaries. Both paths construct the
 same Atom; neither reconstructs tensors from printed subscripts.
 
+== Build open and closed Spenso chains
+
+The chain helpers construct Spenso's actual Atom heads; they are not drawing
+commands. Compact endpoints are ordinary rank-one tensors carrying a
+representation, while `gamma(mu)` supplies Spenso's `in` and `out`
+placeholders for a chain factor.
+
+```worked
+#let M = mink(4)
+#let B = bis(4)
+#let mu = slot(M, "mu")
+#let nu = slot(M, "nu")
+
+#let p = vector("p")
+#let q = vector("q")
+#let u = vector("u")
+#let v = vector("v")
+
+#let scalar = dot(p(1, M), q(2, M))
+#let open = chain(
+  u(1, B),
+  v(2, B),
+  gamma(mu),
+  gamma(p(1, M)),
+  gamma(nu),
+)
+#let closed = trace(
+  B,
+  cyclic(gamma(mu), gamma(p(1, M)), gamma(nu)),
+)
+
+$ #to-typst(scalar) $
+$ #to-typst(open) $
+$ #to-typst(closed) $
+```
+
+Use `gamma(mu, a, b)` when the bispinor slots are explicit. `chain` keeps an
+ordered open sequence; `cyclic` marks the factor list of a closed sequence;
+and `trace` combines that cycle with its representation. The
+#link(repository + "/blob/main/tydenso/examples/spenso-notation.typ")[standalone
+notation example] also inspects the constructed trees and checks their exact
+Spenso shapes.
+
 = Transform tensors
 
 Idenso provides the domain-specific transformations. The most common ones
@@ -445,6 +488,10 @@ surface as a dictionary bound to a selected plugin module.
   (
     title: [Expression construction],
     names: ("math", "atom", "add", "mul", "neg", "sub", "div", "pow"),
+  ),
+  (
+    title: [Spenso products and chains],
+    names: ("dot", "gamma", "chain", "cyclic", "trace"),
   ),
   (
     title: [Printing and inspection],

@@ -753,6 +753,17 @@ fn representation_label_name(name: &str) -> &str {
     name.rsplit("::").next().unwrap_or(name)
 }
 
+fn default_index_row(name: &str) -> IndexRow {
+    // Idenso's canonical self-dual bispinor indices conventionally sit below
+    // the tensor head. A same-named representation in another namespace is a
+    // separate declaration and retains the ordinary top-row default.
+    if canonical_representation_name(name) == "spenso::bis" {
+        IndexRow::Bottom
+    } else {
+        IndexRow::Top
+    }
+}
+
 fn representation_typst_body(label: &IndexDisplay) -> String {
     format!(
         "(dim, ind ) = (content: $ {}^#dim _#ind $, upper:true)",
@@ -1117,11 +1128,47 @@ pub enum RepresentationClass {
     Dualizable,
 }
 
+/// Preferred Typst script row for the base orientation of a representation.
+///
+/// Dualizable representations use the opposite row for their `dind(...)`
+/// orientation. Self-dual representations keep this row in either spelling.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum IndexRow {
+    #[default]
+    Top,
+    Bottom,
+}
+
+impl IndexRow {
+    pub fn opposite(self) -> Self {
+        match self {
+            Self::Top => Self::Bottom,
+            Self::Bottom => Self::Top,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Bottom => "bottom",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "top" => Some(Self::Top),
+            "bottom" => Some(Self::Bottom),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepresentationMetadata {
     pub class: RepresentationClass,
     pub label: IndexDisplay,
     pub index_palette: IndexPalette,
+    pub index_row: IndexRow,
 }
 
 #[cfg(feature = "shadowing")]
@@ -1133,10 +1180,11 @@ impl RepresentationMetadata {
             RepresentationClass::Dualizable => "dualizable",
         };
         UserData::List(vec![
-            UserData::String("spenso::representation-v1".to_owned()),
+            UserData::String("spenso::representation-v2".to_owned()),
             UserData::String(class.to_owned()),
             self.label.node_user_data(),
             self.index_palette.to_user_data(),
+            UserData::String(self.index_row.as_str().to_owned()),
         ])
     }
 
@@ -1144,18 +1192,37 @@ impl RepresentationMetadata {
         let UserData::List(fields) = symbol.get_data() else {
             return None;
         };
-        let [
-            UserData::String(version),
-            UserData::String(class),
-            label,
-            palette,
-        ] = fields.as_slice()
-        else {
-            return None;
+        let (version, class, label, palette, index_row) = match fields.as_slice() {
+            [
+                UserData::String(version),
+                UserData::String(class),
+                label,
+                palette,
+            ] if version == "spenso::representation-v1" => (
+                version,
+                class,
+                label,
+                palette,
+                default_index_row(symbol.get_name()),
+            ),
+            [
+                UserData::String(version),
+                UserData::String(class),
+                label,
+                palette,
+                UserData::String(index_row),
+            ] if version == "spenso::representation-v2" => (
+                version,
+                class,
+                label,
+                palette,
+                IndexRow::from_str(index_row)?,
+            ),
+            _ => return None,
         };
-        if version != "spenso::representation-v1" {
-            return None;
-        }
+        debug_assert!(
+            version == "spenso::representation-v1" || version == "spenso::representation-v2"
+        );
         Some(Self {
             class: match class.as_str() {
                 "self-dual" => RepresentationClass::SelfDual,
@@ -1165,6 +1232,7 @@ impl RepresentationMetadata {
             },
             label: IndexDisplay::from_node_user_data(label, 0)?,
             index_palette: IndexPalette::from_user_data(palette)?,
+            index_row,
         })
     }
 }
@@ -1175,6 +1243,16 @@ impl LibraryRep {
         &self,
         name: &str,
         index_palette: IndexPalette,
+    ) -> Result<Symbol, RepLibraryError> {
+        self.new_symbol_with_index_row(name, index_palette, default_index_row(name))
+    }
+
+    #[cfg(feature = "shadowing")]
+    fn new_symbol_with_index_row(
+        &self,
+        name: &str,
+        index_palette: IndexPalette,
+        index_row: IndexRow,
     ) -> Result<Symbol, RepLibraryError> {
         use symbolica::{atom::AtomCore, printer::PrintState};
 
@@ -1219,6 +1297,7 @@ impl LibraryRep {
             class,
             label: IndexDisplay::symbol(label_name)?,
             index_palette,
+            index_row,
         };
         let body = representation_typst_body(&metadata.label);
         let qualified_name = canonical_representation_name(name);
@@ -1364,6 +1443,17 @@ impl LibraryRep {
     }
 
     #[cfg(feature = "shadowing")]
+    pub fn new_dual_with_index_palette_and_row(
+        name: &str,
+        index_palette: IndexPalette,
+        index_row: IndexRow,
+    ) -> Result<Self, RepLibraryError> {
+        REPS.write()
+            .unwrap()
+            .new_dual_impl_with_index_palette_and_row(name, index_palette, index_row)
+    }
+
+    #[cfg(feature = "shadowing")]
     pub fn symbol(&self) -> Symbol {
         REPS.read().unwrap()[*self].symbol
     }
@@ -1395,11 +1485,20 @@ impl LibraryRep {
 
         match metadata.class {
             RepresentationClass::SelfDual if self_dual && !dualizable => {
-                Self::new_self_dual_with_index_palette(name, metadata.index_palette)
-                    .map_err(Into::into)
+                Self::new_self_dual_with_index_palette_and_row(
+                    name,
+                    metadata.index_palette,
+                    metadata.index_row,
+                )
+                .map_err(Into::into)
             }
             RepresentationClass::Dualizable if dualizable && !self_dual => {
-                Self::new_dual_with_index_palette(name, metadata.index_palette).map_err(Into::into)
+                Self::new_dual_with_index_palette_and_row(
+                    name,
+                    metadata.index_palette,
+                    metadata.index_row,
+                )
+                .map_err(Into::into)
             }
             RepresentationClass::InlineMetric if self_dual && !dualizable => {
                 Err(RepresentationError::ImportedInlineMetricRequiresLocalRegistration(symbol))
@@ -1420,6 +1519,17 @@ impl LibraryRep {
         REPS.write()
             .unwrap()
             .new_self_dual_with_index_palette(name, index_palette)
+    }
+
+    #[cfg(feature = "shadowing")]
+    pub fn new_self_dual_with_index_palette_and_row(
+        name: &str,
+        index_palette: IndexPalette,
+        index_row: IndexRow,
+    ) -> Result<Self, RepLibraryError> {
+        REPS.write()
+            .unwrap()
+            .new_self_dual_with_index_palette_and_row(name, index_palette, index_row)
     }
 
     pub fn all_self_duals() -> impl Iterator<Item = &'static LibraryRep> {
@@ -1487,7 +1597,7 @@ impl ExtendibleReps {
     }
 
     pub fn new_dual_impl(&mut self, name: &str) -> Result<LibraryRep, RepLibraryError> {
-        self.new_dual_impl_with_palette_request(name, None)
+        self.new_dual_impl_with_metadata_request(name, None, None)
     }
 
     #[cfg(feature = "shadowing")]
@@ -1496,14 +1606,25 @@ impl ExtendibleReps {
         name: &str,
         index_palette: IndexPalette,
     ) -> Result<LibraryRep, RepLibraryError> {
-        self.new_dual_impl_with_palette_request(name, Some(index_palette))
+        self.new_dual_impl_with_metadata_request(name, Some(index_palette), None)
     }
 
     #[cfg(feature = "shadowing")]
-    fn new_dual_impl_with_palette_request(
+    pub fn new_dual_impl_with_index_palette_and_row(
+        &mut self,
+        name: &str,
+        index_palette: IndexPalette,
+        index_row: IndexRow,
+    ) -> Result<LibraryRep, RepLibraryError> {
+        self.new_dual_impl_with_metadata_request(name, Some(index_palette), Some(index_row))
+    }
+
+    #[cfg(feature = "shadowing")]
+    fn new_dual_impl_with_metadata_request(
         &mut self,
         name: &str,
         index_palette: Option<IndexPalette>,
+        index_row: Option<IndexRow>,
     ) -> Result<LibraryRep, RepLibraryError> {
         let canonical_name = canonical_representation_name(name);
         if let Some(rep) = self.name_map.get(&canonical_name) {
@@ -1517,11 +1638,21 @@ impl ExtendibleReps {
                     return Err(RepLibraryError::AlreadyExistsDifferentMetadata(name.into()));
                 }
             }
+            if let Some(index_row) = index_row
+                && RepresentationMetadata::from_symbol(self[*rep].symbol)
+                    .is_none_or(|metadata| metadata.index_row != index_row)
+            {
+                return Err(RepLibraryError::AlreadyExistsDifferentMetadata(name.into()));
+            }
             return Ok(*rep);
         }
 
         let rep = LibraryRep::Dualizable(DUALIZABLE.len() as i16 + 1);
-        let symbol = rep.new_symbol(&canonical_name, index_palette.unwrap_or_default())?;
+        let symbol = rep.new_symbol_with_index_row(
+            &canonical_name,
+            index_palette.unwrap_or_default(),
+            index_row.unwrap_or_else(|| default_index_row(&canonical_name)),
+        )?;
         self.name_map.insert(canonical_name, rep);
         self.symbol_map.insert(symbol, rep);
 
@@ -1537,10 +1668,11 @@ impl ExtendibleReps {
     }
 
     #[cfg(not(feature = "shadowing"))]
-    fn new_dual_impl_with_palette_request(
+    fn new_dual_impl_with_metadata_request(
         &mut self,
         name: &str,
         _index_palette: Option<IndexPalette>,
+        _index_row: Option<IndexRow>,
     ) -> Result<LibraryRep, RepLibraryError> {
         let canonical_name = canonical_representation_name(name);
         if let Some(rep) = self.name_map.get(&canonical_name) {
@@ -1566,7 +1698,7 @@ impl ExtendibleReps {
     }
 
     pub fn new_self_dual(&mut self, name: &str) -> Result<LibraryRep, RepLibraryError> {
-        self.new_self_dual_impl(name, None)
+        self.new_self_dual_impl(name, None, None)
     }
 
     #[cfg(feature = "shadowing")]
@@ -1575,13 +1707,24 @@ impl ExtendibleReps {
         name: &str,
         index_palette: IndexPalette,
     ) -> Result<LibraryRep, RepLibraryError> {
-        self.new_self_dual_impl(name, Some(index_palette))
+        self.new_self_dual_impl(name, Some(index_palette), None)
+    }
+
+    #[cfg(feature = "shadowing")]
+    pub fn new_self_dual_with_index_palette_and_row(
+        &mut self,
+        name: &str,
+        index_palette: IndexPalette,
+        index_row: IndexRow,
+    ) -> Result<LibraryRep, RepLibraryError> {
+        self.new_self_dual_impl(name, Some(index_palette), Some(index_row))
     }
 
     fn new_self_dual_impl(
         &mut self,
         name: &str,
         index_palette: Option<IndexPalette>,
+        index_row: Option<IndexRow>,
     ) -> Result<LibraryRep, RepLibraryError> {
         let canonical_name = canonical_representation_name(name);
         if let Some(rep) = self.name_map.get(&canonical_name) {
@@ -1596,15 +1739,26 @@ impl ExtendibleReps {
                     return Err(RepLibraryError::AlreadyExistsDifferentMetadata(name.into()));
                 }
             }
+            #[cfg(feature = "shadowing")]
+            if let Some(index_row) = index_row
+                && RepresentationMetadata::from_symbol(self[*rep].symbol)
+                    .is_none_or(|metadata| metadata.index_row != index_row)
+            {
+                return Err(RepLibraryError::AlreadyExistsDifferentMetadata(name.into()));
+            }
             return Ok(*rep);
         }
 
         let rep = LibraryRep::SelfDual(SELF_DUAL.len() as u16);
 
         #[cfg(feature = "shadowing")]
-        let symbol = rep.new_symbol(&canonical_name, index_palette.unwrap_or_default())?;
+        let symbol = rep.new_symbol_with_index_row(
+            &canonical_name,
+            index_palette.unwrap_or_default(),
+            index_row.unwrap_or_else(|| default_index_row(&canonical_name)),
+        )?;
         #[cfg(not(feature = "shadowing"))]
-        let _ = index_palette;
+        let _ = (index_palette, index_row);
         self.name_map.insert(canonical_name, rep);
         #[cfg(feature = "shadowing")]
         self.symbol_map.insert(symbol, rep);
@@ -2139,8 +2293,9 @@ mod shadowing_tests {
     use crate::network::tags::SPENSO_TAG;
 
     use super::{
-        IndexDisplay, IndexPalette, LibraryRep, RepLibraryError, RepName, RepresentationClass,
-        RepresentationError, RepresentationMetadata, representation_typst_body,
+        IndexDisplay, IndexPalette, IndexRow, LibraryRep, RepLibraryError, RepName,
+        RepresentationClass, RepresentationError, RepresentationMetadata,
+        representation_typst_body,
     };
 
     fn greek_palette() -> IndexPalette {
@@ -2177,6 +2332,7 @@ mod shadowing_tests {
                     class,
                     label,
                     index_palette: palette,
+                    index_row: IndexRow::Top,
                 }
                 .to_user_data(),
             )

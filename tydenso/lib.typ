@@ -137,6 +137,10 @@
 )
 #let _bundled-plugin() = plugin(_decompress-bundled("tydenso.wasm.zlib"))
 
+#let _default-representation-index-row(name, namespace) = if (
+  name == "spenso::bis" or (name == "bis" and namespace == "spenso")
+) { "bottom" } else { "top" }
+
 #let _plain-representation(value) = (
   kind: "representation",
   name: value.name,
@@ -147,6 +151,10 @@
   dual-name: value.dual-name,
   indices: value.at("indices", default: none),
   index-start: value.at("index-start", default: 1),
+  index-row: value.at(
+    "index-row",
+    default: _default-representation-index-row(value.name, value.namespace),
+  ),
 )
 
 #let _portable-index(engine, value) = {
@@ -176,6 +184,10 @@
       dual-name: value.dual-name,
       indices: _portable-indices(engine, value.at("indices", default: none)),
       index-start: value.at("index-start", default: 1),
+      index-row: value.at(
+        "index-row",
+        default: _default-representation-index-row(value.name, value.namespace),
+      ),
     )
   }
   if type(value) == dictionary and value.at("kind", default: none) == "slot" {
@@ -362,6 +374,63 @@
   }
 }
 
+#let _dot(engine, left, right) = _call(
+  engine,
+  "dot",
+  (left, right),
+  semantic-kind: "dot-product",
+)
+
+#let _gamma(engine, lorentz, endpoints) = {
+  if endpoints.len() not in (0, 2) {
+    panic("gamma needs either one Lorentz argument or two spinor endpoints")
+  }
+  let arguments = if endpoints.len() == 0 {
+    // Spenso chain factors carry literal `in` and `out` placeholder symbols.
+    ("in", "out", lorentz)
+  } else {
+    // The Atom stores spinor endpoints first and the Lorentz argument last.
+    (endpoints.at(0), endpoints.at(1), lorentz)
+  }
+  // Idenso has already registered this head with its tensor tag, linearity,
+  // and custom printer. Parsing the existing symbol preserves that definition.
+  // `gamma` is also a Symbolica builtin. Qualifying the Idenso head avoids
+  // Symbolica's parser resolving this constructor to `symbolica::gamma`.
+  _call(engine, "spenso::gamma", arguments, semantic-kind: "gamma")
+}
+
+#let _chain(engine, start, end, factors) = _call(
+  engine,
+  "chain",
+  (start, end) + factors,
+  semantic-kind: "chain",
+)
+
+#let _cyclic(engine, factors) = _call(
+  engine,
+  "cyclic",
+  factors,
+  semantic-kind: "cyclic-projector",
+)
+
+#let _trace(engine, representation, factors) = {
+  if factors.len() > 1 {
+    panic("trace accepts one cyclic(...) payload, not a raw factor list")
+  }
+  if factors.len() == 1 {
+    let projector = cbor(engine.plugin.inspect(_payload(engine, factors.first())))
+    if projector.at("name", default: none) != "spenso::cyclic" {
+      panic("a non-empty trace must wrap its factors with cyclic(...)")
+    }
+  }
+  _call(
+    engine,
+    "trace",
+    (representation,) + factors,
+    semantic-kind: "trace",
+  )
+}
+
 #let _representation(
   engine,
   name,
@@ -372,6 +441,7 @@
   dual-name: none,
   indices: none,
   index-start: 1,
+  index-row: none,
 ) = {
   if dual-name != none and dual-name != name {
     panic(
@@ -393,6 +463,14 @@
   if indices == none and index-start != 1 {
     panic("index-start requires an indices palette")
   }
+  let index-row = if index-row == none {
+    _default-representation-index-row(name, namespace)
+  } else {
+    index-row
+  }
+  if index-row not in ("top", "bottom") {
+    panic("index-row must be \"top\" or \"bottom\"")
+  }
   let descriptor = (
     kind: "representation",
     name: name,
@@ -405,6 +483,7 @@
     dual-name: name,
     indices: indices,
     index-start: index-start,
+    index-row: index-row,
   )
   (
     ..descriptor,
@@ -419,6 +498,7 @@
       dual-name: descriptor.name,
       indices: indices,
       index-start: index-start,
+      index-row: index-row,
     ),
     metric: (first, second) => _call(engine, "g", (
       _as-slot(descriptor, first),
@@ -545,7 +625,18 @@
       linear: linear,
       tags: tags,
     ),
-    representation: (name, dimension, namespace: none, self-dual: false, is-dual: false, dual-name: none, indices: none, index-start: 1) => _representation(
+    dot: (left, right) => _dot(engine, left, right),
+    gamma: (lorentz, ..endpoints) => _gamma(
+      engine, lorentz, endpoints.pos(),
+    ),
+    chain: (start, end, ..factors) => _chain(
+      engine, start, end, factors.pos(),
+    ),
+    cyclic: (..factors) => _cyclic(engine, factors.pos()),
+    trace: (representation, ..factors) => _trace(
+      engine, representation, factors.pos(),
+    ),
+    representation: (name, dimension, namespace: none, self-dual: false, is-dual: false, dual-name: none, indices: none, index-start: 1, index-row: none) => _representation(
       engine, name, dimension,
       namespace: _namespace(engine, namespace),
       self-dual: self-dual,
@@ -553,6 +644,7 @@
       dual-name: dual-name,
       indices: indices,
       index-start: index-start,
+      index-row: index-row,
     ),
     mink: dimension => _representation(engine, "mink", dimension, self-dual: true),
     euc: dimension => _representation(engine, "euc", dimension, self-dual: true),
@@ -727,6 +819,78 @@
   tags: tags,
 )
 
+/// Construct Spenso's compact scalar product `dot(left, right)`.
+///
+/// Rank-one tensor calls with a representation and no explicit slot are the
+/// compact Schoonschip form. Thus `dot(p(M), q(M))` emits exactly
+/// `dot(p(mink(4)),q(mink(4)))` when `M = mink(4)`.
+///
+/// -> content
+#let dot(left, right) = (_default-engine().dot)(left, right)
+
+/// Construct an Idenso gamma tensor or a gamma chain factor.
+///
+/// With one argument this emits the actual Spenso factor
+/// `gamma(in,out,lorentz)`. With all three arguments it emits
+/// `gamma(first,second,lorentz)`, which is the explicit tensor order stored in
+/// the Atom even though the Typst API places the Lorentz argument first.
+///
+/// ```example
+/// #let M = mink(4)
+/// #let B = bis(4)
+/// #let mu = slot(M, "mu")
+/// #let a = slot(B, "a")
+/// #let b = slot(B, "b")
+/// #let factor = gamma(mu)
+/// #let explicit = gamma(mu, a, b)
+/// #to-typst(chain(a, b, factor))
+/// ```
+///
+/// -> content
+#let gamma(lorentz, ..endpoints) = (
+  _default-engine().gamma
+)(lorentz, ..endpoints)
+
+/// Construct an open Spenso chain.
+///
+/// `start` and `end` may be explicit slots or compact rank-one tensors. For
+/// example, if `u = vector("u")` and `B = bis(4)`, then `u(B)` is the actual
+/// compact endpoint Atom `u(bis(4))`; no `bra` or `ket` head is introduced.
+/// Factors such as `gamma(mu)` already contain Spenso's `in` and `out`
+/// placeholders.
+///
+/// -> content
+#let chain(start, end, ..factors) = (
+  _default-engine().chain
+)(start, end, ..factors)
+
+/// Construct Spenso's inert cycle-symmetric projector.
+///
+/// This emits the actual Atom `cyclic(factors...)`.
+///
+/// -> content
+#let cyclic(..factors) = (_default-engine().cyclic)(..factors)
+
+/// Construct a canonical closed Spenso chain.
+///
+/// A non-empty call accepts one explicit `cyclic(...)` payload and therefore
+/// emits exactly `trace(rep,cyclic(factors...))`. Passing a raw factor list is
+/// rejected instead of being silently rewritten. An empty call emits
+/// `trace(rep)`.
+///
+/// ```example
+/// #let M = mink(4)
+/// #let B = bis(4)
+/// #let mu = slot(M, "mu")
+/// #let nu = slot(M, "nu")
+/// #to-typst(trace(B, cyclic(gamma(mu), gamma(nu))))
+/// ```
+///
+/// -> content
+#let trace(representation, ..factors) = (
+  _default-engine().trace
+)(representation, ..factors)
+
 /// Construct a symbolic scalar with exact Atom metadata.
 ///
 /// -> content
@@ -795,6 +959,12 @@
   /// subscript, so `($mu$, $nu$)` maps 1, 2, 3 to $mu$, $nu$, $mu_1$.
   /// -> int
   index-start: 1,
+  /// Preferred Typst script row for the representation's base orientation.
+  /// `none` selects bottom for the built-in `spenso::bis` representation and
+  /// top for every other representation. A dualizable representation's dual
+  /// orientation uses the opposite row.
+  /// -> str | none
+  index-row: none,
 ) = (_default-engine().representation)(
   name, dimension,
   namespace: namespace,
@@ -803,6 +973,7 @@
   dual-name: dual-name,
   indices: indices,
   index-start: index-start,
+  index-row: index-row,
 )
 
 /// Construct a Minkowski representation.
