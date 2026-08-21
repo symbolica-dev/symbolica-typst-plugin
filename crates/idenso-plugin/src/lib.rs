@@ -19,9 +19,7 @@ use symbolica::atom::{
     SymbolBuilder,
 };
 use symbolica::printer::PrintOptions;
-use tymbolica_atom_payload::{
-    AttachmentSet, ParsedPayload, PayloadFormat, encode_atom_from_set, parse_payload,
-};
+use tymbolica_atom_payload::{AttachmentSet, ParsedPayload, encode_atom_from_set, parse_payload};
 use tymbolica_symbol_registry::{
     PortableRepresentationClass, REPRESENTATION_ATTACHMENT_SCHEMA, RepresentationDeclaration,
     RepresentationDeclarations, canonical_representation_name,
@@ -39,12 +37,6 @@ const DISPLAY_INDEX_VERSION: i64 = 1;
 const MAX_DISPLAY_INDEX_AST_BYTES: usize = 64 * 1024;
 const MAX_DISPLAY_INDEX_DEPTH: usize = 16;
 const MAX_DISPLAY_INDEX_NODES: usize = 64;
-
-fn legacy_payload_error(label: &str) -> String {
-    format!(
-        "{label} uses legacy raw Atom bytes, which cannot carry portable representation declarations; recreate the payload with aligned Tymbolica/Tydenso package versions"
-    )
-}
 
 getrandom_02::register_custom_getrandom!(tymbolica_getrandom_v02);
 
@@ -108,12 +100,6 @@ impl InputContext {
     ) -> Result<ParsedPayload<'a>, String> {
         let parsed = parse_payload(input)
             .map_err(|error| format!("{label} must be Atom payload bytes: {error}"))?;
-        if parsed.format() == PayloadFormat::LegacyRawAtom {
-            return Err(legacy_payload_error(label));
-        }
-        parsed
-            .ensure_import_compatible()
-            .map_err(|error| format!("{label} is incompatible: {error}"))?;
 
         let incoming = parsed.attachment_set();
         self.absorb_attachment_set(&incoming)?;
@@ -1208,9 +1194,6 @@ pub fn from_ast(ast: &[u8], namespace: &[u8]) -> Result<Vec<u8>, String> {
     };
     let mut context = InputContext::default();
     let preflight = tymbolica_typst_ast::preflight_payloads_from_ast(ast, "ast")?;
-    if preflight.has_legacy_payload {
-        return Err(legacy_payload_error("ast"));
-    }
     context.absorb_attachment_set(&preflight.attachments)?;
     context.register_representations()?;
     let attached = tymbolica_typst_ast::attached_atom_from_ast(ast, &namespace, "ast")?;
@@ -1940,36 +1923,6 @@ mod tests {
         let error = decode_atom(&payload, "future representation payload").unwrap_err();
         assert!(error.contains("unsupported spenso.representation attachment version 3"));
         assert!(Symbol::get_symbol(NamespacedSymbol::parse(name)).is_none());
-    }
-
-    #[test]
-    fn legacy_raw_atoms_are_rejected_but_current_generic_envelopes_are_accepted() {
-        let atom = Atom::var(parse_symbol("x", "tydenso_legacy_payload_test", None).unwrap());
-        let current = tymbolica_atom_payload::encode_atom(&atom).unwrap();
-        assert_eq!(decode_atom(&current, "current payload").unwrap(), atom);
-
-        let legacy = parse_payload(&current).unwrap().atom_bytes().to_vec();
-        let error = decode_atom(&legacy, "legacy payload").unwrap_err();
-        assert!(error.contains("legacy raw Atom bytes"));
-        assert!(error.contains("aligned Tymbolica/Tydenso package versions"));
-    }
-
-    #[test]
-    fn from_ast_rejects_legacy_semantic_atoms_before_import() {
-        let namespace = "tydenso_legacy_ast_test";
-        let atom = Atom::var(parse_symbol("x", namespace, None).unwrap());
-        let current = tymbolica_atom_payload::encode_atom(&atom).unwrap();
-        let legacy = parse_payload(&current).unwrap().atom_bytes().to_vec();
-        let namespace = value_bytes(&Value::Text(namespace.to_owned()));
-
-        let current_ast = value_bytes(&semantic_atom_payload_ast(current));
-        let output = from_ast(&current_ast, &namespace).unwrap();
-        assert_eq!(decode_atom(&output, "current AST output").unwrap(), atom);
-
-        let legacy_ast = value_bytes(&semantic_atom_payload_ast(legacy));
-        let error = from_ast(&legacy_ast, &namespace).unwrap_err();
-        assert!(error.contains("ast uses legacy raw Atom bytes"));
-        assert!(error.contains("aligned Tymbolica/Tydenso package versions"));
     }
 
     #[test]

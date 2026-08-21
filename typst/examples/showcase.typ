@@ -20,7 +20,7 @@ document.
   math($x y - 2$),
 )
 
-The equations passed to `solve-system` are expressions understood as equal to
+The equations passed to `solve` are expressions understood as equal to
 zero:
 
 $
@@ -37,11 +37,10 @@ $ #to-typst(eliminant) = #to-typst(factor(eliminant)). $
 
 == Solve exactly
 
-#let solutions = solve-system(system, (x, y))
+#let solutions = solve(system, (x, y), domain: "real")
 #assert.eq(solutions.len(), 4)
 
-The position of each value in a solution row follows the requested variable
-order `(x, y)`.
+The `values` in each solution follow the requested variable order `(x, y)`.
 
 #table(
   columns: (auto, 1fr, 1fr),
@@ -54,8 +53,8 @@ order `(x, y)`.
     let solution = pair.at(1)
     (
       [#(index + 1)],
-      [#to-typst(solution.at(0))],
-      [#to-typst(solution.at(1))],
+      [#to-typst(solution.values.at(0))],
+      [#to-typst(solution.values.at(1))],
     )
   }).flatten(),
 )
@@ -73,9 +72,9 @@ We can substitute each exact solution into the determinant without converting
 anything to floating point.
 
 #let at-solution(expression, solution) = replace(
-  replace(expression, x, solution.at(0)),
+  replace(expression, x, solution.values.at(0)),
   y,
-  solution.at(1),
+  solution.values.at(1),
 )
 
 #table(

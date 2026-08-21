@@ -1,16 +1,11 @@
 #import "../lib.typ": init
 
 #let sym = init()
-#assert("integrate" in sym)
-#assert("integrate-with-steps" in sym)
+#assert("integrate" not in sym)
+#assert("integrate-with-steps" not in sym)
 #assert("symbol" in sym)
 #assert("function" in sym)
 #assert("var" not in sym)
-#let integrate-parse = sym.math
-#let integrate-symbol = sym.symbol
-#let integrate-to-typst = sym.to-typst
-#let integrate = sym.integrate
-#let integrate-with-steps = sym.integrate-with-steps
 #let parse = sym.math
 #let symbol = sym.symbol
 #let symbolic-function = sym.function
@@ -40,8 +35,7 @@
 #let domain = sym.domain
 #let evaluate-many = sym.evaluate-many
 #let evaluate-grid = sym.evaluate-grid
-#let solve-linear = sym.solve-linear
-#let solve-system = sym.solve-system
+#let solve = sym.solve
 #let nsolve = sym.nsolve
 #let nsolve-system = sym.nsolve-system
 #let matrix = sym.matrix
@@ -167,14 +161,8 @@
 #let wildcarded = replace-wildcards(parse($h("a_")$), ((wild("a"), parse($x + 1$)),))
 #let rhs-only = replace(parse($f(x)$), parse($f("a_")$), parse($g("a_", "fresh_")$), allow-new-wildcards-on-rhs: true)
 
-#let exact = solve-linear((parse($2 x + y - 5$), parse($x - y - 1$)), (x, y))
-#let integration-x = integrate-symbol("x")
-#let integrand = integrate-parse($x / (x + 1)$)
-#let integral = integrate(integrand, integration-x)
-#let integration = integrate-with-steps(integrand, integration-x)
-#assert(integration.complete)
-#assert(integration.steps.any(step => step.depth > 0))
-#let nonlinear = solve-system((parse($x + y$), parse($y^2 - 2$)), (x, y))
+#let exact = solve((parse($2 x + y - 5$), parse($x - y - 1$)), (x, y)).first().values
+#let nonlinear = solve((parse($x + y$), parse($y^2 - 2$)), (x, y), domain: "real")
 #let root = nsolve(parse($x^2 - 2$), x, 1.0)
 #let roots = nsolve-system((parse($x^2 + y - 3$), parse($x - y$)), (x, y), (1.0, 1.0))
 
@@ -231,9 +219,7 @@ RHS-only wildcard: #to-typst(rhs-only)
 
 Exact solve: #exact.map(to-typst).join[, ]
 
-Integral: #integrate-to-typst(integral); #integration.steps.len() nested Rubi steps
-
-Nonlinear solve: #repr(nonlinear.map(row => row.map(to-typst)))
+Nonlinear solve: #repr(nonlinear.map(solution => solution.values.map(to-typst)))
 
 Numeric solve: #repr(root), #repr(roots)
 

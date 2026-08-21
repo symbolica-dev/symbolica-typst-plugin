@@ -9,7 +9,7 @@ place the result back into the same document. You can currently:
 
 - expand, factor, collect, differentiate, and inspect expressions;
 - combine, cancel, or decompose rational functions;
-- integrate with Rubi, inspect its steps, and calculate series;
+- calculate derivatives and series;
 - replace recurring patterns with wildcards;
 - solve systems exactly or numerically;
 - evaluate formulas over points or grids; and
@@ -44,23 +44,23 @@ or inspect them with `canonical`.
 
 ## Rubi integration and Tydenso
 
-Tymbolica ships one Symbolica engine containing its algebra tools and Rubi.
-Most operations are available directly from the imported top-level API.
-Integration and its genuine, nested rule steps are methods of an API created
-with `init()`:
+Symbolic integration is provided by the separate `tymbolica-rubi` package.
+It exposes only `integrate` and `integrate-with-steps`; expressions move between
+it and Tymbolica through the shared Atom payload:
 
 ```typst
-#let sym = init()
-#let parse = sym.math
-#let symbol = sym.symbol
-#let integrate = sym.integrate
-#let render = sym.to-typst
-#let x = symbol("x")
-#render(integrate(parse($x / (x + 1)$), x))
+#import "@local/tymbolica:0.1.0" as sym
+#import "@local/tymbolica-rubi:0.1.0": integrate
+
+#let x = sym.math($x$)
+#let f = sym.math($x / (x + 1)$)
+#sym.to-typst(integrate(f, x))
 ```
 
-The Symbolica/Rubi engine is stored as a compressed asset and expanded by a
-small loader when `init()` is first used.
+Rubi's rule tables are prepared with Wizer when the plugin is built. Its
+compressed engine is independent of Tymbolica's smaller algebra engine.
+Both Rubi arguments are portable Atom payload bytes; `math($x$)` creates the
+single-symbol payload required for the integration variable.
 
 Tensor algebra is provided by the separate `tydenso` Typst package in this
 repository. Tydenso has its own manual, constructors, Spenso-aware printer, and
@@ -99,6 +99,9 @@ ln -s "$PWD" \
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tydenso"
 ln -s "$PWD/tydenso" \
   "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tydenso/0.1.0"
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica-rubi"
+ln -s "$PWD/rubi" \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica-rubi/0.1.0"
 ```
 
 On macOS, use `~/Library/Application Support/typst/packages` in place of the
@@ -111,8 +114,9 @@ Linux data directory. During repository development, examples instead import
   and complete API reference
 - [Tydenso manual](tydenso/manual.pdf) — tensor construction, Spenso printing,
   CBOR inspection, Idenso transforms, and complete API reference
+- [Rubi manual](rubi/manual.pdf) — symbolic integration and nested Rubi steps
 - [Minimal example](typst/examples/basic.typ) — a compact first document
-- [Rubi integration](typst/examples/integration.typ) — an antiderivative and
+- [Rubi integration](rubi/examples/basic.typ) — an antiderivative and
   its nested rule steps
 - [Tydenso tensor algebra](tydenso/examples/basic.typ) — structural tensor
   construction and metric contraction
@@ -139,10 +143,11 @@ nix develop
 Use the repository apps for the normal release workflow:
 
 ```sh
-nix run .#build        # rebuild both compressed engines and their loaders
-nix run .#build-engine # rebuild only the compressed Symbolica/Rubi engine
+nix run .#build        # rebuild all compressed engines and their loaders
+nix run .#build-engine # rebuild only the compressed Tymbolica core engine
+nix run .#build-rubi   # rebuild the Wizer-preinitialized Rubi engine
 nix run .#build-tydenso # rebuild only the compressed Tydenso engine
-nix run .#manual       # rebuild both engines and both manuals
+nix run .#manual       # rebuild all engines and manuals
 nix run .#check       # rebuild, compile the public examples, and verify the PDF
 nix flake check       # validate the Typst distribution using tracked plugins
 ```
@@ -151,9 +156,9 @@ Maintainer checks also compile
 [the API surface](typst/examples/api-surface.typ) and verify the
 [`@local` package import](typst/examples/local-package.typ).
 
-`nix run .#check` verifies both documented `@local` installation layouts and
-fails when either committed manual PDF is stale. Commit the source, bundles,
-and regenerated manuals together.
+`nix run .#check` verifies all documented `@local` installation layouts and
+fails when any committed manual PDF is stale. Commit the source, bundles, and
+regenerated manuals together.
 
 ## Attribution and licensing
 

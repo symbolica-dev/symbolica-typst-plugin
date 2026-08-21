@@ -1,0 +1,12 @@
+[package]
+name = "tymbolica-rubi"
+version = "0.1.0"
+entrypoint = "lib.typ"
+authors = ["lcnbr <https://github.com/lcnbr>"]
+license = "MIT"
+description = "Integrate portable Tymbolica atoms with Rubi, including genuine rule steps."
+repository = "https://github.com/lcnbr/tymbolica"
+keywords = ["computer-algebra", "symbolic-integration", "symbolica", "rubi"]
+categories = ["integration", "scripting"]
+disciplines = ["mathematics"]
+compiler = "0.14.0"

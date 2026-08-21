@@ -33,10 +33,6 @@ pub const MAX_ATTACHMENT_DATA_BYTES: usize = 256 * 1024;
 pub const MAX_TOTAL_ATTACHMENT_BYTES: usize = 1024 * 1024;
 
 const REVISION_BYTES: usize = 40;
-const LEGACY_SYMBOLICA_MAGIC: u32 = 0x3787_1367;
-const LEGACY_SYMBOLICA_EXPORT_VERSION: u16 = 4;
-const LEGACY_SYMBOLICA_HEADER_BYTES: usize =
-    std::mem::size_of::<u32>() + std::mem::size_of::<u16>();
 // Permit redundant records to be merged without letting their wire count grow
 // without bound. MAX_ATTACHMENTS applies to unique keys.
 const MAX_ENCODED_ATTACHMENT_RECORDS: usize = 1024;
@@ -287,33 +283,14 @@ impl<'a> AttachmentRef<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PayloadFormat {
-    /// A pre-envelope native Symbolica export. It has no recorded revision or
-    /// attachments, but remains importable for backwards compatibility.
-    LegacyRawAtom,
-    EnvelopeV1,
-}
-
 /// A validated payload whose native Atom bytes have not yet been imported.
 #[derive(Debug)]
 pub struct ParsedPayload<'a> {
-    format: PayloadFormat,
-    symbolica_revision: Option<&'a str>,
     atom_bytes: &'a [u8],
     attachments: Vec<AttachmentRef<'a>>,
 }
 
 impl<'a> ParsedPayload<'a> {
-    pub fn format(&self) -> PayloadFormat {
-        self.format
-    }
-
-    /// Revision recorded by an envelope, or `None` for a legacy raw export.
-    pub fn symbolica_revision(&self) -> Option<&'a str> {
-        self.symbolica_revision
-    }
-
     /// Native Symbolica Atom-and-state bytes, still unimported.
     pub fn atom_bytes(&self) -> &'a [u8] {
         self.atom_bytes
@@ -358,20 +335,6 @@ impl<'a> ParsedPayload<'a> {
         }
     }
 
-    /// Check whether this payload can be imported by the compiled Symbolica.
-    ///
-    /// Legacy raw exports contain no exact revision marker. Their native magic
-    /// and export-format version are checked during parsing, but compatibility
-    /// beyond that remains best-effort.
-    pub fn ensure_import_compatible(&self) -> Result<(), PayloadError> {
-        if let Some(revision) = self.symbolica_revision
-            && revision != SYMBOLICA_REVISION
-        {
-            return Err(PayloadError::RevisionMismatch(revision.to_owned()));
-        }
-        Ok(())
-    }
-
     /// Import the Atom only after envelope inspection has completed.
     ///
     /// # Trust boundary
@@ -383,7 +346,6 @@ impl<'a> ParsedPayload<'a> {
     /// memory or leave partial state changes even when this method returns an
     /// error. Only import native bytes produced by a trusted compatible plugin.
     pub fn import_atom(&self) -> Result<Atom, PayloadError> {
-        self.ensure_import_compatible()?;
         import_raw_atom(self.atom_bytes)
     }
 }
@@ -483,28 +445,6 @@ fn validate_revision(revision: &str) -> Result<(), PayloadError> {
     {
         return Err(PayloadError::InvalidEnvelope(
             "Symbolica revision must be a 40-character lowercase hexadecimal Git ID",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_legacy_header(input: &[u8]) -> Result<(), PayloadError> {
-    let header =
-        input
-            .get(..LEGACY_SYMBOLICA_HEADER_BYTES)
-            .ok_or(PayloadError::InvalidEnvelope(
-                "input is neither a current envelope nor a complete legacy Symbolica header",
-            ))?;
-    let magic = u32::from_le_bytes(header[..4].try_into().expect("four-byte slice"));
-    if magic != LEGACY_SYMBOLICA_MAGIC {
-        return Err(PayloadError::InvalidEnvelope(
-            "input is neither a current envelope nor a legacy Symbolica export",
-        ));
-    }
-    let version = u16::from_le_bytes(header[4..].try_into().expect("two-byte slice"));
-    if version != LEGACY_SYMBOLICA_EXPORT_VERSION {
-        return Err(PayloadError::InvalidEnvelope(
-            "legacy Symbolica export format is not supported",
         ));
     }
     Ok(())
@@ -726,6 +666,9 @@ fn parse_envelope(input: &[u8]) -> Result<ParsedPayload<'_>, PayloadError> {
     let revision = str::from_utf8(reader.take(revision_length)?)
         .map_err(|_| PayloadError::InvalidEnvelope("Symbolica revision is not UTF-8"))?;
     validate_revision(revision)?;
+    if revision != SYMBOLICA_REVISION {
+        return Err(PayloadError::RevisionMismatch(revision.to_owned()));
+    }
     let atom_bytes = reader.take(atom_length)?;
 
     let mut total_attachment_bytes = 0usize;
@@ -789,8 +732,6 @@ fn parse_envelope(input: &[u8]) -> Result<ParsedPayload<'_>, PayloadError> {
     }
 
     Ok(ParsedPayload {
-        format: PayloadFormat::EnvelopeV1,
-        symbolica_revision: Some(revision),
         atom_bytes,
         attachments: merged
             .into_iter()
@@ -804,32 +745,15 @@ fn parse_envelope(input: &[u8]) -> Result<ParsedPayload<'_>, PayloadError> {
     })
 }
 
-/// Validate an envelope and expose its metadata without importing the Atom.
-///
-/// Inputs without [`PAYLOAD_MAGIC`] must begin with the native Symbolica magic
-/// and supported export-format version. Such legacy exports expose an empty
-/// attachment list and have no exact revision marker.
+/// Validate a current envelope and expose its metadata without importing the Atom.
 pub fn parse_payload(input: &[u8]) -> Result<ParsedPayload<'_>, PayloadError> {
     if input.len() > MAX_PAYLOAD_BYTES {
         return Err(PayloadError::LimitExceeded);
     }
-    if input.starts_with(PAYLOAD_MAGIC) {
-        parse_envelope(input)
-    } else {
-        if input.len() > MAX_ATOM_BYTES {
-            return Err(PayloadError::LimitExceeded);
-        }
-        validate_legacy_header(input)?;
-        Ok(ParsedPayload {
-            format: PayloadFormat::LegacyRawAtom,
-            symbolica_revision: None,
-            atom_bytes: input,
-            attachments: Vec::new(),
-        })
-    }
+    parse_envelope(input)
 }
 
-/// Import either a current envelope or a legacy raw Symbolica export.
+/// Import an Atom from a current envelope.
 pub fn decode_atom(input: &[u8]) -> Result<Atom, PayloadError> {
     parse_payload(input)?.import_atom()
 }
@@ -848,10 +772,6 @@ mod tests {
 
     fn attachment(schema: &str, version: u32, identity: &[u8], data: &[u8]) -> Attachment {
         Attachment::new(key(schema, version, identity), data.to_vec()).unwrap()
-    }
-
-    fn legacy_export(atom: &Atom) -> Vec<u8> {
-        export_raw_atom(atom).unwrap()
     }
 
     fn duplicate_last_entry(mut payload: Vec<u8>, conflicting: bool) -> Vec<u8> {
@@ -892,8 +812,6 @@ mod tests {
         .unwrap();
 
         let parsed = parse_payload(&payload).unwrap();
-        assert_eq!(parsed.format(), PayloadFormat::EnvelopeV1);
-        assert_eq!(parsed.symbolica_revision(), Some(SYMBOLICA_REVISION));
         assert_eq!(parsed.attachments().len(), 1);
         assert_eq!(
             parsed.attachment(&attachment_key),
@@ -1066,7 +984,7 @@ mod tests {
     }
 
     #[test]
-    fn revision_can_be_inspected_before_import_is_rejected() {
+    fn mismatched_revision_is_rejected_during_parse() {
         let mut payload = encode_exported_atom(
             OPAQUE_ATOM_EXPORT,
             [attachment("org.tymbolica.test", 1, b"id", b"data")],
@@ -1078,15 +996,8 @@ mod tests {
             b'0'
         };
 
-        let parsed = parse_payload(&payload).unwrap();
-        assert_ne!(parsed.symbolica_revision(), Some(SYMBOLICA_REVISION));
-        assert_eq!(parsed.attachments()[0].data(), b"data");
         assert!(matches!(
-            parsed.ensure_import_compatible(),
-            Err(PayloadError::RevisionMismatch(_))
-        ));
-        assert!(matches!(
-            parsed.import_atom(),
+            parse_payload(&payload),
             Err(PayloadError::RevisionMismatch(_))
         ));
     }
@@ -1108,7 +1019,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_envelope_and_legacy_headers_are_rejected() {
+    fn malformed_envelopes_are_rejected() {
         let payload = encode_exported_atom(OPAQUE_ATOM_EXPORT, []).unwrap();
 
         let mut unsupported_version = payload.clone();
@@ -1150,14 +1061,6 @@ mod tests {
             parse_payload(b"not an Atom payload"),
             Err(PayloadError::InvalidEnvelope(_))
         ));
-        let mut unsupported_legacy = Vec::new();
-        unsupported_legacy.extend_from_slice(&LEGACY_SYMBOLICA_MAGIC.to_le_bytes());
-        unsupported_legacy.extend_from_slice(&(LEGACY_SYMBOLICA_EXPORT_VERSION + 1).to_le_bytes());
-        assert!(matches!(
-            parse_payload(&unsupported_legacy),
-            Err(PayloadError::InvalidEnvelope(_))
-        ));
-
         let attachments = AttachmentSet::new();
         assert!(matches!(
             encode_exported_atom_from_set_with_revision(
@@ -1211,7 +1114,7 @@ mod tests {
     }
 
     #[test]
-    fn native_atoms_round_trip_and_legacy_remains_compatible() {
+    fn native_atoms_round_trip() {
         // A restricted Symbolica build permits one instance per process. Keep
         // all native Atom operations in one test thread; the other tests only
         // inspect the deliberately opaque exported bytes.
@@ -1231,14 +1134,6 @@ mod tests {
             atom
         );
         assert_eq!(decode_atom(&payload).unwrap(), atom);
-
-        let legacy = legacy_export(&atom);
-        let parsed_legacy = parse_payload(&legacy).unwrap();
-        assert_eq!(parsed_legacy.format(), PayloadFormat::LegacyRawAtom);
-        assert_eq!(parsed_legacy.symbolica_revision(), None);
-        assert!(parsed_legacy.attachments().is_empty());
-        assert_eq!(parsed_legacy.import_atom().unwrap(), atom);
-        assert_eq!(decode_atom(&legacy).unwrap(), atom);
 
         let rich = symbol!("tymbolica_payload_test::g"; Symmetric, Linear, Real);
         let rich_atom = function!(

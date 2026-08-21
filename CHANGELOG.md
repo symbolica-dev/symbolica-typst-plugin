@@ -17,13 +17,13 @@ local `0.1.0` package while its initial public surface is being prepared.
 - Added a pendulum-calibration workflow, exact and numerical nonlinear solving,
   verified polynomial integration, wildcard rewriting, exact interpolation,
   and batched gradient evaluation examples.
-- Replaced polynomial-only integration with the MIT-licensed
-  `symbolica-integrate` Rubi engine. `integrate-with-steps` now returns Rubi's
-  actual nested transformations, including rule metadata, input and output
-  expressions, and whether the best-effort result is complete.
-- Added Rubi to the single bundled Tymbolica engine. Tymbolica and Tydenso are
-  stored as DEFLATE-compressed assets and expanded transparently by small
-  package-local loaders, keeping every engine asset below 10 MiB.
+- Added the separate `tymbolica-rubi` package around the MIT-licensed
+  `symbolica-integrate` engine. Its focused plugin exposes only `integrate` and
+  `integrate-with-steps`; the latter returns Rubi's genuine nested
+  transformations, metadata, expressions, and completion status.
+- Preinitialize Rubi's immutable rule tables with Wizer at build time. The
+  lightweight Tymbolica core, focused Rubi extension, and Tydenso are stored as
+  independent DEFLATE-compressed assets below the Typst web app's 10 MiB limit.
 - Split Tydenso into its own Typst package with a separate manual and examples.
   Its scope-free API constructs Spenso representations, slots, tensor names,
   symmetry attributes, and annotated math calls; the structural constructors

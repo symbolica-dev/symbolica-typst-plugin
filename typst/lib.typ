@@ -306,10 +306,6 @@
   )))
 }
 #let _derivative(engine, expr, var) = engine.plugin.derivative(_expr_bytes(engine, expr), _expr_bytes(engine, var))
-#let _integrate(engine, expr, var) = engine.plugin.integrate(_expr_bytes(engine, expr), _expr_bytes(engine, var))
-#let _integrate_with_steps(engine, expr, var) = cbor(engine.plugin.integrate_with_steps(
-  _expr_bytes(engine, expr), _expr_bytes(engine, var),
-))
 #let _series(engine, expr, var, expansion-point, depth, depth-denom: 1, depth-is-absolute: true) = {
   engine.plugin.series(cbor.encode((
     expr: _expr_bytes(engine, expr),
@@ -457,13 +453,10 @@
   ))))
 }
 
-#let _solve_linear(engine, system, variables) = cbor(engine.plugin.solve_linear(cbor.encode((
+#let _solve(engine, system, variables, domain: "complex") = cbor(engine.plugin.solve(cbor.encode((
   system: _expr_array(engine, system),
   variables: _expr_array(engine, variables),
-))))
-#let _solve_system(engine, system, variables) = cbor(engine.plugin.solve_system(cbor.encode((
-  system: _expr_array(engine, system),
-  variables: _expr_array(engine, variables),
+  domain: domain,
 ))))
 #let _nsolve(engine, expr, var, init, prec: 1e-4, max-iterations: 1000) = cbor(engine.plugin.nsolve(cbor.encode((
   expr: _expr_bytes(engine, expr),
@@ -566,16 +559,9 @@
 /// Create an independent set of Tymbolica functions.
 ///
 /// The returned dictionary exposes Tymbolica's parsing, algebra, evaluation,
-/// solving, matrix, and Rubi integration operations. Use `init` when you want
-/// to select a symbol namespace, plugin location, or parser grammar; ordinary
-/// calculations can use the imported top-level functions directly.
-///
-/// `integrate(expr, var)` returns Rubi's best-effort antiderivative as bytes.
-/// `integrate-with-steps(expr, var)` returns `(result: bytes, complete: bool,
-/// steps: array)`. Each step contains `rule` (int or none), `depth` (int),
-/// `description` (str), `references` (array of str), `source` (str), and the
-/// immediate `input` and `output` expressions as bytes. The steps run from an
-/// outer rewrite into its nested integrals. No integration constant is added.
+/// solving, and matrix operations. Use `init` when you want to select a symbol
+/// namespace, plugin location, or parser grammar; ordinary calculations can
+/// use the imported top-level functions directly.
 ///
 /// ```example
 /// #let sym = init(namespace: "physics")
@@ -646,8 +632,7 @@
     domain: _domain,
     evaluate-many: (expressions, variables, points) => _evaluate_many(engine, expressions, variables, points),
     evaluate-grid: (expressions, variables, domains) => _evaluate_grid(engine, expressions, variables, domains),
-    solve-linear: (system, variables) => _solve_linear(engine, system, variables),
-    solve-system: (system, variables) => _solve_system(engine, system, variables),
+    solve: (system, variables, domain: "complex") => _solve(engine, system, variables, domain: domain),
     nsolve: (expr, var, init, prec: 1e-4, max-iterations: 1000) => _nsolve(engine, expr, var, init, prec: prec, max-iterations: max-iterations),
     nsolve-system: (system, variables, init, prec: 1e-4, max-iterations: 1000) => _nsolve_system(engine, system, variables, init, prec: prec, max-iterations: max-iterations),
     matrix: value => _matrix(engine, value),
@@ -679,8 +664,6 @@
     sub: (lhs, rhs) => _sub(engine, lhs, rhs),
     div: (lhs, rhs) => _div(engine, lhs, rhs),
     pow: (base, exp) => _pow(engine, base, exp),
-    integrate: (expr, var) => _integrate(engine, expr, var),
-    integrate-with-steps: (expr, var) => _integrate_with_steps(engine, expr, var),
   )
   api
 }
@@ -1484,57 +1467,40 @@
 ) = (
   _default_engine().evaluate-grid)(expressions, variables, domains)
 
-/// Solve a linear system exactly for `variables`.
-///
-/// Each item in `system` is interpreted as an expression equal to zero. A
-/// vector matrix may be supplied instead of an array. The returned array is
-/// contains one atom payload per item in `variables`, in the same order. For an
-/// underdetermined system, bound variables may be expressed using free
-/// variables; Symbolica chooses the highest-indexed variables as free.
-/// Inconsistent or nonlinear systems produce an error.
-///
-/// ```example
-/// #let x = symbol("x")
-/// #let y = symbol("y")
-/// #let sol = solve-linear((math($2 x + y - 5$), math($x - y - 1$)), (x, y))
-/// #sol.map(to-typst).join[, ]
-/// ```
-///
-/// -> array
-#let solve-linear(
-  /// Linear expressions understood to equal zero, as an array or vector matrix.
-  /// -> array | bytes | content | int | float | str
-  system,
-  /// Variables to solve for, in result order.
-  /// -> array | content | str
-  variables,
-) = (_default_engine().solve-linear)(system, variables)
-
 /// Solve a linear or supported polynomial nonlinear system exactly.
 ///
 /// Each expression in `system` is understood to equal zero. Polynomial systems
 /// are solved exactly through Symbolica's Gröbner-basis and algebraic-root
 /// machinery; coefficients may contain symbolic parameters when Symbolica can
-/// treat them rationally. The result is an array of solution rows. Every row
-/// contains one atom payload per requested variable, in `variables` order; an
-/// empty array means there are no solutions.
+/// treat them rationally. `domain` may be `"complex"`, `"real"`, `"rational"`,
+/// or `"integer"`.
+///
+/// The result contains one dictionary per solution branch. Its `values` array
+/// follows the requested `variables` order. `free-variables` and `conditions`
+/// preserve parametric and conditional solutions instead of flattening them;
+/// `domain`, `rank`, `dimension`, `conditional`, `parametric`, and
+/// `indeterminate` describe the branch. An empty result means there are no
+/// solutions in the requested domain.
 ///
 /// ```example
 /// #let x = symbol("x")
 /// #let y = symbol("y")
-/// #let solutions = solve-system((math($x^2 - 1$), math($y - x$)), (x, y))
-/// #repr(solutions.map(row => row.map(canonical)))
+/// #let solutions = solve((math($x^2 - 1$), math($y - x$)), (x, y), domain: "real")
+/// #repr(solutions.map(solution => solution.values.map(canonical)))
 /// ```
 ///
 /// -> array
-#let solve-system(
+#let solve(
   /// Expressions understood to equal zero.
   /// -> array | content | int | float | str
   system,
-  /// Variables to eliminate and return, in result-column order.
+  /// Variables to solve for, in `values` order.
   /// -> array | content | str
   variables,
-) = (_default_engine().solve-system)(system, variables)
+  /// Exact solution domain: `"complex"`, `"real"`, `"rational"`, or `"integer"`.
+  /// -> str
+  domain: "complex",
+) = (_default_engine().solve)(system, variables, domain: domain)
 
 /// Find a real root of a univariate expression with Newton's method.
 ///

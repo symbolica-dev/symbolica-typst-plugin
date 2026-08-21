@@ -4,7 +4,7 @@ use std::io::Cursor;
 
 use ciborium::value::Value;
 use symbolica::prelude::{Atom, AtomCore, Symbol};
-use tymbolica_atom_payload::{AttachmentSet, PayloadFormat, parse_payload};
+use tymbolica_atom_payload::{AttachmentSet, parse_payload};
 
 /// A parsed Symbolica Atom together with every portable attachment carried by
 /// embedded Atom payloads in the source tree.
@@ -15,15 +15,9 @@ pub struct AttachedAtom {
 }
 
 /// The complete, import-free payload preflight for one supported Parsely tree.
-///
-/// Consumers with stricter trust requirements can reject legacy native Atom
-/// exports before calling [`attached_atom_from_ast`]. The legacy marker follows
-/// exactly the same schema-aware walk as the merged attachment set, so bytes in
-/// unconsumed metadata do not affect it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AstPayloadPreflight {
     pub attachments: AttachmentSet,
-    pub has_legacy_payload: bool,
 }
 
 /// Decode a CBOR-encoded Parsely tree and convert it to a Symbolica Atom.
@@ -141,10 +135,6 @@ fn inspect_payload_attachments(
     preflight: &mut AstPayloadPreflight,
 ) -> Result<(), String> {
     let payload = parse_payload(bytes).map_err(|error| format!("{label} is invalid: {error}"))?;
-    payload
-        .ensure_import_compatible()
-        .map_err(|error| format!("{label} is incompatible: {error}"))?;
-    preflight.has_legacy_payload |= payload.format() == PayloadFormat::LegacyRawAtom;
     preflight
         .attachments
         .merge(&payload.attachment_set())
@@ -885,22 +875,5 @@ mod tests {
 
         let error = attachments_from_value(&Value::Bytes(payload)).unwrap_err();
         assert!(error.contains("uses Symbolica revision"));
-    }
-
-    #[test]
-    fn rich_preflight_reports_legacy_payloads_without_breaking_attachment_wrappers() {
-        let x = symbol_atom("x", "embedded").unwrap();
-        let current = encode_atom(&x).unwrap();
-        let legacy = parse_payload(&current).unwrap().atom_bytes().to_vec();
-        let ast = node(
-            "add",
-            vec![Value::Bytes(current), Value::Bytes(legacy)],
-            vec![],
-        );
-
-        let preflight = preflight_payloads_from_value(&ast).unwrap();
-        assert!(preflight.has_legacy_payload);
-        assert!(preflight.attachments.is_empty());
-        assert!(attachments_from_value(&ast).unwrap().is_empty());
     }
 }

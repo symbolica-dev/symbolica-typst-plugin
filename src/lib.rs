@@ -29,10 +29,8 @@ use symbolica::prelude::{
     Atom, AtomCore, AtomPrinter, AtomView, Coefficient, CoefficientView, Complex, DoubleFloat,
     ExpressionEvaluator, F64, Float, Indeterminate, IntegerRing, Matrix, PolyVariable,
     PrintOptions, PrintState, Q, RationalPolynomial, RationalPolynomialField, Real,
-    ReplaceSettings, Replacement, Ring, SeriesDepth, SolveError, Symbol, Z,
+    ReplaceSettings, Replacement, Ring, SeriesDepth, SolutionCondition, SolveDomain, Symbol, Z,
 };
-#[cfg(feature = "rubi")]
-use symbolica_integrate::{Integrate, IntegrationExplanation, IntegrationStep};
 use tymbolica_atom_payload::{
     AttachmentSet, encode_atom as encode_shared_atom, encode_atom_from_set, parse_payload,
 };
@@ -1941,114 +1939,6 @@ pub fn derivative(expr: &[u8], var: &[u8]) -> Result<Vec<u8>, String> {
     encode_attached_atom(&expr.atom.derivative(var), &attachments)
 }
 
-#[cfg(feature = "rubi")]
-fn integration_variable(var: Atom) -> Result<Symbol, String> {
-    match var.as_view() {
-        AtomView::Var(var) => Ok(var.get_symbol()),
-        _ => Err("integration variable must be a symbol".to_owned()),
-    }
-}
-
-#[cfg(feature = "rubi")]
-fn rubi_integral_atoms(expr: Atom, var: Atom) -> Result<Result<Atom, Atom>, String> {
-    Ok(expr.integrate(integration_variable(var)?))
-}
-
-#[cfg(feature = "rubi")]
-fn rubi_integration_explanation_atoms(
-    expr: Atom,
-    var: Atom,
-) -> Result<IntegrationExplanation, String> {
-    Ok(expr.integrate_with_steps(integration_variable(var)?))
-}
-
-#[cfg(feature = "rubi")]
-fn integration_step_cbor(
-    step: IntegrationStep,
-    attachments: &AttachmentSet,
-) -> Result<Value, String> {
-    Ok(Value::Map(vec![
-        (
-            Value::Text("rule".to_owned()),
-            step.rule
-                .map(|rule| Value::Integer((rule as i64).into()))
-                .unwrap_or(Value::Null),
-        ),
-        (
-            Value::Text("depth".to_owned()),
-            Value::Integer((step.depth as i64).into()),
-        ),
-        (
-            Value::Text("description".to_owned()),
-            Value::Text(step.description.to_owned()),
-        ),
-        (
-            Value::Text("references".to_owned()),
-            Value::Array(
-                step.references
-                    .iter()
-                    .map(|reference| Value::Text((*reference).to_owned()))
-                    .collect(),
-            ),
-        ),
-        (
-            Value::Text("source".to_owned()),
-            Value::Text(step.source.to_owned()),
-        ),
-        (
-            Value::Text("input".to_owned()),
-            Value::Bytes(encode_attached_atom(&step.input, attachments)?),
-        ),
-        (
-            Value::Text("output".to_owned()),
-            Value::Bytes(encode_attached_atom(&step.output, attachments)?),
-        ),
-    ]))
-}
-
-#[cfg(feature = "rubi")]
-#[wasm_func]
-pub fn integrate(expr: &[u8], var: &[u8]) -> Result<Vec<u8>, String> {
-    let expr = decode_attached_atom(expr, "expr")?;
-    let var = decode_attached_atom(var, "var")?;
-    let mut attachments = expr.attachments;
-    merge_attachments(&mut attachments, &var.attachments, "var")?;
-    let result = rubi_integral_atoms(expr.atom, var.atom)?;
-    encode_attached_atom(
-        match &result {
-            Ok(result) | Err(result) => result,
-        },
-        &attachments,
-    )
-}
-
-#[cfg(feature = "rubi")]
-#[wasm_func]
-pub fn integrate_with_steps(expr: &[u8], var: &[u8]) -> Result<Vec<u8>, String> {
-    let expr = decode_attached_atom(expr, "expr")?;
-    let var = decode_attached_atom(var, "var")?;
-    let mut attachments = expr.attachments;
-    merge_attachments(&mut attachments, &var.attachments, "var")?;
-    let explanation = rubi_integration_explanation_atoms(expr.atom, var.atom)?;
-    let (complete, result) = match explanation.result {
-        Ok(result) => (true, result),
-        Err(result) => (false, result),
-    };
-    let steps = explanation
-        .steps
-        .into_iter()
-        .map(|step| integration_step_cbor(step, &attachments))
-        .collect::<Result<Vec<_>, _>>()?;
-    encode_cbor(Value::Map(vec![
-        (
-            Value::Text("result".to_owned()),
-            Value::Bytes(encode_attached_atom(&result, &attachments)?),
-        ),
-        (Value::Text("complete".to_owned()), Value::Bool(complete)),
-        (Value::Text("steps".to_owned()), Value::Array(steps)),
-    ]))
-}
-
 #[wasm_func]
 pub fn series(request: &[u8]) -> Result<Vec<u8>, String> {
     let Value::Map(map) = decode_cbor(request, "series request")? else {
@@ -2294,79 +2184,157 @@ pub fn evaluate_grid(request: &[u8]) -> Result<Vec<u8>, String> {
     ]))
 }
 
-#[wasm_func]
-pub fn solve_linear(request: &[u8]) -> Result<Vec<u8>, String> {
-    let Value::Map(map) = decode_cbor(request, "solve-linear request")? else {
-        return Err("solve-linear request must be dictionary".to_owned());
+fn solve_domain(value: Option<&Value>) -> Result<SolveDomain, String> {
+    match value {
+        None => Ok(SolveDomain::Complexes),
+        Some(Value::Text(domain)) => match domain.as_str() {
+            "integer" => Ok(SolveDomain::Integers),
+            "rational" => Ok(SolveDomain::Rationals),
+            "real" => Ok(SolveDomain::Reals),
+            "complex" => Ok(SolveDomain::Complexes),
+            _ => Err(format!(
+                "domain must be one of integer, rational, real, or complex, got {domain:?}"
+            )),
+        },
+        Some(other) => Err(format!("domain must be a string, got {other:?}")),
+    }
+}
+
+fn solve_domain_name(domain: SolveDomain) -> &'static str {
+    match domain {
+        SolveDomain::Integers => "integer",
+        SolveDomain::Rationals => "rational",
+        SolveDomain::Reals => "real",
+        SolveDomain::Complexes => "complex",
+    }
+}
+
+fn solution_condition_cbor(
+    condition: &SolutionCondition,
+    attachments: &AttachmentSet,
+) -> Result<Value, String> {
+    let fields = match condition {
+        SolutionCondition::NonZero(expression) => vec![
+            (
+                Value::Text("kind".to_owned()),
+                Value::Text("nonzero".to_owned()),
+            ),
+            (
+                Value::Text("expression".to_owned()),
+                Value::Bytes(encode_attached_atom(expression, attachments)?),
+            ),
+        ],
+        SolutionCondition::DomainMembership {
+            variable,
+            value,
+            domain,
+        } => vec![
+            (
+                Value::Text("kind".to_owned()),
+                Value::Text("domain-membership".to_owned()),
+            ),
+            (
+                Value::Text("variable".to_owned()),
+                Value::Bytes(encode_attached_atom(&variable.to_atom(), attachments)?),
+            ),
+            (
+                Value::Text("value".to_owned()),
+                Value::Bytes(encode_attached_atom(value, attachments)?),
+            ),
+            (
+                Value::Text("domain".to_owned()),
+                Value::Text(solve_domain_name(*domain).to_owned()),
+            ),
+        ],
     };
-    let system = match map_get(&map, "system") {
-        Some(Value::Array(values)) => attached_atoms_from_values(values, "system")?,
-        Some(Value::Bytes(bytes)) if is_matrix_payload(bytes) => {
-            let matrix = decode_attached_matrix(bytes, "system")?;
-            AttachedAtoms {
-                atoms: matrix_entries_to_atoms(&matrix.matrix),
-                attachments: matrix.attachments,
-            }
-        }
-        Some(other) => {
-            return Err(format!(
-                "system must be array or vector matrix, got {other:?}"
-            ));
-        }
-        None => return Err("missing system".to_owned()),
-    };
-    let vars = match map_get(&map, "variables") {
-        Some(Value::Array(values)) => attached_atoms_from_values(values, "variables")?,
-        Some(other) => return Err(format!("variables must be array, got {other:?}")),
-        None => return Err("missing variables".to_owned()),
-    };
-    let mut attachments = system.attachments;
-    merge_attachments(&mut attachments, &vars.attachments, "variables")?;
-    let result = match AtomView::solve_linear_system::<u16, _, Atom>(&system.atoms, &vars.atoms) {
-        Ok(result) => result,
-        Err(SolveError::Underdetermined {
-            partial_solution, ..
-        }) => partial_solution,
-        Err(err) => return Err(err.to_string()),
-    };
-    cbor_atom_array(result, &attachments)
+    Ok(Value::Map(fields))
 }
 
 #[wasm_func]
-pub fn solve_system(request: &[u8]) -> Result<Vec<u8>, String> {
-    let Value::Map(map) = decode_cbor(request, "solve-system request")? else {
-        return Err("solve-system request must be dictionary".to_owned());
+pub fn solve(request: &[u8]) -> Result<Vec<u8>, String> {
+    let Value::Map(map) = decode_cbor(request, "solve request")? else {
+        return Err("solve request must be dictionary".to_owned());
     };
     let system = attached_atoms_from_values(map_array(&map, "system")?, "system")?;
     let variables = attached_atoms_from_values(map_array(&map, "variables")?, "variables")?;
+    let domain = solve_domain(map_get(&map, "domain"))?;
     let mut attachments = system.attachments;
     merge_attachments(&mut attachments, &variables.attachments, "variables")?;
     let keys = variables
         .atoms
         .iter()
         .map(|variable| {
-            Indeterminate::try_from(variable.clone())
-                .map(PolyVariable::from)
+            PolyVariable::try_from(variable.clone())
                 .map_err(|err| format!("solve variable must be a variable: {err}"))
         })
         .collect::<Result<Vec<PolyVariable>, _>>()?;
-    let solutions = AtomView::solve::<u16, _, Atom>(&system.atoms, &variables.atoms)
+    let solutions = Atom::solve(&system.atoms)
+        .over(domain)
+        .wrt(&variables.atoms)
         .map_err(|err| format!("could not solve system: {err}"))?;
-    let rows = solutions
+    let branches = solutions
         .into_iter()
-        .map(|solution| {
-            keys.iter()
+        .map(|solution| -> Result<Value, String> {
+            let values = keys
+                .iter()
                 .map(|key| {
                     solution
                         .get(key)
                         .cloned()
                         .ok_or_else(|| "solver omitted a requested variable".to_owned())
                 })
-                .collect::<Result<Vec<_>, _>>()
-                .and_then(|atoms| atoms_cbor_value(atoms, &attachments))
+                .collect::<Result<Vec<_>, _>>()?;
+            let free_variables = solution
+                .free_variables()
+                .iter()
+                .map(PolyVariable::to_atom)
+                .collect::<Vec<_>>();
+            let conditions = solution
+                .conditions()
+                .iter()
+                .map(|condition| solution_condition_cbor(condition, &attachments))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Map(vec![
+                (
+                    Value::Text("values".to_owned()),
+                    atoms_cbor_value(values, &attachments)?,
+                ),
+                (
+                    Value::Text("free-variables".to_owned()),
+                    atoms_cbor_value(free_variables, &attachments)?,
+                ),
+                (
+                    Value::Text("conditions".to_owned()),
+                    Value::Array(conditions),
+                ),
+                (
+                    Value::Text("domain".to_owned()),
+                    Value::Text(solve_domain_name(solution.domain()).to_owned()),
+                ),
+                (
+                    Value::Text("rank".to_owned()),
+                    Value::Integer((solution.rank() as i64).into()),
+                ),
+                (
+                    Value::Text("dimension".to_owned()),
+                    Value::Integer((solution.dimension() as i64).into()),
+                ),
+                (
+                    Value::Text("conditional".to_owned()),
+                    Value::Bool(solution.is_conditional()),
+                ),
+                (
+                    Value::Text("parametric".to_owned()),
+                    Value::Bool(solution.is_parametric()),
+                ),
+                (
+                    Value::Text("indeterminate".to_owned()),
+                    Value::Bool(solution.is_indeterminate()),
+                ),
+            ]))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    encode_cbor(Value::Array(rows))
+    encode_cbor(Value::Array(branches))
 }
 
 #[wasm_func]
@@ -2732,114 +2700,139 @@ mod tests {
         let _ = parsed.import_atom().unwrap();
     }
 
-    #[cfg(feature = "rubi")]
-    #[test]
-    fn rubi_integration_records_nested_rule_transformations() {
-        let integrand = symbolica::parse!("x/(x + 1)");
-        let x = symbolica::symbol!("x");
-        let explanation =
-            rubi_integration_explanation_atoms(integrand.clone(), Atom::var(x)).unwrap();
-
-        let result = explanation.result.as_ref().unwrap();
-        let residual = (result.derivative(x) - integrand).expand().together();
-        assert!(residual.is_zero());
-        assert_eq!(explanation.steps.first().unwrap().depth, 0);
-        assert!(explanation.steps.iter().any(|step| step.depth > 0));
-        assert!(
-            explanation
-                .steps
-                .iter()
-                .any(|step| step.rule.is_some() && !step.source.is_empty())
-        );
-        assert!(
-            explanation
-                .steps
-                .iter()
-                .all(|step| !step.description.is_empty() && step.input != step.output)
-        );
+    fn exact_solve_request(system: &[Atom], variables: &[Atom], domain: &str) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("system".to_owned()),
+                Value::Array(
+                    system
+                        .iter()
+                        .map(|atom| Value::Bytes(encode_atom(atom).unwrap()))
+                        .collect(),
+                ),
+            ),
+            (
+                Value::Text("variables".to_owned()),
+                Value::Array(
+                    variables
+                        .iter()
+                        .map(|atom| Value::Bytes(encode_atom(atom).unwrap()))
+                        .collect(),
+                ),
+            ),
+            (
+                Value::Text("domain".to_owned()),
+                Value::Text(domain.to_owned()),
+            ),
+        ])
     }
 
-    #[cfg(feature = "rubi")]
-    #[test]
-    fn rubi_integrates_a_rational_denominator() {
-        let x = symbolica::symbol!("x");
-        let result = rubi_integral_atoms(symbolica::parse!("1/(x^2 + 1)"), Atom::var(x))
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(result, symbolica::parse!("atan(x)"));
+    fn exact_solve_branches(system: &[Atom], variables: &[Atom], domain: &str) -> Vec<Value> {
+        let request = encode_cbor(exact_solve_request(system, variables, domain)).unwrap();
+        let Value::Array(branches) = decode_cbor(&solve(&request).unwrap(), "solutions").unwrap()
+        else {
+            panic!("solutions must be an array");
+        };
+        branches
     }
 
-    #[cfg(feature = "rubi")]
     #[test]
-    fn rubi_step_bridge_preserves_complete_incomplete_and_substitution_steps() {
-        let x = Atom::var(symbolica::symbol!("x"));
-        let encoded_x = encode_atom(&x).unwrap();
+    fn exact_solve_bridge_returns_structured_linear_and_nonlinear_branches() {
+        let x = symbolica::parse!("x");
+        let y = symbolica::parse!("y");
 
-        let decode_explanation = |integrand: Atom| {
-            let payload = integrate_with_steps(&encode_atom(&integrand).unwrap(), &encoded_x)
-                .expect("integration bridge should encode its explanation");
-            let Value::Map(map) = decode_cbor(&payload, "integration explanation").unwrap() else {
-                panic!("integration explanation must be a dictionary");
-            };
-            map
-        };
-
-        let complete = decode_explanation(symbolica::parse!("x/(x + 1)"));
-        assert_eq!(map_get(&complete, "complete"), Some(&Value::Bool(true)));
-        assert!(map_get(&complete, "overview").is_none());
-        let Value::Bytes(result) = map_get(&complete, "result").unwrap() else {
-            panic!("integration result must be Atom bytes");
-        };
-        let result = decode_atom(result, "integration result").unwrap();
-        assert_eq!(
-            (result.derivative(symbolica::symbol!("x")) - symbolica::parse!("x/(x + 1)"))
-                .together(),
-            Atom::num(0)
+        let branches = exact_solve_branches(
+            &[symbolica::parse!("x+y-3"), symbolica::parse!("x-y-1")],
+            &[x.clone(), y.clone()],
+            "complex",
         );
-        let Value::Array(steps) = map_get(&complete, "steps").unwrap() else {
-            panic!("integration steps must be an array");
+        assert_eq!(branches.len(), 1);
+        let Value::Map(branch) = &branches[0] else {
+            panic!("solution branch must be a dictionary");
         };
-        assert!(steps.len() > 1);
-        for step in steps {
-            let Value::Map(step) = step else {
-                panic!("each integration step must be a dictionary");
+        let Value::Array(values) = map_get(branch, "values").unwrap() else {
+            panic!("solution values must be an array");
+        };
+        assert_eq!(values.len(), 2);
+        for (value, expected) in values.iter().zip([Atom::num(2), Atom::num(1)]) {
+            let Value::Bytes(value) = value else {
+                panic!("solution value must be Atom bytes");
             };
-            assert!(matches!(map_get(step, "rule"), Some(Value::Integer(_))));
-            assert!(matches!(map_get(step, "depth"), Some(Value::Integer(_))));
-            assert!(matches!(map_get(step, "description"), Some(Value::Text(_))));
-            assert!(matches!(map_get(step, "references"), Some(Value::Array(_))));
-            assert!(matches!(map_get(step, "source"), Some(Value::Text(_))));
-            for field in ["input", "output"] {
-                let Some(Value::Bytes(atom)) = map_get(step, field) else {
-                    panic!("{field} must be Atom bytes");
-                };
-                let _ = decode_atom(atom, field).expect("step Atom should round-trip");
-            }
+            assert_eq!(decode_atom(value, "solution value").unwrap(), expected);
         }
+        assert_eq!(
+            map_get(branch, "domain"),
+            Some(&Value::Text("complex".to_owned()))
+        );
+        assert_eq!(map_get(branch, "rank"), Some(&Value::Integer(2.into())));
+        assert_eq!(
+            map_get(branch, "dimension"),
+            Some(&Value::Integer(0.into()))
+        );
+        assert_eq!(map_get(branch, "conditional"), Some(&Value::Bool(false)));
+        assert_eq!(map_get(branch, "parametric"), Some(&Value::Bool(false)));
+        assert_eq!(map_get(branch, "indeterminate"), Some(&Value::Bool(false)));
 
-        let substitution = decode_explanation(symbolica::parse!("exp(x)/(1 + exp(x))"));
-        let Value::Array(steps) = map_get(&substitution, "steps").unwrap() else {
-            panic!("integration steps must be an array");
+        assert!(
+            exact_solve_branches(&[symbolica::parse!("x^2+1")], &[x.clone()], "real").is_empty()
+        );
+        assert_eq!(
+            exact_solve_branches(&[symbolica::parse!("x^2+1")], &[x], "complex").len(),
+            2
+        );
+    }
+
+    #[test]
+    fn exact_solve_bridge_preserves_free_variables_and_conditions() {
+        let x = symbolica::parse!("x");
+        let y = symbolica::parse!("y");
+        let branches =
+            exact_solve_branches(&[symbolica::parse!("x+y-1")], &[x.clone(), y], "complex");
+        let Value::Map(branch) = &branches[0] else {
+            panic!("solution branch must be a dictionary");
         };
-        assert!(steps.iter().any(|step| {
-            let Value::Map(step) = step else {
+        let Some(Value::Array(free_variables)) = map_get(branch, "free-variables") else {
+            panic!("free variables must be an array");
+        };
+        assert_eq!(free_variables.len(), 1);
+        assert_eq!(map_get(branch, "rank"), Some(&Value::Integer(1.into())));
+        assert_eq!(
+            map_get(branch, "dimension"),
+            Some(&Value::Integer(1.into()))
+        );
+        assert_eq!(map_get(branch, "parametric"), Some(&Value::Bool(true)));
+        assert_eq!(map_get(branch, "indeterminate"), Some(&Value::Bool(true)));
+
+        let a = symbolica::parse!("a");
+        let branches = exact_solve_branches(&[symbolica::parse!("a*x-1")], &[x.clone()], "complex");
+        let Value::Map(branch) = &branches[0] else {
+            panic!("solution branch must be a dictionary");
+        };
+        let Some(Value::Array(conditions)) = map_get(branch, "conditions") else {
+            panic!("conditions must be an array");
+        };
+        assert!(conditions.iter().any(|condition| {
+            let Value::Map(condition) = condition else {
                 return false;
             };
-            matches!(map_get(step, "rule"), Some(Value::Null))
+            map_get(condition, "kind") == Some(&Value::Text("nonzero".to_owned()))
+                && matches!(map_get(condition, "expression"), Some(Value::Bytes(bytes)) if decode_atom(bytes, "condition").unwrap() == a)
         }));
 
-        let incomplete = decode_explanation(symbolica::parse!("x + x^x"));
-        assert_eq!(map_get(&incomplete, "complete"), Some(&Value::Bool(false)));
-        let Value::Bytes(result) = map_get(&incomplete, "result").unwrap() else {
-            panic!("incomplete integration result must be Atom bytes");
+        let branches = exact_solve_branches(&[symbolica::parse!("x-a")], &[x], "real");
+        let Value::Map(branch) = &branches[0] else {
+            panic!("solution branch must be a dictionary");
         };
-        assert!(
-            decode_atom(result, "incomplete integration result")
-                .unwrap()
-                .to_string()
-                .contains("unintegrable")
-        );
+        let Some(Value::Array(conditions)) = map_get(branch, "conditions") else {
+            panic!("conditions must be an array");
+        };
+        assert!(conditions.iter().any(|condition| {
+            let Value::Map(condition) = condition else {
+                return false;
+            };
+            map_get(condition, "kind") == Some(&Value::Text("domain-membership".to_owned()))
+                && map_get(condition, "domain") == Some(&Value::Text("real".to_owned()))
+        }));
     }
 
     #[test]

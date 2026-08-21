@@ -5,7 +5,6 @@
 #let package-version = manifest.package.version
 #let repository = "https://github.com/lcnbr/tymbolica"
 #let symbolica-guide = "https://symbolica.io/docs/quick_start.html"
-#let symbolica-integration = "https://symbolica.io/posts/symbolic_integration/"
 #let accent = rgb("#315c88")
 #let pale-accent = rgb("#edf4fb")
 #let warning = rgb("#9a5b13")
@@ -155,7 +154,7 @@ Linux, place or symlink the repository root at:
 
 Use the corresponding Typst data directory on macOS or Windows. The package
 root must contain `typst.toml`; its `typst` directory contains `lib.typ` and
-the bundled compressed engines and their loader.
+the bundled compressed engine and its loader.
 Then import:
 
 #raw(
@@ -185,20 +184,22 @@ included in the checkout.
 
 == Create an engine
 
-Tymbolica ships one Symbolica engine with algebra, solving, matrices, and Rubi
-integration. It is stored as a compressed asset and expanded transparently by
-a small loader. Most operations are available directly from the imported
-top-level API. Create an engine with `init()` when you need Rubi integration, a
-custom symbol namespace, or another parser grammar:
+Tymbolica's Symbolica engine provides algebra, solving, evaluation, and
+matrices. It is stored as a compressed asset and expanded transparently by a
+small loader. Most operations are available directly from the imported
+top-level API. Create an engine with `init()` when you need a custom symbol
+namespace or parser grammar:
 
 ```typst
 #let sym = init()
 #let parse = sym.math
 #let symbol = sym.symbol
-#let integrate = sym.integrate
 #let x = symbol("x")
-#let result = integrate(parse($x / (x + 1)$), x)
+#let result = sym.factor(parse($x^2 - 1$))
 ```
+
+Symbolic integration and its rule steps live in the companion
+`tymbolica-rubi` package, whose manual starts from Tymbolica Atom payloads.
 
 == Where to begin
 
@@ -217,13 +218,13 @@ custom symbol namespace, or another parser grammar:
   [Factor, expand, differentiate, or take a series],
   [`expand`, `factor`, `derivative`, `series`],
   [Integrate and inspect Rubi's rule path],
-  [`init()`, then `sym.integrate-with-steps`],
+  [Use the companion `tymbolica-rubi` package],
   [Replace a recurring symbolic pattern],
   [`wild`, `rule`, `replace`],
   [Evaluate a formula at many points],
   [`evaluate-many`, `evaluate-grid`],
   [Solve equations exactly or numerically],
-  [`solve-linear`, `solve-system`, `nsolve-system`],
+  [`solve`, `nsolve`, `nsolve-system`],
   [Work with exact matrices],
   [`matrix`, `matrix-solve`, `row-reduce`],
 )
@@ -388,7 +389,7 @@ leaves a model that is linear in the two unknown parameters.
 
 ```worked
 >>>#let sym = init(namespace: "symbolica")
->>>#let (math: m, symbol: v, to-typst: render, derivative, series, replace, solve-linear, neg, add, sub) = sym
+>>>#let (math: m, symbol: v, to-typst: render, derivative, series, replace, solve, neg, add, sub) = sym
 >>>#let potential = m($kappa (1 - cos(theta))$)
 >>>#let q = v("θ")
 >>>#let k = v("κ")
@@ -401,10 +402,10 @@ leaves a model that is linear in the two unknown parameters.
 #let t1 = v("τ₁")
 #let t2 = v("τ₂")
 
-#let fit = solve-linear((
+#let fit = solve((
   sub(replace(model, q, q1), t1),
   sub(replace(model, q, q2), t2),
-), (k, b))
+), (k, b)).first().values
 
 $ kappa = #render(fit.at(0)) $\
 $ tau_0 = #render(fit.at(1)) $
@@ -419,7 +420,7 @@ $(theta_2,tau_2)=(0.20,-0.9545)$.
 
 ```worked
 >>>#let sym = init(namespace: "symbolica")
->>>#let (math: m, symbol: v, derivative, series, replace, solve-linear, evaluate-many, neg, add, sub) = sym
+>>>#let (math: m, symbol: v, derivative, series, replace, solve, evaluate-many, neg, add, sub) = sym
 >>>#let potential = m($kappa (1 - cos(theta))$)
 >>>#let q = v("θ")
 >>>#let k = v("κ")
@@ -430,7 +431,7 @@ $(theta_2,tau_2)=(0.20,-0.9545)$.
 >>>#let q2 = v("θ₂")
 >>>#let t1 = v("τ₁")
 >>>#let t2 = v("τ₂")
->>>#let fit = solve-linear((sub(replace(model, q, q1), t1), sub(replace(model, q, q2), t2)), (k, b))
+>>>#let fit = solve((sub(replace(model, q, q1), t1), sub(replace(model, q, q2), t2)), (k, b)).first().values
 #let fitted = evaluate-many(
   fit,
   (q1, q2, t1, t2),
@@ -493,65 +494,6 @@ difference between an ordinary `symbol("a")` and `wild("a")`.
   kind: "warning",
 )
 
-== Follow Rubi's integration steps
-
-For $x/(1+x)$, the useful idea is to expose a constant term before integrating.
-Rubi finds that rewrite, splits the resulting integral, and records the nested
-rule path. This is the same example used in
-#link(symbolica-integration)[Symbolica's integration introduction].
-
-```worked
-#let sym = init()
-#let parse = sym.math
-#let symbol = sym.symbol
-#let render = sym.to-typst
-#let integrate-with-steps = sym.integrate-with-steps
-#let derivative = sym.derivative
-#let subtract = sym.sub
-#let together = sym.together
-#let x = symbol("x")
-#let f = parse($x / (x + 1)$)
-#let integration = integrate-with-steps(f, x)
-#let residual = together(
-  subtract(derivative(integration.result, x), f)
-)
-#assert(integration.complete)
-
-$ f(x) = #render(f) $\
-#for step in integration.steps [
-  #h(step.depth * 1.25em)
-  #if step.rule == none [*Transformation*] else [*Rule #step.rule*]
-  #if step.description != "" [: #step.description]
-  #linebreak()
-  #h(step.depth * 1.25em)
-  $#render(step.input) = #render(step.output)$
-  #linebreak()
-]
-$ integral f(x) dif x = #render(integration.result) + C $\
-verification: $ (partial I)/(partial x) - f(x) = #render(residual) $
-```
-
-The mathematics is visible in the tree: first
-$x/(1+x) = 1 - 1/(1+x)$, then linearity separates the two integrals, and the
-leaves give $x$ and $-log(1+x)$. The indentation comes from each step's `depth`,
-so an outer rewrite is followed by the subintegrals it created. For a numbered
-rule, `input` and `output` are the integral before and after that rewrite. A
-step without a rule number records an auxiliary transformation, such as a
-fresh-symbol substitution. `description`, `rule`, `references`, and `source`
-explain where each move came from. The displayed result adds the customary
-$+C$; Tymbolica itself does not.
-
-#callout(
-  [Best-effort integrals],
-  [
-    Rubi covers many families of integrands, but no finite rule collection solves
-    every integral. When it stops early, `complete` is `false`, `result` contains
-    an `unintegrable` marker for the unresolved part, and `steps` still records
-    the progress.
-  ],
-  kind: "warning",
-)
-
 == Separate a rational response into modes
 
 Suppose a response function arrives in a form with one removable factor and
@@ -594,7 +536,7 @@ starting point.
   math($x - y - 1$),
 )
 
-#let exact = solve-system(system, (x, y))
+#let exact = solve(system, (x, y), domain: "real")
 #let positive = nsolve-system(
   system, (x, y), (3.0, 3.0), prec: 1e-10,
 )
@@ -609,8 +551,8 @@ starting point.
 >>>).sorted().last()
 >>>
 >>>exact branches:\
->>>#for (index, row) in exact.enumerate() [
->>>  #(index + 1). $x = #to-typst(row.at(0)), y = #to-typst(row.at(1))$
+>>>#for (index, solution) in exact.enumerate() [
+>>>  #(index + 1). $x = #to-typst(solution.values.at(0)), y = #to-typst(solution.values.at(1))$
 >>>  #linebreak()
 >>>]
 >>>seed $(3,3)$ $arrow.r$
@@ -716,15 +658,9 @@ Tymbolica deliberately presents a smaller surface than Symbolica itself. The
 parts covered in this manual work well for exact algebra in documents, but a
 few boundaries are worth knowing before you choose an approach:
 
-- Rubi integration methods are fields of the dictionary returned by `init()`.
-
-- Rubi integration adds symbol state, so post-integration outputs remain with
-  their originating Tymbolica engine. Matrix payloads are separate from Atom
-  payloads.
-
-- Integration returns a best-effort expression when no Rubi rule finishes the
-  job. Check `complete` from `integrate-with-steps` when an unevaluated
-  remainder matters. No $+C$ is added automatically.
+- Symbolic integration is intentionally a separate concern. The companion
+  `tymbolica-rubi` package accepts and returns the same portable Atom payloads.
+  Matrix payloads remain separate from Atom payloads.
 
 - Exact system solving is intended for linear and polynomial equations.
   Numerical solving depends on a starting point and gives an approximate
@@ -744,8 +680,8 @@ few boundaries are worth knowing before you choose an approach:
 - Some unusual Typst math structures may not parse. `array-tree` can help show
   what the parser received.
 
-For operations beyond this scope—an integral Rubi cannot finish, arbitrary
-precision, or deeper polynomial algorithms—use Symbolica directly.
+For symbolic integration, use `tymbolica-rubi`. For arbitrary precision or
+deeper polynomial algorithms, use Symbolica directly.
 
 == When something looks wrong
 
@@ -783,8 +719,7 @@ precision, or deeper polynomial algorithms—use Symbolica directly.
 = API reference
 
 The worked chapters are meant for reading; this section is meant for looking
-things up. The generated groups below are the top-level API. The two
-engine-bound integration methods are documented separately afterwards.
+things up. The generated groups below cover the complete top-level API.
 
 #let reference-groups = (
   (
@@ -811,7 +746,7 @@ engine-bound integration methods are documented separately afterwards.
     title: [Evaluation and solving],
     names: (
       "evaluate", "domain", "evaluate-many", "evaluate-grid",
-      "solve-linear", "solve-system", "nsolve", "nsolve-system",
+      "solve", "nsolve", "nsolve-system",
     ),
   ),
   (
@@ -867,31 +802,6 @@ engine-bound integration methods are documented separately afterwards.
   }
 ]
 
-== Integration methods
-
-These methods are fields of the dictionary returned by
-`init()`; they are not imported as top-level functions. Bind them before use,
-as in the worked integration example.
-
-```text
-integrate(expr, var) -> bytes
-integrate-with-steps(expr, var) -> dictionary
-```
-
-`integrate` returns Rubi's best antiderivative without adding $+C$. An
-unfinished result contains an `unintegrable` marker. `integrate-with-steps`
-returns the same result together with:
-
-- `result` (`bytes`): the best antiderivative;
-- `complete` (`bool`): whether Rubi finished every subintegral;
-- `steps` (`array`): the ordered transformation tree.
-
-Each step contains `rule` (`int` or `none`), `depth` (`int`), `description`
-(`str`), `references` (`array` of strings), `source` (`str`), and the Atom
-payloads `input` and `output` (`bytes`). Steps run from an outer rewrite into
-the nested integrals it creates; `rule: none` marks an auxiliary
-transformation such as a fresh-symbol substitution.
-
 = Compatibility and licensing
 
 This manual describes Tymbolica #package-version. The package is tested with
@@ -902,9 +812,7 @@ Tymbolica's original source code is released under the
 by the Symbolica contributors and is distributed under its own
 #link("https://symbolica.io/license/")[license terms]. The MIT License does not
 relicense Symbolica or the bundled WebAssembly engines; Symbolica's terms
-still apply to their use. Tymbolica's symbolic integration is supplied by the
-#link("https://github.com/symbolica-dev/symbolica-integrate")[MIT-licensed
-`symbolica-integrate`] crate and its port of the Rubi rules.
+still apply to their use.
 
 For source, issues, and release history, visit
 #link(repository)[github.com/lcnbr/tymbolica].
@@ -913,10 +821,7 @@ For source, issues, and release history, visit
 
 Tymbolica would not exist without #link("https://symbolica.io/")[Symbolica].
 Thank you to its contributors for building and sharing the algebra engine at
-the heart of this package, and for making Rubi integration available through
-#link("https://github.com/symbolica-dev/symbolica-integrate")[`symbolica-integrate`].
-Thanks as well to the Rubi contributors whose rule collection powers symbolic
-integration.
+the heart of this package.
 
 Thanks also to #link("https://typst.app/universe/package/parsely/")[Parsely],
 which makes it possible to work with mathematics written directly in Typst,

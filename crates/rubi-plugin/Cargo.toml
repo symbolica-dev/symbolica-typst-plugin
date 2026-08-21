@@ -1,0 +1,24 @@
+[package]
+name = "tymbolica-rubi-plugin"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[lib]
+name = "tymbolica_rubi_plugin"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+compressed-step-metadata = ["symbolica-integrate/compressed-step-metadata"]
+wizer-preinitialize = ["compressed-step-metadata"]
+
+[dependencies]
+ciborium = "0.2.2"
+getrandom = "0.3"
+symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }
+symbolica-integrate = { path = "../../vendor/symbolica-integrate", features = ["steps"] }
+tymbolica-atom-payload = { path = "../atom-payload" }
+tymbolica-symbol-registry = { path = "../symbol-registry" }
+wasm-minimal-protocol = "0.1"
