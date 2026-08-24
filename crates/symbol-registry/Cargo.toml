@@ -1,14 +1,13 @@
 [package]
-name = "tymbolica-symbol-registry"
+name = "tydenso-representation-registry"
 version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MIT"
 
 [dependencies]
+blake3 = "1.8.3"
 ciborium = "0.2.2"
-idenso = { path = "../../../gammaloop/crates/idenso" }
 spenso = { path = "../../../gammaloop/crates/spenso", features = ["shadowing"] }
 symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }
-symbolica-integrate = { path = "../../vendor/symbolica-integrate" }
 tymbolica-atom-payload = { path = "../atom-payload" }

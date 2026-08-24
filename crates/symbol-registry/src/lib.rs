@@ -1,10 +1,12 @@
-//! Deterministic Symbolica symbol initialization shared by the Wasm engines.
+//! Tydenso's portable Spenso symbol-metadata attachment registries.
 //!
-//! This crate also owns the portable `spenso.representation` attachment
-//! schema.  Consumers can inspect and validate all declarations, register the
-//! corresponding [`LibraryRep`] values, and only then import native Atom data.
+//! This crate is intentionally Tydenso-specific. Tymbolica and Rubi treat all
+//! attachments as opaque data; only Tydenso validates these declarations,
+//! reconstructs the corresponding local Spenso symbols, and then imports native
+//! Atom data. Representation metadata uses `spenso.representation`; structured
+//! manual math displays use `spenso.math-display`.
 
-use std::{collections::BTreeMap, fmt, io::Cursor, str, sync::Once};
+use std::{collections::BTreeMap, fmt, io::Cursor, str};
 
 use ciborium::value::Value;
 use spenso::{
@@ -14,8 +16,7 @@ use spenso::{
         RepresentationMetadata, initialize as initialize_representations,
     },
 };
-use symbolica::atom::{Atom, AtomView, NamespacedSymbol, Symbol};
-use symbolica_integrate::IntegralFunctions;
+use symbolica::atom::{Atom, AtomView, NamespacedSymbol, Symbol, SymbolBuilder};
 use tymbolica_atom_payload::{Attachment, AttachmentKey, AttachmentSet};
 
 /// Attachment schema used for portable Spenso representation declarations.
@@ -23,28 +24,18 @@ pub const REPRESENTATION_ATTACHMENT_SCHEMA: &str = "spenso.representation";
 /// Current version of [`REPRESENTATION_ATTACHMENT_SCHEMA`].
 pub const REPRESENTATION_ATTACHMENT_VERSION: u32 = 2;
 
+/// Attachment schema used for portable structured math displays.
+pub const MATH_DISPLAY_ATTACHMENT_SCHEMA: &str = "spenso.math-display";
+/// Current version of [`MATH_DISPLAY_ATTACHMENT_SCHEMA`].
+pub const MATH_DISPLAY_ATTACHMENT_VERSION: u32 = 1;
+
 const LEGACY_REPRESENTATION_ATTACHMENT_VERSION: u32 = 1;
+
+const MATH_DISPLAY_SYMBOL_PREFIX: &str = "tydenso_index_";
+const MATH_DISPLAY_HASH_DOMAIN: &[u8] = b"tydenso-display-index-v1\0";
 
 const MAX_DISPLAY_INDEX_DEPTH: usize = 16;
 const MAX_DISPLAY_INDEX_NODES: usize = 64;
-
-static INITIALIZE: Once = Once::new();
-
-/// Register Idenso and Rubi symbols in the same order in every plugin.
-pub fn initialize() {
-    #[cfg(target_arch = "wasm32")]
-    symbolica::GLOBAL_SETTINGS
-        .initialize_tracing
-        .store(false, std::sync::atomic::Ordering::Relaxed);
-
-    INITIALIZE.call_once(|| {
-        idenso::representations::initialize();
-
-        // Calling any IntegralFunctions constructor forces Rubi's symbol
-        // catalog without constructing or retaining the much larger rule set.
-        let _ = Atom::Zero.fresnel_s();
-    });
-}
 
 /// Validate and register all portable Spenso declarations in `attachments`.
 ///
@@ -59,7 +50,20 @@ pub fn register_representation_attachments(
         .map_err(|error| error.to_string())
 }
 
-/// Failure while inspecting or registering a portable representation.
+/// Validate and register all portable structured math displays in `attachments`.
+///
+/// Call this before `Atom::import`, for the same reason as
+/// [`register_representation_attachments`]: importing first would intern the
+/// referenced display symbols without their local Spenso metadata.
+pub fn register_math_display_attachments(
+    attachments: &AttachmentSet,
+) -> std::result::Result<(), String> {
+    MathDisplayDeclarations::from_attachment_set(attachments)
+        .and_then(|declarations| declarations.register_before_atom_import())
+        .map_err(|error| error.to_string())
+}
+
+/// Failure while inspecting or registering portable Spenso symbol metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepresentationAttachmentError {
     message: String,
@@ -80,6 +84,12 @@ impl fmt::Display for RepresentationAttachmentError {
 }
 
 impl std::error::Error for RepresentationAttachmentError {}
+
+/// Error while inspecting or registering a portable structured math display.
+///
+/// Both registries intentionally share one concrete error type so callers can
+/// merge their pre-import validation without erasing error details.
+pub type MathDisplayAttachmentError = RepresentationAttachmentError;
 
 type Result<T> = std::result::Result<T, RepresentationAttachmentError>;
 
@@ -303,7 +313,6 @@ impl RepresentationDeclarations {
         for (name, declaration) in &self.entries {
             expected_representation_metadata(name, declaration)?;
         }
-        initialize();
         initialize_representations();
         for (name, declaration) in &self.entries {
             validate_representation_registration(name, declaration)?;
@@ -397,15 +406,269 @@ impl RepresentationDeclarations {
     }
 }
 
+/// A safe, runtime-independent display tree attached to one generated index
+/// symbol.
+///
+/// The declaration is deliberately restricted to Spenso's [`IndexDisplay`]
+/// nodes. It never contains Typst source, callbacks, or arbitrary Symbolica
+/// user data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MathDisplayDeclaration {
+    pub display: IndexDisplay,
+}
+
+impl MathDisplayDeclaration {
+    /// Validate and construct a portable display declaration.
+    pub fn new(display: IndexDisplay) -> Result<Self> {
+        validate_index_display(&display)?;
+        Ok(Self { display })
+    }
+
+    /// Recover a portable declaration from a locally registered generated
+    /// display symbol.
+    pub fn from_symbol(symbol: Symbol) -> Result<Option<(String, Self)>> {
+        let generated_name = symbol
+            .get_name()
+            .rsplit("::")
+            .next()
+            .is_some_and(|name| name.starts_with(MATH_DISPLAY_SYMBOL_PREFIX));
+
+        if !symbol.has_tag(&SPENSO_TAG.index) {
+            if generated_name {
+                return Err(RepresentationAttachmentError::new(format!(
+                    "generated math-display symbol {} has no Spenso index tag",
+                    symbol.get_name()
+                )));
+            }
+            return Ok(None);
+        }
+
+        let Some(display) = IndexDisplay::from_symbol(symbol) else {
+            // Ordinary Spenso index symbols also carry the index tag. Only a
+            // generated math-display name promises structured display data.
+            if generated_name {
+                return Err(RepresentationAttachmentError::new(format!(
+                    "generated math-display symbol {} has no structured Spenso display metadata",
+                    symbol.get_name()
+                )));
+            }
+            return Ok(None);
+        };
+
+        let declaration = Self::new(display)?;
+        let name = math_display_identity(symbol.get_name().as_bytes())?;
+        validate_math_display_symbol_identity(&name, &declaration)?;
+        Ok(Some((name, declaration)))
+    }
+}
+
+/// Validated structured math displays, ordered by their exact Symbolica symbol
+/// identity.
+///
+/// As with [`RepresentationDeclarations`], attachment absorption is
+/// transactional and retains raw records so alternate encodings for one key
+/// fail closed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MathDisplayDeclarations {
+    raw_attachments: AttachmentSet,
+    entries: BTreeMap<String, MathDisplayDeclaration>,
+}
+
+impl MathDisplayDeclarations {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Inspect all known math-display attachments without touching global
+    /// Symbolica state. Unknown attachment schemas are ignored.
+    pub fn from_attachment_set(attachments: &AttachmentSet) -> Result<Self> {
+        let mut declarations = Self::new();
+        declarations.absorb_attachments(attachments)?;
+        Ok(declarations)
+    }
+
+    /// Merge another input's math-display attachments transactionally.
+    pub fn absorb_attachments(&mut self, attachments: &AttachmentSet) -> Result<()> {
+        let mut candidate = self.clone();
+        for attachment in attachments.iter() {
+            if attachment.schema() != MATH_DISPLAY_ATTACHMENT_SCHEMA {
+                continue;
+            }
+            if attachment.version() != MATH_DISPLAY_ATTACHMENT_VERSION {
+                return Err(RepresentationAttachmentError::new(format!(
+                    "unsupported {MATH_DISPLAY_ATTACHMENT_SCHEMA} attachment version {}; expected {MATH_DISPLAY_ATTACHMENT_VERSION}",
+                    attachment.version()
+                )));
+            }
+
+            let name = math_display_identity(attachment.identity())?;
+            let declaration = decode_math_display_declaration(attachment.data())?;
+            candidate
+                .raw_attachments
+                .insert(attachment.to_owned_attachment())
+                .map_err(|error| {
+                    RepresentationAttachmentError::new(format!(
+                        "could not merge math-display attachments: {error}"
+                    ))
+                })?;
+            candidate.insert(name, declaration)?;
+        }
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Add a programmatically constructed declaration.
+    pub fn insert(
+        &mut self,
+        name: impl Into<String>,
+        declaration: MathDisplayDeclaration,
+    ) -> Result<bool> {
+        let name = name.into();
+        validate_math_display_symbol_identity(&name, &declaration)?;
+        match self.entries.get(&name) {
+            Some(existing) if existing == &declaration => Ok(false),
+            Some(_) => Err(RepresentationAttachmentError::new(format!(
+                "conflicting {MATH_DISPLAY_ATTACHMENT_SCHEMA} declarations for {name}"
+            ))),
+            None => {
+                self.entries.insert(name, declaration);
+                Ok(true)
+            }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn get(&self, name: &str) -> Option<&MathDisplayDeclaration> {
+        self.entries.get(name)
+    }
+
+    pub fn iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (&str, &MathDisplayDeclaration)> + DoubleEndedIterator {
+        self.entries
+            .iter()
+            .map(|(name, declaration)| (name.as_str(), declaration))
+    }
+
+    /// Validate every collision with process-global Symbolica state without
+    /// registering the first new display symbol.
+    pub fn preflight_registration(&self) -> Result<()> {
+        for (name, declaration) in &self.entries {
+            validate_math_display_registration(name, declaration)?;
+        }
+        Ok(())
+    }
+
+    /// Register every structured display symbol before `Atom::import`.
+    pub fn register_before_atom_import(&self) -> Result<()> {
+        self.preflight_registration()?;
+        for (name, declaration) in &self.entries {
+            register_math_display_declaration(name, declaration)?;
+        }
+        Ok(())
+    }
+
+    /// Add canonical current-version records for these declarations to an
+    /// attachment set.
+    pub fn append_attachments_to(&self, attachments: &mut AttachmentSet) -> Result<()> {
+        for (name, declaration) in &self.entries {
+            attachments
+                .insert(math_display_attachment(name, declaration)?)
+                .map_err(|error| {
+                    RepresentationAttachmentError::new(format!(
+                        "could not encode math-display attachment: {error}"
+                    ))
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Encode only these math-display declarations as an attachment set.
+    pub fn to_attachment_set(&self) -> Result<AttachmentSet> {
+        let mut attachments = AttachmentSet::new();
+        self.append_attachments_to(&mut attachments)?;
+        Ok(attachments)
+    }
+
+    /// Merge declarations for generated math-display symbols referenced
+    /// anywhere in an Atom.
+    pub fn collect_from_atom(&mut self, atom: &Atom) -> Result<()> {
+        self.collect_from_view(atom.as_view())
+    }
+
+    /// Build declarations for every generated math-display symbol referenced
+    /// by an Atom.
+    pub fn referenced_by_atom(atom: &Atom) -> Result<Self> {
+        let mut declarations = Self::new();
+        declarations.collect_from_atom(atom)?;
+        Ok(declarations)
+    }
+
+    fn collect_from_view(&mut self, view: AtomView<'_>) -> Result<()> {
+        match view {
+            AtomView::Num(_) => Ok(()),
+            AtomView::Var(variable) => self.collect_symbol(variable.get_symbol()),
+            AtomView::Fun(function) => {
+                self.collect_symbol(function.get_symbol())?;
+                for argument in function.iter() {
+                    self.collect_from_view(argument)?;
+                }
+                Ok(())
+            }
+            AtomView::Pow(power) => {
+                let (base, exponent) = power.get_base_exp();
+                self.collect_from_view(base)?;
+                self.collect_from_view(exponent)
+            }
+            AtomView::Mul(product) => {
+                for factor in product.iter() {
+                    self.collect_from_view(factor)?;
+                }
+                Ok(())
+            }
+            AtomView::Add(sum) => {
+                for term in sum.iter() {
+                    self.collect_from_view(term)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn collect_symbol(&mut self, symbol: Symbol) -> Result<()> {
+        if let Some((name, declaration)) = MathDisplayDeclaration::from_symbol(symbol)? {
+            self.insert(name, declaration)?;
+        }
+        Ok(())
+    }
+}
+
 /// Validate and decode a canonical fully-qualified representation identity.
 pub fn representation_identity(identity: &[u8]) -> Result<String> {
+    qualified_symbol_identity(identity, "representation attachment")
+}
+
+/// Validate and decode a canonical fully-qualified math-display symbol
+/// identity.
+pub fn math_display_identity(identity: &[u8]) -> Result<String> {
+    qualified_symbol_identity(identity, "math-display attachment")
+}
+
+fn qualified_symbol_identity(identity: &[u8], kind: &str) -> Result<String> {
     let name = str::from_utf8(identity).map_err(|_| {
-        RepresentationAttachmentError::new("representation attachment identity must be UTF-8")
+        RepresentationAttachmentError::new(format!("{kind} identity must be UTF-8"))
     })?;
     let Some((namespace, short_name)) = name.rsplit_once("::") else {
-        return Err(RepresentationAttachmentError::new(
-            "representation attachment identity must be fully qualified",
-        ));
+        return Err(RepresentationAttachmentError::new(format!(
+            "{kind} identity must be fully qualified"
+        )));
     };
     if namespace.is_empty()
         || short_name.is_empty()
@@ -414,7 +677,7 @@ pub fn representation_identity(identity: &[u8]) -> Result<String> {
         || name.chars().any(char::is_control)
     {
         return Err(RepresentationAttachmentError::new(format!(
-            "representation attachment identity {name:?} is not canonical"
+            "{kind} identity {name:?} is not canonical"
         )));
     }
     Ok(name.to_owned())
@@ -428,6 +691,43 @@ pub fn canonical_representation_name(name: &str, namespace: &str) -> Result<Stri
         format!("{namespace}::{name}")
     };
     representation_identity(qualified.as_bytes())
+}
+
+/// Return the deterministic short Symbolica name for a structured display.
+///
+/// The hash format intentionally matches Tydenso's original local-only index
+/// symbols, allowing those symbols to become portable without changing Atom
+/// identity.
+pub fn math_display_symbol_name(display: &IndexDisplay) -> Result<String> {
+    validate_index_display(display)?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(MATH_DISPLAY_HASH_DOMAIN);
+    hash_index_display(display, &mut hasher);
+    Ok(format!(
+        "{MATH_DISPLAY_SYMBOL_PREFIX}{}",
+        hasher.finalize().to_hex()
+    ))
+}
+
+/// Qualify the deterministic display-symbol name with `namespace`.
+pub fn canonical_math_display_symbol_name(
+    display: &IndexDisplay,
+    namespace: &str,
+) -> Result<String> {
+    let qualified = format!("{namespace}::{}", math_display_symbol_name(display)?);
+    math_display_identity(qualified.as_bytes())
+}
+
+/// Register one structured display under its deterministic symbol identity.
+///
+/// This is the constructor used by Tydenso for handwritten Typst math. The
+/// same declaration can later be collected from an Atom and restored in
+/// another plugin runtime through `spenso.math-display` attachments.
+pub fn register_math_display_symbol(display: &IndexDisplay, namespace: &str) -> Result<Symbol> {
+    let declaration = MathDisplayDeclaration::new(display.clone())?;
+    let name = canonical_math_display_symbol_name(display, namespace)?;
+    validate_math_display_registration(&name, &declaration)?;
+    register_math_display_declaration(&name, &declaration)
 }
 
 fn default_index_row(name: &str) -> IndexRow {
@@ -564,16 +864,140 @@ pub fn representation_attachment(
     })
 }
 
+/// Encode a structured display as canonical CBOR.
+pub fn encode_math_display_declaration(declaration: &MathDisplayDeclaration) -> Result<Vec<u8>> {
+    let mut nodes = 0;
+    let value = index_display_to_wire(&declaration.display, 0, &mut nodes)?;
+    let mut output = Vec::new();
+    ciborium::into_writer(&value, &mut output).map_err(|error| {
+        RepresentationAttachmentError::new(format!(
+            "could not encode math-display attachment data: {error}"
+        ))
+    })?;
+    Ok(output)
+}
+
+/// Decode a structured display from exact CBOR, rejecting trailing bytes.
+pub fn decode_math_display_declaration(input: &[u8]) -> Result<MathDisplayDeclaration> {
+    let mut cursor = Cursor::new(input);
+    let value = ciborium::from_reader::<Value, _>(&mut cursor).map_err(|error| {
+        RepresentationAttachmentError::new(format!(
+            "math-display attachment data must be CBOR-encoded: {error}"
+        ))
+    })?;
+    if cursor.position() != input.len() as u64 {
+        return Err(RepresentationAttachmentError::new(
+            "math-display attachment data has trailing bytes",
+        ));
+    }
+    let mut nodes = 0;
+    MathDisplayDeclaration::new(index_display_from_wire(&value, 0, &mut nodes)?)
+}
+
+/// Construct one canonical `spenso.math-display` attachment.
+pub fn math_display_attachment(
+    name: &str,
+    declaration: &MathDisplayDeclaration,
+) -> Result<Attachment> {
+    validate_math_display_symbol_identity(name, declaration)?;
+    let key = AttachmentKey::new(
+        MATH_DISPLAY_ATTACHMENT_SCHEMA,
+        MATH_DISPLAY_ATTACHMENT_VERSION,
+        name.as_bytes().to_vec(),
+    )
+    .map_err(|error| {
+        RepresentationAttachmentError::new(format!(
+            "could not encode math-display attachment: {error}"
+        ))
+    })?;
+    Attachment::new(key, encode_math_display_declaration(declaration)?).map_err(|error| {
+        RepresentationAttachmentError::new(format!(
+            "could not encode math-display attachment: {error}"
+        ))
+    })
+}
+
+fn validate_index_display(display: &IndexDisplay) -> Result<()> {
+    let mut nodes = 0;
+    index_display_to_wire(display, 0, &mut nodes).map(|_| ())
+}
+
+fn hash_index_display(display: &IndexDisplay, hasher: &mut blake3::Hasher) {
+    match display {
+        IndexDisplay::Symbol(name) => {
+            hasher.update(&[0]);
+            hasher.update(&(name.len() as u64).to_le_bytes());
+            hasher.update(name.as_bytes());
+        }
+        IndexDisplay::Text(value) => {
+            // New tags are appended after the original v1 variants so
+            // Symbol/Number/Sequence/Attach identities remain stable.
+            hasher.update(&[4]);
+            hasher.update(&(value.len() as u64).to_le_bytes());
+            hasher.update(value.as_bytes());
+        }
+        IndexDisplay::Number(number) => {
+            hasher.update(&[1]);
+            hasher.update(&number.to_le_bytes());
+        }
+        IndexDisplay::Sequence(items) => {
+            hasher.update(&[2]);
+            hasher.update(&(items.len() as u64).to_le_bytes());
+            for item in items {
+                hash_index_display(item, hasher);
+            }
+        }
+        IndexDisplay::List(items) => {
+            hasher.update(&[5]);
+            hasher.update(&(items.len() as u64).to_le_bytes());
+            for item in items {
+                hash_index_display(item, hasher);
+            }
+        }
+        IndexDisplay::Math { head, arguments } => {
+            hasher.update(&[6]);
+            hasher.update(&(head.len() as u64).to_le_bytes());
+            hasher.update(head.as_bytes());
+            hasher.update(&(arguments.len() as u64).to_le_bytes());
+            for argument in arguments {
+                hash_index_display(argument, hasher);
+            }
+        }
+        IndexDisplay::Attach { base, top, bottom } => {
+            hasher.update(&[3]);
+            hash_index_display(base, hasher);
+            match top {
+                Some(top) => {
+                    hasher.update(&[1]);
+                    hash_index_display(top, hasher);
+                }
+                None => {
+                    hasher.update(&[0]);
+                }
+            }
+            match bottom {
+                Some(bottom) => {
+                    hasher.update(&[1]);
+                    hash_index_display(bottom, hasher);
+                }
+                None => {
+                    hasher.update(&[0]);
+                }
+            }
+        }
+    }
+}
+
 fn index_display_to_wire(display: &IndexDisplay, depth: usize, nodes: &mut usize) -> Result<Value> {
     if depth > MAX_DISPLAY_INDEX_DEPTH {
         return Err(RepresentationAttachmentError::new(format!(
-            "representation palette display exceeds the maximum depth of {MAX_DISPLAY_INDEX_DEPTH}"
+            "index display exceeds the maximum depth of {MAX_DISPLAY_INDEX_DEPTH}"
         )));
     }
     *nodes += 1;
     if *nodes > MAX_DISPLAY_INDEX_NODES {
         return Err(RepresentationAttachmentError::new(format!(
-            "representation palette display exceeds the maximum size of {MAX_DISPLAY_INDEX_NODES} nodes"
+            "index display exceeds the maximum size of {MAX_DISPLAY_INDEX_NODES} nodes"
         )));
     }
     match display {
@@ -585,6 +1009,14 @@ fn index_display_to_wire(display: &IndexDisplay, depth: usize, nodes: &mut usize
                 Value::Text(name.clone()),
             ]))
         }
+        IndexDisplay::Text(value) => {
+            IndexDisplay::text(value.clone())
+                .map_err(|error| RepresentationAttachmentError::new(error.to_string()))?;
+            Ok(Value::Array(vec![
+                Value::Text("text".to_owned()),
+                Value::Text(value.clone()),
+            ]))
+        }
         IndexDisplay::Number(number) => Ok(Value::Array(vec![
             Value::Text("number".to_owned()),
             Value::Integer((*number).into()),
@@ -592,7 +1024,7 @@ fn index_display_to_wire(display: &IndexDisplay, depth: usize, nodes: &mut usize
         IndexDisplay::Sequence(items) => {
             if items.is_empty() || items.len() > MAX_DISPLAY_INDEX_NODES {
                 return Err(RepresentationAttachmentError::new(
-                    "representation palette sequence must contain 1 to 64 items",
+                    "index display sequence must contain 1 to 64 items",
                 ));
             }
             Ok(Value::Array(vec![
@@ -601,6 +1033,36 @@ fn index_display_to_wire(display: &IndexDisplay, depth: usize, nodes: &mut usize
                     items
                         .iter()
                         .map(|item| index_display_to_wire(item, depth + 1, nodes))
+                        .collect::<Result<Vec<_>>>()?,
+                ),
+            ]))
+        }
+        IndexDisplay::List(items) => {
+            if items.len() > MAX_DISPLAY_INDEX_NODES {
+                return Err(RepresentationAttachmentError::new(
+                    "index display list cannot contain more than 64 items",
+                ));
+            }
+            Ok(Value::Array(vec![
+                Value::Text("list".to_owned()),
+                Value::Array(
+                    items
+                        .iter()
+                        .map(|item| index_display_to_wire(item, depth + 1, nodes))
+                        .collect::<Result<Vec<_>>>()?,
+                ),
+            ]))
+        }
+        IndexDisplay::Math { head, arguments } => {
+            IndexDisplay::math(head.clone(), arguments.clone())
+                .map_err(|error| RepresentationAttachmentError::new(error.to_string()))?;
+            Ok(Value::Array(vec![
+                Value::Text("math".to_owned()),
+                Value::Text(head.clone()),
+                Value::Array(
+                    arguments
+                        .iter()
+                        .map(|argument| index_display_to_wire(argument, depth + 1, nodes))
                         .collect::<Result<Vec<_>>>()?,
                 ),
             ]))
@@ -624,27 +1086,29 @@ fn index_display_to_wire(display: &IndexDisplay, depth: usize, nodes: &mut usize
 fn index_display_from_wire(value: &Value, depth: usize, nodes: &mut usize) -> Result<IndexDisplay> {
     if depth > MAX_DISPLAY_INDEX_DEPTH {
         return Err(RepresentationAttachmentError::new(format!(
-            "representation palette display exceeds the maximum depth of {MAX_DISPLAY_INDEX_DEPTH}"
+            "index display exceeds the maximum depth of {MAX_DISPLAY_INDEX_DEPTH}"
         )));
     }
     *nodes += 1;
     if *nodes > MAX_DISPLAY_INDEX_NODES {
         return Err(RepresentationAttachmentError::new(format!(
-            "representation palette display exceeds the maximum size of {MAX_DISPLAY_INDEX_NODES} nodes"
+            "index display exceeds the maximum size of {MAX_DISPLAY_INDEX_NODES} nodes"
         )));
     }
     let Value::Array(fields) = value else {
         return Err(RepresentationAttachmentError::new(
-            "representation palette display must be an array",
+            "index display must be an array",
         ));
     };
     let Some(Value::Text(kind)) = fields.first() else {
         return Err(RepresentationAttachmentError::new(
-            "representation palette display must start with a text kind",
+            "index display must start with a text kind",
         ));
     };
     match (kind.as_str(), fields.as_slice()) {
         ("symbol", [_, Value::Text(name)]) => IndexDisplay::symbol(name.clone())
+            .map_err(|error| RepresentationAttachmentError::new(error.to_string())),
+        ("text", [_, Value::Text(value)]) => IndexDisplay::text(value.clone())
             .map_err(|error| RepresentationAttachmentError::new(error.to_string())),
         ("number", [_, number]) => Ok(IndexDisplay::Number(value_i64(
             number,
@@ -653,7 +1117,7 @@ fn index_display_from_wire(value: &Value, depth: usize, nodes: &mut usize) -> Re
         ("sequence", [_, Value::Array(items)]) => {
             if items.is_empty() || items.len() > MAX_DISPLAY_INDEX_NODES {
                 return Err(RepresentationAttachmentError::new(
-                    "representation palette sequence must contain 1 to 64 items",
+                    "index display sequence must contain 1 to 64 items",
                 ));
             }
             Ok(IndexDisplay::Sequence(
@@ -662,6 +1126,27 @@ fn index_display_from_wire(value: &Value, depth: usize, nodes: &mut usize) -> Re
                     .map(|item| index_display_from_wire(item, depth + 1, nodes))
                     .collect::<Result<Vec<_>>>()?,
             ))
+        }
+        ("list", [_, Value::Array(items)]) => {
+            if items.len() > MAX_DISPLAY_INDEX_NODES {
+                return Err(RepresentationAttachmentError::new(
+                    "index display list cannot contain more than 64 items",
+                ));
+            }
+            Ok(IndexDisplay::List(
+                items
+                    .iter()
+                    .map(|item| index_display_from_wire(item, depth + 1, nodes))
+                    .collect::<Result<Vec<_>>>()?,
+            ))
+        }
+        ("math", [_, Value::Text(head), Value::Array(arguments)]) => {
+            let arguments = arguments
+                .iter()
+                .map(|argument| index_display_from_wire(argument, depth + 1, nodes))
+                .collect::<Result<Vec<_>>>()?;
+            IndexDisplay::math(head.clone(), arguments)
+                .map_err(|error| RepresentationAttachmentError::new(error.to_string()))
         }
         ("attach", [_, base, top, bottom]) => Ok(IndexDisplay::Attach {
             base: Box::new(index_display_from_wire(base, depth + 1, nodes)?),
@@ -675,7 +1160,7 @@ fn index_display_from_wire(value: &Value, depth: usize, nodes: &mut usize) -> Re
             },
         }),
         _ => Err(RepresentationAttachmentError::new(format!(
-            "invalid representation palette display node {kind:?}"
+            "invalid index display node {kind:?}"
         ))),
     }
 }
@@ -749,6 +1234,61 @@ fn value_i64(value: &Value, label: &str) -> Result<i64> {
             "{label} must be an integer, got {other:?}"
         ))),
     }
+}
+
+fn validate_math_display_symbol_identity(
+    name: &str,
+    declaration: &MathDisplayDeclaration,
+) -> Result<()> {
+    math_display_identity(name.as_bytes())?;
+    validate_index_display(&declaration.display)?;
+    let actual_short_name = name.rsplit("::").next().ok_or_else(|| {
+        RepresentationAttachmentError::new(format!("invalid math-display symbol identity {name:?}"))
+    })?;
+    let expected_short_name = math_display_symbol_name(&declaration.display)?;
+    if actual_short_name != expected_short_name {
+        return Err(RepresentationAttachmentError::new(format!(
+            "math-display symbol {name} does not match its deterministic display identity {expected_short_name}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_math_display_registration(
+    name: &str,
+    declaration: &MathDisplayDeclaration,
+) -> Result<()> {
+    validate_math_display_symbol_identity(name, declaration)?;
+    if let Some(existing) = Symbol::get_symbol(NamespacedSymbol::parse(name))
+        && (!existing.has_tag(&SPENSO_TAG.index)
+            || IndexDisplay::from_symbol(existing) != Some(declaration.display.clone()))
+    {
+        return Err(RepresentationAttachmentError::new(format!(
+            "math-display symbol {name} already exists with conflicting metadata"
+        )));
+    }
+    Ok(())
+}
+
+fn register_math_display_declaration(
+    name: &str,
+    declaration: &MathDisplayDeclaration,
+) -> Result<Symbol> {
+    validate_math_display_registration(name, declaration)?;
+    let namespaced = NamespacedSymbol::parse(name);
+    if let Some(existing) = Symbol::get_symbol(namespaced.clone()) {
+        return Ok(existing);
+    }
+
+    SymbolBuilder::new(namespaced)
+        .with_tags([SPENSO_TAG.index.clone()])
+        .with_user_data(declaration.display.symbol_user_data())
+        .build()
+        .map_err(|error| {
+            RepresentationAttachmentError::new(format!(
+                "could not register math-display symbol {name}: {error}"
+            ))
+        })
 }
 
 fn expected_representation_metadata(
@@ -871,6 +1411,39 @@ mod tests {
             .unwrap(),
             IndexRow::Bottom,
         )
+    }
+
+    fn structured_math_display() -> MathDisplayDeclaration {
+        let matrix = IndexDisplay::math(
+            "mat",
+            vec![
+                IndexDisplay::List(vec![
+                    IndexDisplay::symbol("alpha").unwrap(),
+                    IndexDisplay::Number(1),
+                ]),
+                IndexDisplay::List(vec![
+                    IndexDisplay::text("rate").unwrap(),
+                    IndexDisplay::math(
+                        "frac",
+                        vec![
+                            IndexDisplay::symbol("x").unwrap(),
+                            IndexDisplay::symbol("y").unwrap(),
+                        ],
+                    )
+                    .unwrap(),
+                ]),
+            ],
+        )
+        .unwrap();
+        MathDisplayDeclaration::new(IndexDisplay::Attach {
+            base: Box::new(matrix),
+            top: Some(Box::new(IndexDisplay::Sequence(vec![
+                IndexDisplay::symbol("mu").unwrap(),
+                IndexDisplay::Number(2),
+            ]))),
+            bottom: None,
+        })
+        .unwrap()
     }
 
     fn encode_v1_declaration(declaration: &RepresentationDeclaration) -> Vec<u8> {
@@ -1037,5 +1610,158 @@ mod tests {
         assert!(representation_identity(b"M").is_err());
         assert!(representation_identity(b"example::::M").is_err());
         assert!(representation_identity(b" example::M").is_err());
+    }
+
+    #[test]
+    fn math_display_wire_round_trip_preserves_every_structured_variant() {
+        let declaration = structured_math_display();
+        let encoded = encode_math_display_declaration(&declaration).unwrap();
+
+        assert_eq!(
+            decode_math_display_declaration(&encoded).unwrap(),
+            declaration
+        );
+    }
+
+    #[test]
+    fn math_display_wire_rejects_trailing_bytes_and_unapproved_heads() {
+        let mut encoded = encode_math_display_declaration(&structured_math_display()).unwrap();
+        encoded.push(0);
+        assert!(
+            decode_math_display_declaration(&encoded)
+                .unwrap_err()
+                .to_string()
+                .contains("trailing bytes")
+        );
+
+        let forged = Value::Array(vec![
+            Value::Text("math".to_owned()),
+            Value::Text("raw-typst".to_owned()),
+            Value::Array(vec![]),
+        ]);
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&forged, &mut encoded).unwrap();
+        assert!(
+            decode_math_display_declaration(&encoded)
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported mathematical display node")
+        );
+    }
+
+    #[test]
+    fn math_display_symbol_identity_is_deterministic_and_structural() {
+        let symbol = IndexDisplay::symbol("mu").unwrap();
+        let text = IndexDisplay::text("mu").unwrap();
+        let first = canonical_math_display_symbol_name(&symbol, "display_identity_test").unwrap();
+        let second = canonical_math_display_symbol_name(&symbol, "display_identity_test").unwrap();
+        let text_name = canonical_math_display_symbol_name(&text, "display_identity_test").unwrap();
+
+        assert_eq!(first, second);
+        assert_ne!(first, text_name);
+        assert!(
+            first
+                .rsplit("::")
+                .next()
+                .unwrap()
+                .starts_with(MATH_DISPLAY_SYMBOL_PREFIX)
+        );
+
+        let declaration = MathDisplayDeclaration::new(text).unwrap();
+        assert!(math_display_attachment(&first, &declaration).is_err());
+    }
+
+    #[test]
+    fn math_display_attachments_restore_local_spenso_metadata() {
+        let declaration = structured_math_display();
+        let name = canonical_math_display_symbol_name(
+            &declaration.display,
+            "math_display_attachment_restore_test",
+        )
+        .unwrap();
+        let attachments =
+            AttachmentSet::from_attachments(
+                [math_display_attachment(&name, &declaration).unwrap()],
+            )
+            .unwrap();
+        let declarations = MathDisplayDeclarations::from_attachment_set(&attachments).unwrap();
+
+        assert_eq!(declarations.get(&name), Some(&declaration));
+        declarations.register_before_atom_import().unwrap();
+
+        let symbol = Symbol::get_symbol(NamespacedSymbol::parse(&name)).unwrap();
+        assert!(symbol.has_tag(&SPENSO_TAG.index));
+        assert_eq!(
+            IndexDisplay::from_symbol(symbol),
+            Some(declaration.display.clone())
+        );
+    }
+
+    #[test]
+    fn math_display_declarations_are_collected_from_nested_atoms() {
+        let declaration = structured_math_display();
+        let symbol =
+            register_math_display_symbol(&declaration.display, "math_display_atom_collection_test")
+                .unwrap();
+        let atom = symbol.call_args([Atom::num(1), Atom::var(symbol)]);
+        let declarations = MathDisplayDeclarations::referenced_by_atom(&atom).unwrap();
+        let name = symbol.get_name();
+
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(declarations.get(name), Some(&declaration));
+        let attachments = declarations.to_attachment_set().unwrap();
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(
+            MathDisplayDeclarations::from_attachment_set(&attachments).unwrap(),
+            declarations
+        );
+    }
+
+    #[test]
+    fn math_display_registration_collisions_fail_before_mutation() {
+        let expected =
+            MathDisplayDeclaration::new(IndexDisplay::symbol("expected").unwrap()).unwrap();
+        let conflicting =
+            MathDisplayDeclaration::new(IndexDisplay::symbol("conflicting").unwrap()).unwrap();
+        let expected_name =
+            canonical_math_display_symbol_name(&expected.display, "math_display_collision_test")
+                .unwrap();
+
+        SymbolBuilder::new(NamespacedSymbol::parse(&expected_name))
+            .with_tags([SPENSO_TAG.index.clone()])
+            .with_user_data(conflicting.display.symbol_user_data())
+            .build()
+            .unwrap();
+
+        let mut declarations = MathDisplayDeclarations::new();
+        declarations.insert(expected_name, expected).unwrap();
+        assert!(
+            declarations
+                .register_before_atom_import()
+                .unwrap_err()
+                .to_string()
+                .contains("conflicting metadata")
+        );
+    }
+
+    #[test]
+    fn unsupported_math_display_versions_are_rejected() {
+        let declaration = structured_math_display();
+        let name =
+            canonical_math_display_symbol_name(&declaration.display, "math_display_version_test")
+                .unwrap();
+        let attachment = Attachment::new(
+            AttachmentKey::new(
+                MATH_DISPLAY_ATTACHMENT_SCHEMA,
+                MATH_DISPLAY_ATTACHMENT_VERSION + 1,
+                name.into_bytes(),
+            )
+            .unwrap(),
+            encode_math_display_declaration(&declaration).unwrap(),
+        )
+        .unwrap();
+        let attachments = AttachmentSet::from_attachments([attachment]).unwrap();
+
+        assert!(MathDisplayDeclarations::from_attachment_set(&attachments).is_err());
     }
 }

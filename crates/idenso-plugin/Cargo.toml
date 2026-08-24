@@ -18,6 +18,6 @@ idenso = { path = "../../../gammaloop/crates/idenso" }
 spenso = { path = "../../../gammaloop/crates/spenso", features = ["shadowing"] }
 symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }
 tymbolica-atom-payload = { path = "../atom-payload" }
-tymbolica-symbol-registry = { path = "../symbol-registry" }
 tymbolica-typst-ast = { path = "../typst-ast" }
+tydenso-representation-registry = { path = "../symbol-registry" }
 wasm-minimal-protocol = "0.1"

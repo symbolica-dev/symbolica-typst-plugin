@@ -18,7 +18,6 @@ ciborium = "0.2.2"
 getrandom = "0.3"
 symbolica = { path = "vendor/symbolica-wasm", features = ["wasm"] }
 tymbolica-atom-payload = { path = "crates/atom-payload" }
-tymbolica-symbol-registry = { path = "crates/symbol-registry" }
 tymbolica-typst-ast = { path = "crates/typst-ast" }
 wasm-minimal-protocol = "0.1"
 

@@ -1,12 +1,13 @@
 #import "../lib.typ" as tensors
 #import "../../typst/lib.typ" as algebra
+#import "../../rubi/lib.typ" as calculus
 
 #set page(width: auto, height: auto, margin: 12pt)
 
 #let V = tensors.mink(4)
 #let p = tensors.vector("p")
-#let mu = tensors.slot(V, "mu")
-#let nu = tensors.slot(V, "nu")
+#let mu = tensors.slot(V, 1)
+#let nu = tensors.slot(V, 2)
 #let expression = tensors.mul(tensors.metric(V, mu, nu), p(nu))
 
 Tydenso prints its own tensor notation:
@@ -25,8 +26,8 @@ The same native Atom payload can be inspected or transformed by Tymbolica:
 // Tydenso content is accepted directly by Tymbolica. Antisymmetry survives the
 // round trip because the exact Atom is carried instead of being reparsed.
 #let W = tensors.euc(3)
-#let a = tensors.slot(W, "a")
-#let b = tensors.slot(W, "b")
+#let a = tensors.slot(W, 1)
+#let b = tensors.slot(W, 2)
 #let F = tensors.tensor("Finterop", antisymmetric: true)
 #let carried = algebra.expand(F(a, b))
 #assert.eq(tensors.to-string(tensors.add(carried, F(b, a))), "0")
@@ -38,6 +39,21 @@ The same native Atom payload can be inspected or transformed by Tymbolica:
   algebra.canonical(roundtrip, namespaces: true),
   algebra.canonical(mass, namespaces: true),
 )
+
+// The core algebra plugin can round-trip an Idenso representation without
+// linking Idenso or Spenso itself.
+#let B = tensors.bis(4)
+#let u = tensors.vector("u")
+#let spinor = u(tensors.slot(B, 1))
+#let spinor-roundtrip = algebra.expand(spinor)
+#assert.eq(tensors.to-string(spinor-roundtrip), tensors.to-string(spinor))
+
+// Structured Typst notation is a portable attachment too. Core preserves it
+// opaquely, then Tydenso restores it before printing the imported Atom.
+#let routed = p($arrow(x + y)$, V)
+#let routed-source = tensors.to-typst-source(routed)
+#let routed-roundtrip = algebra.expand(routed)
+#assert.eq(tensors.to-typst-source(routed-roundtrip), routed-source)
 
 // A custom representation also survives a trip through the algebra plugin,
 // including the palette that turns its first index into mu.
@@ -52,3 +68,11 @@ The same native Atom payload can be inspected or transformed by Tymbolica:
 #let custom = q(tensors.slot(M, 1))
 #let custom-roundtrip = algebra.expand(custom)
 #assert(tensors.to-typst-source(custom-roundtrip).contains("t:μ"))
+
+// Core and Rubi do not link Spenso. They carry the custom declaration as an
+// opaque attachment, and Tydenso is the only plugin that interprets it again.
+// Rubi intentionally accepts the shared byte payload rather than Tydenso's
+// annotated Typst content wrapper.
+#let x = algebra.math($x$)
+#let custom-primitive = calculus.integrate(tensors.atom(custom), x)
+#assert(tensors.to-typst-source(custom-primitive).contains("t:μ"))

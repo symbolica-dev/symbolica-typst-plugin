@@ -303,6 +303,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block-buffer"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "brotli"
 version = "8.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -482,7 +491,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -496,6 +505,12 @@ dependencies = [
  "unicode-width",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "const-oid"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "const-random"
@@ -653,6 +668,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "crypto-common"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "defmt"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -744,6 +768,17 @@ dependencies = [
  "quote",
  "rustc_version",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "digest"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
+dependencies = [
+ "block-buffer",
+ "const-oid",
+ "crypto-common",
 ]
 
 [[package]]
@@ -844,7 +879,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -940,6 +975,7 @@ name = "gammaloop-workspace-hack"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "aho-corasick",
  "anstream",
  "arrayvec",
  "bincode",
@@ -966,7 +1002,7 @@ dependencies = [
  "num-complex",
  "num-integer",
  "num-traits",
- "numerica 2.2.0 (git+https://github.com/symbolica-dev/symbolica?rev=46d69071915eecd9e3ac4e8cb5aa12f12e51549f)",
+ "numerica 2.2.0 (git+https://github.com/symbolica-dev/symbolica?branch=dev)",
  "once_cell",
  "papergrid",
  "rand 0.9.5",
@@ -975,6 +1011,7 @@ dependencies = [
  "regex-automata",
  "regex-syntax",
  "rug",
+ "rust-embed-utils",
  "rustix 1.1.4",
  "serde",
  "serde_core",
@@ -983,7 +1020,7 @@ dependencies = [
  "similar",
  "smallvec",
  "smartstring",
- "symbolica 2.2.0 (git+https://github.com/symbolica-dev/symbolica?rev=46d69071915eecd9e3ac4e8cb5aa12f12e51549f)",
+ "symbolica 2.2.0 (git+https://github.com/symbolica-dev/symbolica?branch=dev)",
  "syn 1.0.109",
  "syn 2.0.119",
  "tabled",
@@ -1036,6 +1073,19 @@ dependencies = [
  "libc",
  "r-efi",
  "wasip2",
+]
+
+[[package]]
+name = "globset"
+version = "0.4.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e47d37d2ae4464254884b60ab7071be2b876a9c35b696bd018ddcc76847309cd"
+dependencies = [
+ "aho-corasick",
+ "bstr",
+ "log",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -1112,6 +1162,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da5c9051569a6ff2f501fb927a7d994af9232e4bff255352811d7b87afc50603"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "hybrid-array"
+version = "0.4.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "707114b52a152fa7bdb290cd7cd5912d9467273b6d74e21b8d81aca1f8533f6b"
+dependencies = [
+ "typenum",
 ]
 
 [[package]]
@@ -1220,7 +1279,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1515,7 +1574,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1612,7 +1671,7 @@ dependencies = [
 [[package]]
 name = "numerica"
 version = "2.2.0"
-source = "git+https://github.com/symbolica-dev/symbolica?rev=46d69071915eecd9e3ac4e8cb5aa12f12e51549f#46d69071915eecd9e3ac4e8cb5aa12f12e51549f"
+source = "git+https://github.com/symbolica-dev/symbolica?branch=dev#215c2bbe4e7ab6422d105156c5a1da33df940a27"
 dependencies = [
  "ahash",
  "astro-float",
@@ -2222,6 +2281,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-embed-utils"
+version = "8.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42ffa149f6aa81b58a5b3011d01a857c4ed12c7a732d2c51947a4c7c692185f0"
+dependencies = [
+ "globset",
+ "sha2",
+ "walkdir",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2259,7 +2329,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2458,6 +2528,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha2"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2642,7 +2723,7 @@ dependencies = [
 [[package]]
 name = "symbolica"
 version = "2.2.0"
-source = "git+https://github.com/symbolica-dev/symbolica?rev=46d69071915eecd9e3ac4e8cb5aa12f12e51549f#46d69071915eecd9e3ac4e8cb5aa12f12e51549f"
+source = "git+https://github.com/symbolica-dev/symbolica?branch=dev#215c2bbe4e7ab6422d105156c5a1da33df940a27"
 dependencies = [
  "ahash",
  "append-only-vec",
@@ -2830,7 +2911,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2840,7 +2921,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3144,10 +3225,21 @@ dependencies = [
  "idenso",
  "spenso",
  "symbolica 2.2.0",
+ "tydenso-representation-registry",
  "tymbolica-atom-payload",
- "tymbolica-symbol-registry",
  "tymbolica-typst-ast",
  "wasm-minimal-protocol",
+]
+
+[[package]]
+name = "tydenso-representation-registry"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "ciborium",
+ "spenso",
+ "symbolica 2.2.0",
+ "tymbolica-atom-payload",
 ]
 
 [[package]]
@@ -3174,7 +3266,6 @@ dependencies = [
  "getrandom 0.3.4",
  "symbolica 2.2.0",
  "tymbolica-atom-payload",
- "tymbolica-symbol-registry",
  "tymbolica-typst-ast",
  "wasm-minimal-protocol",
 ]
@@ -3188,20 +3279,7 @@ dependencies = [
  "symbolica 2.2.0",
  "symbolica-integrate",
  "tymbolica-atom-payload",
- "tymbolica-symbol-registry",
  "wasm-minimal-protocol",
-]
-
-[[package]]
-name = "tymbolica-symbol-registry"
-version = "0.1.0"
-dependencies = [
- "ciborium",
- "idenso",
- "spenso",
- "symbolica 2.2.0",
- "symbolica-integrate",
- "tymbolica-atom-payload",
 ]
 
 [[package]]
@@ -3211,7 +3289,6 @@ dependencies = [
  "ciborium",
  "symbolica 2.2.0",
  "tymbolica-atom-payload",
- "tymbolica-symbol-registry",
 ]
 
 [[package]]
@@ -3219,6 +3296,12 @@ name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
+
+[[package]]
+name = "typenum"
+version = "1.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ucd-trie"
@@ -3538,7 +3621,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

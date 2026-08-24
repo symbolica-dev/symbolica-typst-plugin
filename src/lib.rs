@@ -39,6 +39,13 @@ use wasm_minimal_protocol::*;
 
 initiate_protocol!();
 
+fn initialize_core() {
+    #[cfg(target_arch = "wasm32")]
+    symbolica::GLOBAL_SETTINGS
+        .initialize_tracing
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
 type MatrixField = RationalPolynomialField<IntegerRing, u16>;
 type MatrixEntry = RationalPolynomial<IntegerRing, u16>;
 type PluginMatrix = Matrix<MatrixField>;
@@ -52,6 +59,7 @@ struct AttachedMatrix {
 }
 
 fn decode_cbor(input: &[u8], label: &str) -> Result<Value, String> {
+    initialize_core();
     ciborium::from_reader::<Value, _>(Cursor::new(input))
         .map_err(|err| format!("{label} must be CBOR-encoded: {err}"))
 }
@@ -112,12 +120,10 @@ fn decode_atom(input: &[u8], label: &str) -> Result<Atom, String> {
 }
 
 fn decode_attached_atom(input: &[u8], label: &str) -> Result<AttachedAtom, String> {
-    initialize_shared_symbol_registry();
+    initialize_core();
     let payload =
         parse_payload(input).map_err(|err| format!("{label} must be Atom payload bytes: {err}"))?;
     let attachments = payload.attachment_set();
-    tymbolica_symbol_registry::register_representation_attachments(&attachments)
-        .map_err(|error| format!("{label} has invalid representation attachments: {error}"))?;
     let atom = payload
         .import_atom()
         .map_err(|err| format!("{label} must be Atom payload bytes: {err}"))?;
@@ -335,21 +341,12 @@ fn attached_atom_from_ast(
     namespace: &str,
     label: &str,
 ) -> Result<AttachedAtom, String> {
-    let preflight = tymbolica_typst_ast::preflight_payloads_from_ast(input, label)?;
-    tymbolica_symbol_registry::register_representation_attachments(&preflight.attachments)
-        .map_err(|error| format!("{label} has invalid representation attachments: {error}"))?;
-    let attached = tymbolica_typst_ast::attached_atom_from_ast(input, namespace, label)?;
-    debug_assert_eq!(attached.attachments, preflight.attachments);
-    Ok(attached)
+    tymbolica_typst_ast::attached_atom_from_ast(input, namespace, label)
 }
 
 fn symbol_atom(name: &str, namespace: &str) -> Result<Atom, String> {
-    initialize_shared_symbol_registry();
+    initialize_core();
     Symbol::parse(name.trim(), namespace.to_owned()).map(Atom::var)
-}
-
-fn initialize_shared_symbol_registry() {
-    tymbolica_symbol_registry::initialize();
 }
 
 fn map_get<'a>(map: &'a [(Value, Value)], key: &str) -> Option<&'a Value> {
@@ -3109,6 +3106,21 @@ mod tests {
         let namespace = encode_cbor(Value::Text("test".to_owned())).unwrap();
         let parsed = from_ast(&ast, &namespace).unwrap();
         assert_payload_attachment(&parsed, &x_key, b"x declaration");
+    }
+
+    #[test]
+    fn core_treats_spenso_representation_attachments_as_opaque() {
+        let key = AttachmentKey::new(
+            "spenso.representation",
+            u32::MAX,
+            b"spenso::Future".to_vec(),
+        )
+        .unwrap();
+        let payload = attached_test_atom(&symbolica::parse!("x"), &key, b"not representation CBOR");
+
+        let result = neg(&payload).unwrap();
+
+        assert_payload_attachment(&result, &key, b"not representation CBOR");
     }
 
     #[test]

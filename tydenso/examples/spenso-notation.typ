@@ -4,10 +4,10 @@
 
 #let M = mink(4)
 #let B = bis(4)
-#let mu = slot(M, "mu")
-#let nu = slot(M, "nu")
-#let a = slot(B, "a")
-#let b = slot(B, "b")
+#let mu = slot(M, 1)
+#let nu = slot(M, 2)
+#let a = slot(B, 1)
+#let b = slot(B, 2)
 
 #let p = vector("p")
 #let q = vector("q")
@@ -51,12 +51,19 @@
   gamma(p(1, M)),
   gamma(nu),
 )
+#let explicit-slot-chain = chain(
+  slot(B, $std.sym.mu$),
+  slot(B, "blou"),
+  gamma(mu),
+  gamma(p(1, M)),
+  gamma(nu),
+)
 #let closed-chain = trace(
   B,
   cyclic(gamma(mu), gamma(p(1, M)), gamma(nu)),
 )
 #let interleaved = T(mu, a, nu, b)
-#let two-mink-ports = A(mu, p(1, M), nu, q(2, M), slot(M, "rho"))
+#let two-mink-ports = A(mu, p(1, M), nu, q(2, M), slot(M, 3))
 #let heterogeneous-bra = H(mu, p(1, M), a, chi(2, B))
 #let L = lor(4)
 #let heterogeneous-ket = C(
@@ -68,9 +75,9 @@
 #let nested-chain = chain(
   u(1, B),
   v(2, B),
-  gamma(slot(M, "alpha")),
+  gamma(slot(M, $std.sym.alpha$)),
   A("in", "out", mu, p(3, M), nu),
-  gamma(slot(M, "beta")),
+  gamma(slot(M, $std.sym.beta$)),
 )
 #let middle-representation-product = dot(p(1, M, 2), q(3, M, 4))
 #let marker-factor = K(mu, cin, a, cout, nu)
@@ -83,20 +90,20 @@
 #let Adj = coad("Na")
 #let Fund = cof("Nc")
 #let color-generator = color-t(
-  slot(Adj, "c"),
-  slot(Fund, "i"),
-  slot(dual-representation(Fund), "j"),
+  slot(Adj, 3),
+  slot(Fund, 1),
+  slot(dual-representation(Fund), 2),
 )
 
 #assert(atom-shape(inspect(product)) == "dot(p(1,mink(4)),q(2,mink(4)))")
-#assert(atom-shape(inspect(gamma-factor)) == "gamma(in,out,mink(4,mu))")
+#assert(atom-shape(inspect(gamma-factor)) == "gamma(in,out,mink(4,1))")
 #assert(
   atom-shape(inspect(gamma-tensor))
-    == "gamma(bis(4,a),bis(4,b),mink(4,mu))",
+    == "gamma(bis(4,1),bis(4,2),mink(4,1))",
 )
 #assert(
   atom-shape(inspect(open-chain))
-    == "chain(u(1,bis(4)),v(2,bis(4)),gamma(in,out,mink(4,mu)),gamma(in,out,p(1,mink(4))),gamma(in,out,mink(4,nu)))",
+    == "chain(u(1,bis(4)),v(2,bis(4)),gamma(in,out,mink(4,1)),gamma(in,out,p(1,mink(4))),gamma(in,out,mink(4,2)))",
 )
 
 #let closed-tree = inspect(closed-chain)
@@ -111,11 +118,19 @@
   atom-shape(inspect(mixed-polarity))
     == "D(mink(4,i),p(1,lor(4)),mink(4,j),q(2,dind(lor(4))))",
 )
-#assert(to-typst-source(product).contains(" dot "))
-#assert(to-typst-source(middle-representation-product).contains(" dot "))
+#assert(to-typst-source(product).contains("math.class(\"normal\",$dot$)"))
+#assert(
+  to-typst-source(middle-representation-product).contains(
+    "math.class(\"normal\",$dot$)",
+  ),
+)
 #assert(to-typst-source(gamma(p(1, M))).contains("cancel("))
 #assert(to-typst-source(open-chain).contains("upright(\"⟨\")"))
 #assert(to-typst-source(open-chain).contains("upright(\"⟩\")"))
+#assert(not to-typst-source(nested-chain).contains("lr(("))
+#assert(to-typst-source(closed-chain).contains("op(\"Tr\") lr(("))
+#assert(to-typst-source(explicit-slot-chain).contains("blou"))
+#assert(not to-typst-source(explicit-slot-chain).contains("upright(\"⟨\")"))
 #assert(to-typst-source(two-mink-ports).contains("○"))
 #assert(to-typst-source(mixed-polarity).contains("upright(\"⟨\")"))
 #assert(to-typst-source(mixed-polarity).contains("upright(\"⟩\")"))
@@ -125,9 +140,21 @@
     settings: print-settings(with-dim: true),
   ).contains("attach(○,t:attach("),
 )
-#assert(not to-typst-source(dot(p(1, M), q(2, mink(5)))).contains(" dot "))
-#assert(not to-typst-source(dot(p(1, M), q(2, B))).contains(" dot "))
-#assert(not to-typst-source(dot(p(1, L), q(2, L))).contains(" dot "))
+#assert(
+  not to-typst-source(dot(p(1, M), q(2, mink(5)))).contains(
+    "math.class(\"normal\",$dot$)",
+  ),
+)
+#assert(
+  not to-typst-source(dot(p(1, M), q(2, B))).contains(
+    "math.class(\"normal\",$dot$)",
+  ),
+)
+#assert(
+  not to-typst-source(dot(p(1, L), q(2, L))).contains(
+    "math.class(\"normal\",$dot$)",
+  ),
+)
 #assert(
   to-typst-source(marker-factor)
     == "attach(#($K$,std.hide($zws$)).join(),t:mu std.hide(a) nu,b:std.hide(mu) a std.hide(nu))",
@@ -156,6 +183,7 @@
   [gamma tensor], $ #to-typst(gamma-tensor) $,
   [dot product], $ #to-typst(product) $,
   [open chain], $ #to-typst(open-chain) $,
+  [explicit-slot chain], $ #to-typst(explicit-slot-chain) $,
   [closed trace], $ #to-typst(closed-chain) $,
   [two Mink ports], $ #to-typst(two-mink-ports) $,
   [nested factor], $ #to-typst(nested-chain) $,

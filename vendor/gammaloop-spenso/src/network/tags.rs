@@ -191,10 +191,6 @@ fn typst_index_source(
         {
             return Some(display.to_typst_source());
         }
-        let name = symbol.get_stripped_name();
-        if typst_builtin_name(name) {
-            return Some(name.to_owned());
-        }
     }
 
     let mut output = String::new();
@@ -203,6 +199,15 @@ fn typst_index_source(
 }
 
 fn typst_source(atom: AtomView<'_>, options: &PrintOptions) -> Option<String> {
+    if let AtomView::Var(variable) = atom {
+        let symbol = variable.get_symbol();
+        if symbol.has_tag(&SPENSO_TAG.index)
+            && let Some(display) = IndexDisplay::from_symbol(symbol)
+        {
+            return Some(display.to_typst_source());
+        }
+    }
+
     let mut output = String::new();
     atom.format(&mut output, options, PrintState::new()).ok()?;
     Some(output)
@@ -297,6 +302,14 @@ fn typst_attachment(base: String, columns: Vec<(String, IndexRow)>) -> String {
         top.join(" "),
         bottom.join(" ")
     )
+}
+
+fn typst_tight_join(parts: impl IntoIterator<Item = String>) -> String {
+    let parts = parts
+        .into_iter()
+        .map(|part| format!("${part}$"))
+        .collect::<Vec<_>>();
+    format!("#({}).join()", parts.join(","))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -529,6 +542,12 @@ pub fn tensor_print(
         return None;
     }
 
+    if function.get_symbol().has_tag(&SPENSO_TAG.rank1)
+        && let Some(compact) = compact_vector(atom, settings, options)
+    {
+        return Some(compact.label);
+    }
+
     let function_symbol = function.get_symbol();
     let function_name = function_symbol.get_name();
     if function_name == "spenso::gamma" {
@@ -588,14 +607,20 @@ pub fn tensor_print(
         base = format!("attach({base},t:upright(\"T\"))");
     }
 
-    if !bras.is_empty() {
-        base = format!(r#"upright("⟨") {} upright("|") {base}"#, bras.join(","));
-    }
-    if !kets.is_empty() {
-        base = format!(r#"{base} upright("|") {} upright("⟩")"#, kets.join(","));
-    }
-    if markers.is_some() && (!bras.is_empty() || !kets.is_empty()) {
-        base = format!("lr(({base}))");
+    if !bras.is_empty() || !kets.is_empty() {
+        let mut parts = Vec::with_capacity(bras.len() + kets.len() + 5);
+        if !bras.is_empty() {
+            parts.push(r#"upright("⟨")"#.to_owned());
+            parts.push(bras.join(","));
+            parts.push(r#"upright("|")"#.to_owned());
+        }
+        parts.push(base);
+        if !kets.is_empty() {
+            parts.push(r#"upright("|")"#.to_owned());
+            parts.push(kets.join(","));
+            parts.push(r#"upright("⟩")"#.to_owned());
+        }
+        base = typst_tight_join(parts);
     }
     Some(base)
 }
@@ -1043,7 +1068,10 @@ impl SpensoTags {
                     {
                         return None;
                     }
-                    return Some(format!("{} dot {}", a.label, b.label));
+                    return Some(format!(
+                        "#(${}$,math.class(\"normal\",$dot$),${}$).join()",
+                        a.label, b.label
+                    ));
                 }
 
                 let AtomView::Fun(f_a) = unwrap_tensor_display(a) else {
@@ -1144,11 +1172,20 @@ impl SpensoTags {
             }
 
             body = typst_attachment(body, columns);
-            if let Some(prefix) = prefix {
-                body = format!(r#"upright("⟨") {prefix} upright("|") {body}"#);
-            }
-            if let Some(suffix) = suffix {
-                body = format!(r#"{body} upright("|") {suffix} upright("⟩")"#);
+            if prefix.is_some() || suffix.is_some() {
+                let mut parts = Vec::with_capacity(7);
+                if let Some(prefix) = prefix {
+                    parts.push(r#"upright("⟨")"#.to_owned());
+                    parts.push(prefix);
+                    parts.push(r#"upright("|")"#.to_owned());
+                }
+                parts.push(body);
+                if let Some(suffix) = suffix {
+                    parts.push(r#"upright("|")"#.to_owned());
+                    parts.push(suffix);
+                    parts.push(r#"upright("⟩")"#.to_owned());
+                }
+                body = typst_tight_join(parts);
             }
             return Some(body);
         }
@@ -1808,13 +1845,19 @@ mod tests {
         let q = crate::vector_symbol!("spenso_typst_tests::dot_q");
         let left = compact_vector_atom(p, 1, mink!(4));
         let right = compact_vector_atom_rep_first(q, 2, mink!(4));
+        assert_eq!(
+            prepare_tensor_print(&left)
+                .printer(SpensoPrintSettings::typst_options())
+                .to_string(),
+            "attach(#($italic(\"dot_p\")$,std.hide($zws$)).join(),t:std.hide(1),b:1)"
+        );
         let dot = function!(SPENSO_TAG.dot, left, right);
 
         assert_eq!(
             prepare_tensor_print(&dot)
                 .printer(SpensoPrintSettings::typst_options())
                 .to_string(),
-            "attach(#($italic(\"dot_p\")$,std.hide($zws$)).join(),t:std.hide(1),b:1) dot attach(#($italic(\"dot_q\")$,std.hide($zws$)).join(),t:std.hide(2),b:2)"
+            "#($attach(#($italic(\"dot_p\")$,std.hide($zws$)).join(),t:std.hide(1),b:1)$,math.class(\"normal\",$dot$),$attach(#($italic(\"dot_q\")$,std.hide($zws$)).join(),t:std.hide(2),b:2)$).join()"
         );
 
         let u = crate::vector_symbol!("spenso_typst_tests::u");
@@ -1835,7 +1878,75 @@ mod tests {
             prepare_tensor_print(&chain)
                 .printer(SpensoPrintSettings::typst_options())
                 .to_string(),
-            "upright(\"⟨\") attach(#($u$,std.hide($zws$)).join(),t:std.hide(1),b:1) upright(\"|\") lr([attach(#($gamma$,std.hide($zws$)).join(),t:mu,b:std.hide(mu))]) upright(\"|\") attach(#($v$,std.hide($zws$)).join(),t:std.hide(2),b:2) upright(\"⟩\")"
+            "#($upright(\"⟨\")$,$attach(#($u$,std.hide($zws$)).join(),t:std.hide(1),b:1)$,$upright(\"|\")$,$lr([attach(#($gamma$,std.hide($zws$)).join(),t:mu,b:std.hide(mu))])$,$upright(\"|\")$,$attach(#($v$,std.hide($zws$)).join(),t:std.hide(2),b:2)$,$upright(\"⟩\")$).join()"
+        );
+
+        let nested_head = crate::tensor_symbol!("spenso_typst_tests::NestedFactor");
+        let nested_factor = function!(
+            nested_head,
+            Atom::var(SPENSO_TAG.chain_in),
+            Atom::var(SPENSO_TAG.chain_out),
+            compact_vector_atom(p, 3, mink!(4)),
+            mink!(4, symbol!("nu"))
+        );
+        let nested_source = prepare_tensor_print(&nested_factor)
+            .printer(SpensoPrintSettings::typst_options())
+            .to_string();
+        assert!(nested_source.starts_with("#($upright(\"⟨\")$"));
+        assert!(!nested_source.contains("lr(("));
+    }
+
+    #[test]
+    fn portable_math_display_symbols_print_in_ordinary_tensor_arguments() {
+        let display = IndexDisplay::math(
+            "add",
+            vec![
+                IndexDisplay::symbol("x").unwrap(),
+                IndexDisplay::text("soft").unwrap(),
+            ],
+        )
+        .unwrap();
+        let label = SymbolBuilder::new(NamespacedSymbol::parse(
+            "spenso_typst_tests::portable_math_label",
+        ))
+        .with_tags([SPENSO_TAG.index.clone()])
+        .with_user_data(display.symbol_user_data())
+        .build()
+        .unwrap();
+        let p = crate::vector_symbol!("spenso_typst_tests::display_p");
+        let vector = FunctionBuilder::new(p)
+            .add_arg(Atom::var(label))
+            .add_arg(mink!(4))
+            .finish();
+        let source = prepare_tensor_print(&vector)
+            .printer(SpensoPrintSettings::typst_options())
+            .to_string();
+
+        assert!(source.contains(r#"x + upright("soft")"#));
+        assert!(!source.contains("mink"));
+    }
+
+    #[test]
+    fn semantic_multichar_names_use_symbolica_typst_quoting() {
+        let semantic = Atom::var(symbol!("mu"));
+        assert_eq!(
+            typst_source(semantic.as_view(), &SpensoPrintSettings::typst_options()),
+            Some(r#""mu""#.to_owned())
+        );
+
+        let display = IndexDisplay::symbol("mu").unwrap();
+        let symbol = SymbolBuilder::new(NamespacedSymbol::parse("spenso_typst_tests::display_mu"))
+            .with_tags([SPENSO_TAG.index.clone()])
+            .with_user_data(display.symbol_user_data())
+            .build()
+            .unwrap();
+        let display_atom = Atom::var(symbol);
+        assert_eq!(
+            typst_source(
+                display_atom.as_view(),
+                &SpensoPrintSettings::typst_options()
+            ),
+            Some("mu".to_owned())
         );
     }
 

@@ -35,7 +35,6 @@ pub fn attached_atom_from_ast(
     namespace: &str,
     label: &str,
 ) -> Result<AttachedAtom, String> {
-    tymbolica_symbol_registry::initialize();
     let value = ciborium::from_reader::<Value, _>(Cursor::new(input))
         .map_err(|error| format!("{label} must be CBOR-encoded: {error}"))?;
     attached_atom_from_value(&value, namespace)
@@ -84,7 +83,6 @@ pub fn atom_from_value(value: &Value, namespace: &str) -> Result<Atom, String> {
 /// Convert one walked Parsely value while merging attachments from every
 /// recursively embedded Atom payload.
 pub fn attached_atom_from_value(value: &Value, namespace: &str) -> Result<AttachedAtom, String> {
-    tymbolica_symbol_registry::initialize();
     // Validate and merge the complete attachment environment before importing
     // any Atom, so callers never observe a partially initialized traversal.
     let attachments = attachments_from_value(value)?;
@@ -328,9 +326,8 @@ fn inspect_node_attachments(
     }
 }
 
-/// Construct a namespaced Symbolica symbol using the shared registry.
+/// Construct a namespaced Symbolica symbol.
 pub fn symbol_atom(name: &str, namespace: &str) -> Result<Atom, String> {
-    tymbolica_symbol_registry::initialize();
     Symbol::parse(name.trim(), namespace.to_owned()).map(Atom::var)
 }
 

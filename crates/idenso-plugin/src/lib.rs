@@ -1,6 +1,6 @@
 //! Tydenso tensor construction, printing, inspection, and Idenso transforms.
 
-use std::io::Cursor;
+use std::{io::Cursor, sync::Once};
 
 use ciborium::value::Value;
 use idenso::color::ColorSimplifier;
@@ -8,7 +8,7 @@ use idenso::dirac::GammaSimplifier;
 use idenso::selective_expand::SelectiveExpand;
 use idenso::shorthands::{metric::MetricSimplifier, schoonschip::Schoonschip};
 use idenso::{Cookable, IndexTooling};
-use spenso::network::tags::{SPENSO_TAG, prepare_tensor_print, register_tensor_symbol};
+use spenso::network::tags::{prepare_tensor_print, register_tensor_symbol};
 use spenso::shadowing::symbolica_utils::SpensoPrintSettings;
 use spenso::structure::abstract_index::AbstractIndex;
 use spenso::structure::representation::{
@@ -19,24 +19,42 @@ use symbolica::atom::{
     SymbolBuilder,
 };
 use symbolica::printer::PrintOptions;
-use tymbolica_atom_payload::{AttachmentSet, ParsedPayload, encode_atom_from_set, parse_payload};
-use tymbolica_symbol_registry::{
+use tydenso_representation_registry::{
+    MATH_DISPLAY_ATTACHMENT_SCHEMA, MathDisplayDeclaration, MathDisplayDeclarations,
     PortableRepresentationClass, REPRESENTATION_ATTACHMENT_SCHEMA, RepresentationDeclaration,
-    RepresentationDeclarations, canonical_representation_name,
+    RepresentationDeclarations, canonical_math_display_symbol_name, canonical_representation_name,
+    register_math_display_symbol,
 };
+use tymbolica_atom_payload::{AttachmentSet, ParsedPayload, encode_atom_from_set, parse_payload};
 use wasm_minimal_protocol::*;
 
 #[cfg(test)]
-use tymbolica_atom_payload::{Attachment, AttachmentKey};
+use spenso::network::tags::SPENSO_TAG;
 #[cfg(test)]
-use tymbolica_symbol_registry::REPRESENTATION_ATTACHMENT_VERSION;
+use tydenso_representation_registry::REPRESENTATION_ATTACHMENT_VERSION;
+#[cfg(test)]
+use tydenso_representation_registry::math_display_symbol_name;
+#[cfg(test)]
+use tymbolica_atom_payload::{Attachment, AttachmentKey};
 
 initiate_protocol!();
 
 const DISPLAY_INDEX_VERSION: i64 = 1;
+const DISPLAY_MATH_VERSION: i64 = 1;
 const MAX_DISPLAY_INDEX_AST_BYTES: usize = 64 * 1024;
 const MAX_DISPLAY_INDEX_DEPTH: usize = 16;
 const MAX_DISPLAY_INDEX_NODES: usize = 64;
+
+static INITIALIZE_TYDENSO: Once = Once::new();
+
+fn initialize_tydenso() {
+    #[cfg(target_arch = "wasm32")]
+    symbolica::GLOBAL_SETTINGS
+        .initialize_tracing
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+
+    INITIALIZE_TYDENSO.call_once(idenso::representations::initialize);
+}
 
 getrandom_02::register_custom_getrandom!(tymbolica_getrandom_v02);
 
@@ -79,6 +97,7 @@ struct InputContext {
     /// attachments are regenerated canonically and only for output references.
     passthrough: AttachmentSet,
     representations: RepresentationDeclarations,
+    math_displays: MathDisplayDeclarations,
 }
 
 impl InputContext {
@@ -88,6 +107,17 @@ impl InputContext {
         declaration: RepresentationDeclaration,
     ) -> Result<(), String> {
         self.representations
+            .insert(name, declaration)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn merge_math_display(&mut self, display: IndexDisplay, namespace: &str) -> Result<(), String> {
+        let name = canonical_math_display_symbol_name(&display, namespace)
+            .map_err(|error| error.to_string())?;
+        let declaration =
+            MathDisplayDeclaration::new(display).map_err(|error| error.to_string())?;
+        self.math_displays
             .insert(name, declaration)
             .map(|_| ())
             .map_err(|error| error.to_string())
@@ -118,9 +148,15 @@ impl InputContext {
             .representations
             .absorb_attachments(incoming)
             .map_err(|error| error.to_string())?;
+        candidate
+            .math_displays
+            .absorb_attachments(incoming)
+            .map_err(|error| error.to_string())?;
 
         for attachment in incoming.iter() {
-            if attachment.schema() != REPRESENTATION_ATTACHMENT_SCHEMA {
+            if attachment.schema() != REPRESENTATION_ATTACHMENT_SCHEMA
+                && attachment.schema() != MATH_DISPLAY_ATTACHMENT_SCHEMA
+            {
                 candidate
                     .passthrough
                     .insert(attachment.to_owned_attachment())
@@ -135,7 +171,11 @@ impl InputContext {
     /// merged. This must precede `Atom::import`, otherwise Symbolica can intern a
     /// representation head without its local callback.
     fn register_representations(&self) -> Result<(), String> {
+        initialize_tydenso();
         self.representations
+            .register_before_atom_import()
+            .map_err(|error| error.to_string())?;
+        self.math_displays
             .register_before_atom_import()
             .map_err(|error| error.to_string())
     }
@@ -185,6 +225,9 @@ fn decode_cbor_exact(input: &[u8], label: &str) -> Result<Value, String> {
 fn encode_atom_with_context(atom: &Atom, context: &InputContext) -> Result<Vec<u8>, String> {
     let mut attachments = context.passthrough.clone();
     RepresentationDeclarations::referenced_by_atom(atom)
+        .and_then(|declarations| declarations.append_attachments_to(&mut attachments))
+        .map_err(|error| error.to_string())?;
+    MathDisplayDeclarations::referenced_by_atom(atom)
         .and_then(|declarations| declarations.append_attachments_to(&mut attachments))
         .map_err(|error| error.to_string())?;
     encode_atom_from_set(atom, &attachments)
@@ -298,6 +341,28 @@ fn index_display_sequence<'a>(
     }
 }
 
+fn index_display_arguments(
+    values: &[Value],
+    depth: usize,
+    nodes: &mut usize,
+) -> Result<Vec<IndexDisplay>, String> {
+    values
+        .iter()
+        .filter(|value| !matches!(value, Value::Null))
+        .map(|value| index_display_from_ast(value, depth + 1, nodes))
+        .collect()
+}
+
+fn index_display_math(
+    head: &str,
+    values: &[Value],
+    depth: usize,
+    nodes: &mut usize,
+) -> Result<IndexDisplay, String> {
+    IndexDisplay::math(head, index_display_arguments(values, depth, nodes)?)
+        .map_err(|error| error.to_string())
+}
+
 fn index_display_from_ast(
     value: &Value,
     depth: usize,
@@ -372,17 +437,106 @@ fn index_display_from_ast(
                         })
                     }
                 }
-                "()" | "group" | "plus" => index_display_from_ast(
-                    display_ast_child(slots, "expr", args, 0, head)?,
-                    depth + 1,
-                    nodes,
-                ),
-                "lr" => index_display_from_ast(
-                    display_ast_child(slots, "body", args, 0, head)?,
-                    depth + 1,
-                    nodes,
-                ),
+                "()" | "group" => IndexDisplay::math(
+                    head,
+                    vec![index_display_from_ast(
+                        display_ast_child(slots, "expr", args, 0, head)?,
+                        depth + 1,
+                        nodes,
+                    )?],
+                )
+                .map_err(|error| error.to_string()),
+                "lr" => IndexDisplay::math(
+                    "lr",
+                    vec![index_display_from_ast(
+                        display_ast_child(slots, "body", args, 0, head)?,
+                        depth + 1,
+                        nodes,
+                    )?],
+                )
+                .map_err(|error| error.to_string()),
                 "sequence" | "mul" => index_display_sequence(args, depth, nodes),
+                "text" => {
+                    let text = args
+                        .first()
+                        .and_then(|value| match value {
+                            Value::Text(text) => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .ok_or_else(|| "display text must contain one string".to_owned())?;
+                    IndexDisplay::text(text).map_err(|error| error.to_string())
+                }
+                "pow" => {
+                    let base = index_display_from_ast(
+                        display_ast_child(slots, "base", args, 0, head)?,
+                        depth + 1,
+                        nodes,
+                    )?;
+                    let exponent = index_display_from_ast(
+                        display_ast_child(slots, "exp", args, 1, head)?,
+                        depth + 1,
+                        nodes,
+                    )?;
+                    IndexDisplay::math("pow", vec![base, exponent])
+                        .map_err(|error| error.to_string())
+                }
+                "call" => {
+                    let function = index_display_from_ast(
+                        display_ast_child(slots, "fn", args, 0, head)?,
+                        depth + 1,
+                        nodes,
+                    )?;
+                    let body = display_ast_child(slots, "body", args, 1, head)?;
+                    let mut arguments = vec![function];
+                    let body = index_display_from_ast(body, depth + 1, nodes)?;
+                    match body {
+                        IndexDisplay::Math {
+                            head,
+                            arguments: body,
+                        } if head == "arg" => arguments.extend(body),
+                        value => arguments.push(value),
+                    }
+                    IndexDisplay::math("call", arguments).map_err(|error| error.to_string())
+                }
+                "op-call" => {
+                    let operator = index_display_from_ast(
+                        display_ast_child(slots, "op", args, 0, head)?,
+                        depth + 1,
+                        nodes,
+                    )?;
+                    let body = display_ast_child(slots, "args", args, 1, head)?;
+                    let mut arguments = vec![operator];
+                    let body = index_display_from_ast(body, depth + 1, nodes)?;
+                    match body {
+                        IndexDisplay::Math {
+                            head,
+                            arguments: body,
+                        } if head == "arg" => arguments.extend(body),
+                        value => arguments.push(value),
+                    }
+                    IndexDisplay::math("op-call", arguments).map_err(|error| error.to_string())
+                }
+                "mat" => {
+                    let rows = args
+                        .iter()
+                        .map(|row| match row {
+                            Value::Array(entries) => Ok(IndexDisplay::List(
+                                index_display_arguments(entries, depth + 1, nodes)?,
+                            )),
+                            value => Ok(IndexDisplay::List(vec![index_display_from_ast(
+                                value,
+                                depth + 1,
+                                nodes,
+                            )?])),
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    IndexDisplay::math("mat", rows).map_err(|error| error.to_string())
+                }
+                "arg" | "add" | "sub" | "plus" | "neg" | "times" | "dot" | "factorial" | "frac"
+                | "root" | "op" | "accent" | "underline" | "overline" | "underbrace"
+                | "overbrace" | "underbracket" | "overbracket" | "underparen" | "overparen"
+                | "undershell" | "overshell" | "cancel" | "vec" | "cases" | "class" | "mid"
+                | "scripts" | "limits" | "stretch" => index_display_math(head, args, depth, nodes),
                 "semantic-metadata" => index_display_from_ast(
                     args.first().ok_or_else(|| {
                         "manual index metadata missing visible content".to_owned()
@@ -464,102 +618,52 @@ fn exact_atom_from_index_ast(value: &Value) -> Result<Option<Atom>, String> {
         .transpose()
 }
 
-fn hash_index_display(display: &IndexDisplay, hasher: &mut blake3::Hasher) {
-    match display {
-        IndexDisplay::Symbol(name) => {
-            hasher.update(&[0]);
-            hasher.update(&(name.len() as u64).to_le_bytes());
-            hasher.update(name.as_bytes());
-        }
-        IndexDisplay::Number(number) => {
-            hasher.update(&[1]);
-            hasher.update(&number.to_le_bytes());
-        }
-        IndexDisplay::Sequence(items) => {
-            hasher.update(&[2]);
-            hasher.update(&(items.len() as u64).to_le_bytes());
-            for item in items {
-                hash_index_display(item, hasher);
-            }
-        }
-        IndexDisplay::Attach { base, top, bottom } => {
-            hasher.update(&[3]);
-            hash_index_display(base, hasher);
-            match top {
-                Some(top) => {
-                    hasher.update(&[1]);
-                    hash_index_display(top, hasher);
-                }
-                None => {
-                    hasher.update(&[0]);
-                }
-            }
-            match bottom {
-                Some(bottom) => {
-                    hasher.update(&[1]);
-                    hash_index_display(bottom, hasher);
-                }
-                None => {
-                    hasher.update(&[0]);
-                }
-            }
-        }
-    }
-}
-
+#[cfg(test)]
 fn display_index_symbol_name(display: &IndexDisplay) -> String {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"tydenso-display-index-v1\0");
-    hash_index_display(display, &mut hasher);
-    format!("tydenso_index_{}", hasher.finalize().to_hex())
+    math_display_symbol_name(display).expect("a validated display has a deterministic name")
 }
 
 fn register_display_index(display: &IndexDisplay, namespace: &str) -> Result<Symbol, String> {
-    let user_data = display.symbol_user_data();
-    let namespace = DefaultNamespace {
-        namespace: namespace.to_owned().into(),
-        data: "",
-        file: "".into(),
-        line: 0,
-    };
-    let namespaced = namespace.attach_namespace(&display_index_symbol_name(display));
-
-    if let Some(existing) = Symbol::get_symbol(namespaced.clone()) {
-        if existing.has_tag(&SPENSO_TAG.index) && existing.get_data() == &user_data {
-            return Ok(existing);
-        }
-        return Err(format!(
-            "symbol {} already exists with different manual-index metadata",
-            existing.get_name()
-        ));
-    }
-
-    SymbolBuilder::new(namespaced)
-        .with_tags([SPENSO_TAG.index.clone()])
-        .with_user_data(user_data)
-        .build()
-        .map_err(|error| error.to_string())
+    register_math_display_symbol(display, namespace).map_err(|error| error.to_string())
 }
 
-fn display_index_atom(map: &[(Value, Value)], namespace: &str) -> Result<Atom, String> {
+fn display_ast_value(
+    map: &[(Value, Value)],
+    kind: &str,
+    expected_version: i64,
+) -> Result<Value, String> {
     let version = value_i64(
-        map_get(map, "version").ok_or_else(|| "display index missing version".to_owned())?,
-        "display index version",
+        map_get(map, "version").ok_or_else(|| format!("{kind} missing version"))?,
+        &format!("{kind} version"),
     )?;
-    if version != DISPLAY_INDEX_VERSION {
-        return Err(format!("unsupported display index version {version}"));
+    if version != expected_version {
+        return Err(format!("unsupported {kind} version {version}"));
     }
     let ast = match map_get(map, "ast") {
         Some(Value::Bytes(ast)) => ast,
-        Some(other) => return Err(format!("display index AST must be bytes, got {other:?}")),
-        None => return Err("display index missing AST".to_owned()),
+        Some(other) => return Err(format!("{kind} AST must be bytes, got {other:?}")),
+        None => return Err(format!("{kind} missing AST")),
     };
-    let ast_value = index_ast_from_bytes(ast)?;
+    index_ast_from_bytes(ast)
+}
+
+fn display_index_atom(map: &[(Value, Value)], namespace: &str) -> Result<Atom, String> {
+    let ast_value = display_ast_value(map, "display index", DISPLAY_INDEX_VERSION)?;
     if let Some(atom) = exact_atom_from_index_ast(&ast_value)? {
         return Ok(atom);
     }
     let mut nodes = 0;
     let display = index_display_from_ast(&ast_value, 0, &mut nodes)?;
+    Ok(Atom::var(register_display_index(&display, namespace)?))
+}
+
+fn display_math_atom(map: &[(Value, Value)], namespace: &str) -> Result<Atom, String> {
+    let ast = display_ast_value(map, "display math", DISPLAY_MATH_VERSION)?;
+    if let Some(atom) = exact_atom_from_index_ast(&ast)? {
+        return Ok(atom);
+    }
+    let mut nodes = 0;
+    let display = index_display_from_ast(&ast, 0, &mut nodes)?;
     Ok(Atom::var(register_display_index(&display, namespace)?))
 }
 
@@ -855,29 +959,26 @@ fn collect_construct_value(
         Value::Integer(_) | Value::Float(_) | Value::Text(_) => Ok(()),
         Value::Map(map) => match map_text(map, "kind")? {
             "display-index" => {
-                let version = value_i64(
-                    map_get(map, "version")
-                        .ok_or_else(|| "display index missing version".to_owned())?,
-                    "display index version",
-                )?;
-                if version != DISPLAY_INDEX_VERSION {
-                    return Err(format!("unsupported display index version {version}"));
-                }
-                let ast = match map_get(map, "ast") {
-                    Some(Value::Bytes(ast)) => ast,
-                    Some(other) => {
-                        return Err(format!("display index AST must be bytes, got {other:?}"));
-                    }
-                    None => return Err("display index missing AST".to_owned()),
-                };
-                let ast = index_ast_from_bytes(ast)?;
+                let ast = display_ast_value(map, "display index", DISPLAY_INDEX_VERSION)?;
                 if let Some(bytes) = semantic_atom_payload_bytes(&ast)? {
                     context.inspect_payload(bytes, "tymbolica index metadata")?;
                 } else {
                     let mut nodes = 0;
-                    index_display_from_ast(&ast, 0, &mut nodes)?;
+                    let display = index_display_from_ast(&ast, 0, &mut nodes)?;
+                    context.merge_math_display(display, namespace)?;
                 }
                 Ok(())
+            }
+            "display-math" => {
+                let ast = display_ast_value(map, "display math", DISPLAY_MATH_VERSION)?;
+                if let Some(bytes) = semantic_atom_payload_bytes(&ast)? {
+                    context.inspect_payload(bytes, "tymbolica display metadata")?;
+                    Ok(())
+                } else {
+                    let mut nodes = 0;
+                    let display = index_display_from_ast(&ast, 0, &mut nodes)?;
+                    context.merge_math_display(display, namespace)
+                }
             }
             "symbol" => Ok(()),
             "call" | "tensor" | "vector" => {
@@ -974,6 +1075,7 @@ fn atom_from_value_prepared(value: &Value, namespace: &str) -> Result<Atom, Stri
         Value::Text(value) => Ok(Atom::var(parse_symbol(value, namespace, None)?)),
         Value::Map(map) => match map_text(map, "kind")? {
             "display-index" => display_index_atom(map, namespace),
+            "display-math" => display_math_atom(map, namespace),
             "symbol" => {
                 let symbol_namespace = map_text_or(map, "namespace", namespace)?;
                 Ok(Atom::var(parse_symbol(
@@ -1325,9 +1427,82 @@ pub fn wrap_indices(expr: &[u8], header: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tymbolica_symbol_registry::{
+    use spenso::structure::representation::{RepresentationClass, RepresentationMetadata};
+    use tydenso_representation_registry::{
         decode_representation_declaration, encode_representation_declaration,
     };
+
+    #[test]
+    fn tydenso_initializes_every_builtin_representation_palette() {
+        initialize_tydenso();
+
+        let cases = [
+            (
+                "spenso::mink",
+                RepresentationClass::InlineMetric,
+                &["mu", "nu", "rho", "sigma"][..],
+                IndexRow::Top,
+            ),
+            (
+                "spenso::euc",
+                RepresentationClass::SelfDual,
+                &["i", "j", "k", "l"][..],
+                IndexRow::Top,
+            ),
+            (
+                "spenso::lor",
+                RepresentationClass::Dualizable,
+                &["mu", "nu", "rho", "sigma"][..],
+                IndexRow::Top,
+            ),
+            (
+                "spenso::bis",
+                RepresentationClass::SelfDual,
+                &["a", "b", "c", "d"][..],
+                IndexRow::Bottom,
+            ),
+            (
+                "spenso::spf",
+                RepresentationClass::Dualizable,
+                &["alpha", "beta", "gamma", "delta"][..],
+                IndexRow::Top,
+            ),
+            (
+                "spenso::cof",
+                RepresentationClass::Dualizable,
+                &["i", "j", "k", "l"][..],
+                IndexRow::Top,
+            ),
+            (
+                "spenso::coad",
+                RepresentationClass::SelfDual,
+                &["a", "b", "c", "d"][..],
+                IndexRow::Top,
+            ),
+            (
+                "spenso::cos",
+                RepresentationClass::Dualizable,
+                &["I", "J", "K", "L"][..],
+                IndexRow::Top,
+            ),
+        ];
+
+        for (name, class, labels, row) in cases {
+            let symbol = Symbol::get_symbol(NamespacedSymbol::parse(name)).unwrap();
+            let metadata = RepresentationMetadata::from_symbol(symbol).unwrap();
+            let expected = IndexPalette::cyclic(
+                1,
+                labels
+                    .iter()
+                    .map(|label| IndexDisplay::symbol(*label).unwrap()),
+            )
+            .unwrap();
+
+            assert_eq!(metadata.class, class, "class for {name}");
+            assert_eq!(metadata.index_palette, expected, "palette for {name}");
+            assert_eq!(metadata.index_row, row, "base row for {name}");
+        }
+    }
 
     fn ast_node(head: &str, args: Vec<Value>, slots: Vec<(&str, Value)>) -> Value {
         Value::Map(vec![
@@ -1356,6 +1531,23 @@ mod tests {
             (
                 Value::Text("kind".to_owned()),
                 Value::Text("display-index".to_owned()),
+            ),
+            (
+                Value::Text("version".to_owned()),
+                Value::Integer(version.into()),
+            ),
+            (
+                Value::Text("ast".to_owned()),
+                Value::Bytes(value_bytes(ast)),
+            ),
+        ])
+    }
+
+    fn display_math_value(version: i64, ast: &Value) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("kind".to_owned()),
+                Value::Text("display-math".to_owned()),
             ),
             (
                 Value::Text("version".to_owned()),
@@ -1444,7 +1636,7 @@ mod tests {
         name: &str,
         declaration: &RepresentationDeclaration,
     ) -> Attachment {
-        tymbolica_symbol_registry::representation_attachment(name, declaration).unwrap()
+        tydenso_representation_registry::representation_attachment(name, declaration).unwrap()
     }
 
     fn unknown_attachment(identity: &[u8], data: &[u8]) -> (AttachmentKey, Attachment) {
@@ -1515,20 +1707,24 @@ mod tests {
 
         assert_eq!(
             index_display_from_bytes(&value_bytes(&grouped)).unwrap(),
-            IndexDisplay::Sequence(vec![
-                IndexDisplay::symbol("a").unwrap(),
-                IndexDisplay::Attach {
-                    base: Box::new(IndexDisplay::symbol("b").unwrap()),
-                    top: Some(Box::new(IndexDisplay::Number(2))),
-                    bottom: None,
-                },
-            ])
+            IndexDisplay::math(
+                "()",
+                vec![IndexDisplay::Sequence(vec![
+                    IndexDisplay::symbol("a").unwrap(),
+                    IndexDisplay::Attach {
+                        base: Box::new(IndexDisplay::symbol("b").unwrap()),
+                        top: Some(Box::new(IndexDisplay::Number(2))),
+                        bottom: None,
+                    },
+                ])]
+            )
+            .unwrap()
         );
     }
 
     #[test]
     fn rejects_unsupported_manual_index_nodes_and_versions() {
-        let call = ast_node("call", vec![Value::Text("f".to_owned())], vec![]);
+        let call = ast_node("raw-source", vec![Value::Text("f".to_owned())], vec![]);
         assert!(
             index_display_from_bytes(&value_bytes(&call))
                 .unwrap_err()
@@ -1542,6 +1738,45 @@ mod tests {
             )
             .unwrap_err()
             .contains("unsupported display index version")
+        );
+    }
+
+    #[test]
+    fn parses_structured_math_labels_without_evaluating_source() {
+        let ast = ast_node(
+            "add",
+            vec![
+                ast_node(
+                    "accent",
+                    vec![Value::Text("p".to_owned()), Value::Text("⃗".to_owned())],
+                    vec![],
+                ),
+                ast_node(
+                    "overline",
+                    vec![ast_node(
+                        "frac",
+                        vec![Value::Text("q".to_owned()), Value::Text("2".to_owned())],
+                        vec![],
+                    )],
+                    vec![],
+                ),
+                ast_node("text", vec![Value::Text("soft".to_owned())], vec![]),
+            ],
+            vec![],
+        );
+        let display = index_display_from_bytes(&value_bytes(&ast)).unwrap();
+
+        assert_eq!(
+            display.to_typst_source(),
+            r#"accent(p,"⃗") + overline(frac(q,2)) + upright("soft")"#
+        );
+        assert!(
+            index_display_from_bytes(&value_bytes(&ast_node(
+                "raw-source",
+                vec![Value::Text("#panic()".to_owned())],
+                vec![],
+            )))
+            .is_err()
         );
     }
 
@@ -1571,10 +1806,68 @@ mod tests {
     }
 
     #[test]
+    fn display_math_is_attached_to_constructed_atoms_and_survives_a_plugin_round_trip() {
+        let namespace = "tydenso_math_display_roundtrip_test";
+        let ast = ast_node(
+            "add",
+            vec![
+                ast_node(
+                    "accent",
+                    vec![Value::Text("p".to_owned()), Value::Text("⃗".to_owned())],
+                    vec![],
+                ),
+                ast_node("text", vec![Value::Text("soft".to_owned())], vec![]),
+            ],
+            vec![],
+        );
+        let display = index_display_from_bytes(&value_bytes(&ast)).unwrap();
+        let name = canonical_math_display_symbol_name(&display, namespace).unwrap();
+        let expression = tensor_value(
+            "T",
+            namespace,
+            vec![display_math_value(DISPLAY_MATH_VERSION, &ast)],
+        );
+
+        let payload = construct(&value_bytes(&expression)).unwrap();
+        let key = AttachmentKey::new(
+            MATH_DISPLAY_ATTACHMENT_SCHEMA,
+            tydenso_representation_registry::MATH_DISPLAY_ATTACHMENT_VERSION,
+            name.into_bytes(),
+        )
+        .unwrap();
+        assert!(parse_payload(&payload).unwrap().attachment(&key).is_some());
+
+        let round_tripped = cook_indices(&payload).unwrap();
+        assert!(
+            parse_payload(&round_tripped)
+                .unwrap()
+                .attachment(&key)
+                .is_some()
+        );
+        let atom = decode_atom(&round_tripped, "round-tripped display math").unwrap();
+        let source = prepare_tensor_print(&atom)
+            .printer(SpensoPrintSettings::typst_options())
+            .to_string();
+        assert!(source.contains(r#"accent(p,"⃗") + upright("soft")"#));
+    }
+
+    #[test]
     fn annotated_index_content_preserves_the_exact_atom_identity() {
         let exact =
             Atom::var(parse_symbol("i", "tydenso_exact_index_metadata_test", None).unwrap());
         let value = display_index_value(DISPLAY_INDEX_VERSION, &semantic_atom_ast(&exact));
+
+        assert_eq!(
+            atom_from_value(&value, "unrelated_fallback_namespace").unwrap(),
+            exact
+        );
+    }
+
+    #[test]
+    fn annotated_display_math_preserves_the_exact_atom_identity() {
+        let exact =
+            Atom::var(parse_symbol("x", "tydenso_exact_display_metadata_test", None).unwrap());
+        let value = display_math_value(DISPLAY_MATH_VERSION, &semantic_atom_ast(&exact));
 
         assert_eq!(
             atom_from_value(&value, "unrelated_fallback_namespace").unwrap(),
@@ -1846,7 +2139,15 @@ mod tests {
             ("namespace", Value::Text("spenso".to_owned())),
             ("dimension", Value::Integer(4.into())),
             ("self-dual", Value::Bool(true)),
-            ("indices", Value::Null),
+            (
+                "indices",
+                Value::Array(
+                    ["mu", "nu", "rho", "sigma"]
+                        .into_iter()
+                        .map(|label| Value::Text(label.to_owned()))
+                        .collect(),
+                ),
+            ),
         ]);
         let payload = construct(&value_bytes(&descriptor)).unwrap();
         let key = AttachmentKey::new(
@@ -1860,6 +2161,18 @@ mod tests {
             decode_representation_declaration(parsed.attachment(&key).unwrap()).unwrap();
         assert_eq!(declaration.class, PortableRepresentationClass::InlineMetric);
         assert_eq!(declaration.index_row, IndexRow::Top);
+        assert_eq!(
+            declaration.index_palette.resolve(1),
+            Some(IndexDisplay::symbol("mu").unwrap())
+        );
+        assert_eq!(
+            declaration.index_palette.resolve(5),
+            Some(
+                IndexDisplay::symbol("mu")
+                    .unwrap()
+                    .with_bottom(IndexDisplay::Number(1))
+            )
+        );
     }
 
     #[test]

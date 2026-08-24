@@ -9,4 +9,3 @@ license = "MIT"
 ciborium = "0.2.2"
 symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }
 tymbolica-atom-payload = { path = "../atom-payload" }
-tymbolica-symbol-registry = { path = "../symbol-registry" }

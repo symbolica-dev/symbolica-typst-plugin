@@ -4,6 +4,6 @@
 
 #let V = mink(4)
 #let p = vector("p")
-#let mu = slot(V, "mu")
+#let mu = slot(V, 1)
 
 $ #p(mu) = #to-typst(p(mu)) $

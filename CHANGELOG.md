@@ -31,17 +31,28 @@ local `0.1.0` package while its initial public surface is being prepared.
 - Added one shared Parsely-to-Atom Rust bridge to both plugins. Tydenso's
   `math` accepts annotated tensor calls, and annotated values move between
   Tydenso and Tymbolica through their exact native Atom payload.
-- Added portable attachments to the shared Atom payload. Tymbolica preserves
-  attachments through algebra and matrix operations; Tydenso uses them to
-  restore custom representation classes and index palettes before importing an
-  expression in another plugin runtime.
+- Added portable attachments to the shared Atom payload. Tymbolica and Rubi
+  preserve them opaquely without linking Spenso or Idenso; Tydenso alone uses
+  them to restore custom representation classes and index palettes before
+  importing an expression in another plugin runtime.
 - Added Tydenso's own Spenso-aware Typst and compact printers, configurable
-  through the real `SpensoPrintSettings` fields.
+  through the real `SpensoPrintSettings` fields. Bra-ket delimiters and
+  contraction dots use compact mathematical spacing, and nested chain factors
+  no longer acquire redundant parentheses.
 - Render tensor and vector indices with Typst `attach`, including Physica-style
-  hidden alignment columns. Self-dual indices default to the upper row, while
-  dualizable representations retain an explicit lower orientation. Built-in
-  metrics use the same Typst-specific notation instead of exposing their
-  internal representation slots.
+  hidden alignment columns. Built-in base orientations use the upper row except
+  for bispinors; dualizable representations retain an explicit lower
+  orientation. Built-in metrics use the same Typst-specific notation instead
+  of exposing their internal representation slots.
+- Give every built-in Spenso and Idenso representation a conventional cyclic
+  palette for integer slots. The palette is canonical representation metadata,
+  survives plugin round trips, and wraps with numbered subscripts; explicitly
+  named slots remain unchanged.
+- Preserve structured Typst math in tensor and vector arguments as one portable
+  display-defined symbol; wrapping the same content with `math` continues to
+  create real Symbolica algebra. Semantic string identifiers such as `"mu"`
+  use Symbolica's native quoted Typst output and remain visibly distinct from
+  notation such as `$mu$`.
 - Added recursive CBOR inspection of Symbolica Atom internals while retaining
   the native Atom export as the lossless cross-plugin payload.
 - Documented every public parameter, default, return shape, and current

@@ -20,5 +20,4 @@ getrandom = "0.3"
 symbolica = { path = "../../vendor/symbolica-wasm", features = ["wasm"] }
 symbolica-integrate = { path = "../../vendor/symbolica-integrate", features = ["steps"] }
 tymbolica-atom-payload = { path = "../atom-payload" }
-tymbolica-symbol-registry = { path = "../symbol-registry" }
 wasm-minimal-protocol = "0.1"

@@ -72,18 +72,23 @@ same exact Symbolica Atom export understood by both plugins:
 #import "@local/tydenso:0.1.0": *
 
 #let V = mink(4)
-#let mu = slot(V, "mu")
-#let nu = slot(V, "nu")
+#let mu = slot(V, 1) // mu
+#let nu = slot(V, 2) // nu
 #let p = vector("p")
 #let expression = math($#metric(V, mu, nu) #p(nu)$)
 
 #to-typst(simplify-metrics(expression))
 ```
 
+Built-in representations give integer slots conventional names and cycle with
+subscripts; explicitly named slots remain available when a calculation needs a
+different convention.
+
 Tymbolica and Tydenso share one Parsely-to-Atom bridge and one Atom payload.
 Namespaces and Symbolica attributes remain exact, while Tydenso carries the
 representation declarations it needs across plugin calls instead of rebuilding
-them from printed indices.
+them from printed indices. Those declarations are opaque to Tymbolica and
+Rubi: neither engine links Spenso or Idenso; only Tydenso interprets them.
 
 ## Install locally
 
@@ -122,6 +127,8 @@ Linux data directory. During repository development, examples instead import
   construction and metric contraction
 - [Tydenso interoperability](tydenso/examples/interop.typ) — native Atom
   exchange between the two independently packaged plugins
+- [Tydenso index palettes](tydenso/examples/index-palettes.typ) — automatic
+  names, wraparound, dual orientations, and manual labels
 - [Polynomial-system showcase](typst/examples/showcase.typ) — exact solving,
   factorization, substitution, and a Jacobian determinant in one case study
 - [Batched expression grid](typst/examples/expression-grid.typ) — evaluate four

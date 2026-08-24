@@ -1,12 +1,28 @@
 //! Rubi integration extension for Tymbolica Atom payloads.
 
+use std::sync::Once;
+
 use ciborium::value::Value;
 use symbolica::prelude::{Atom, AtomView, Symbol};
-use symbolica_integrate::{Integrate, IntegrationExplanation, IntegrationStep};
+use symbolica_integrate::{IntegralFunctions, Integrate, IntegrationExplanation, IntegrationStep};
 use tymbolica_atom_payload::{AttachmentSet, encode_atom_from_set, parse_payload};
 use wasm_minimal_protocol::*;
 
 initiate_protocol!();
+
+static INITIALIZE_RUBI: Once = Once::new();
+
+fn initialize_rubi() {
+    #[cfg(target_arch = "wasm32")]
+    symbolica::GLOBAL_SETTINGS
+        .initialize_tracing
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+
+    INITIALIZE_RUBI.call_once(|| {
+        // Register Rubi's function catalog without constructing its rule set.
+        let _ = Atom::Zero.fresnel_s();
+    });
+}
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[unsafe(no_mangle)]
@@ -35,12 +51,10 @@ struct AttachedAtom {
 }
 
 fn decode_attached_atom(input: &[u8], label: &str) -> Result<AttachedAtom, String> {
-    tymbolica_symbol_registry::initialize();
+    initialize_rubi();
     let payload = parse_payload(input)
         .map_err(|error| format!("{label} must be Atom payload bytes: {error}"))?;
     let attachments = payload.attachment_set();
-    tymbolica_symbol_registry::register_representation_attachments(&attachments)
-        .map_err(|error| format!("{label} has invalid representation attachments: {error}"))?;
     let atom = payload
         .import_atom()
         .map_err(|error| format!("{label} must be Atom payload bytes: {error}"))?;
@@ -179,7 +193,7 @@ pub extern "C" fn wizer_initialize() {
     // Symbolica must finish its registered state initialization before Rubi's
     // LazyLocks are entered, otherwise the registry callback re-enters them.
     let _ = symbolica::state::State::is_builtin("x");
-    tymbolica_symbol_registry::initialize();
+    initialize_rubi();
     symbolica_integrate::preinitialize();
 }
 
@@ -259,6 +273,25 @@ mod tests {
             parse_payload(&result).unwrap().import_atom().unwrap(),
             symbolica::parse!("x^2/2")
         );
+    }
+
+    #[test]
+    fn integrate_treats_spenso_representation_attachments_as_opaque() {
+        let key = AttachmentKey::new(
+            "spenso.representation",
+            u32::MAX,
+            b"spenso::Future".to_vec(),
+        )
+        .unwrap();
+        let expression = attached_atom(
+            &symbolica::parse!("x"),
+            Attachment::new(key.clone(), b"not representation CBOR".to_vec()).unwrap(),
+        );
+        let variable = encode_atom(&symbolica::parse!("x")).unwrap();
+
+        let result = integrate(&expression, &variable).unwrap();
+
+        assert_attachments(&result, &[(&key, b"not representation CBOR")]);
     }
 
     #[test]

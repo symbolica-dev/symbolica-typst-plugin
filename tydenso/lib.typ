@@ -14,9 +14,30 @@
   "()": (match: $(#parsely.slot("expr*"))$),
   pow: (match: $#parsely.slot("base")^#parsely.slot("exp")$),
   attach: math.attach,
+  accent: math.accent,
+  cancel: math.cancel,
+  cases: math.cases,
+  class: math.class,
   frac: math.frac,
+  limits: math.limits,
   lr: math.lr,
+  mat: math.mat,
+  mid: math.mid,
+  overbrace: math.overbrace,
+  overbracket: math.overbracket,
+  overline: math.overline,
+  overparen: math.overparen,
+  overshell: math.overshell,
   root: math.root,
+  scripts: math.scripts,
+  stretch: math.stretch,
+  text: text,
+  underbrace: math.underbrace,
+  underbracket: math.underbracket,
+  underline: math.underline,
+  underparen: math.underparen,
+  undershell: math.undershell,
+  vec: math.vec,
   op-call: (match: $op(#parsely.slot("op"))(#parsely.slot("args*"))$),
   call: (match: $#parsely.slot("fn") #parsely.tight (#parsely.slot("body*"))$),
   op: math.op,
@@ -125,6 +146,23 @@
   cbor.encode(tree)
 }
 
+#let _display-leaf(value) = {
+  if type(value) == content and repr(value.func()) == "text" {
+    return (
+      head: "text",
+      args: (value.fields().at("text", default: ""),),
+      slots: (:),
+    )
+  }
+  _leaf(value)
+}
+
+#let _display-ast-bytes(equation, grammar) = {
+  let parsed = parsely.parse(_trim-math(equation), _with-semantic-metadata(grammar))
+  let tree = parsely.walk(parsed.tree, post: _node-to-ast, leaf: _display-leaf)
+  cbor.encode(tree)
+}
+
 #let _from-math(engine, equation, grammar: none, namespace: none) = {
   let grammar = if grammar == none { engine.grammar } else { grammar }
   let namespace = if namespace == none { engine.namespace } else { namespace }
@@ -140,6 +178,22 @@
 #let _default-representation-index-row(name, namespace) = if (
   name == "spenso::bis" or (name == "bis" and namespace == "spenso")
 ) { "bottom" } else { "top" }
+
+#let _builtin-representation-index-palettes = (
+  "spenso::mink": ("mu", "nu", "rho", "sigma"),
+  "spenso::euc": ("i", "j", "k", "l"),
+  "spenso::lor": ("mu", "nu", "rho", "sigma"),
+  "spenso::bis": ("a", "b", "c", "d"),
+  "spenso::spf": ("alpha", "beta", "gamma", "delta"),
+  "spenso::cof": ("i", "j", "k", "l"),
+  "spenso::coad": ("a", "b", "c", "d"),
+  "spenso::cos": ("I", "J", "K", "L"),
+)
+
+#let _default-representation-indices(name, namespace) = {
+  let canonical = if name.contains("::") { name } else { namespace + "::" + name }
+  _builtin-representation-index-palettes.at(canonical, default: none)
+}
 
 #let _plain-representation(value) = (
   kind: "representation",
@@ -157,12 +211,36 @@
   ),
 )
 
+#let _contains-raw-math(value) = {
+  if type(value) == array {
+    return value.any(_contains-raw-math)
+  }
+  if type(value) != content { return false }
+
+  let kind = repr(value.func())
+  if kind == "raw" { return true }
+  if kind == "equation" {
+    return _contains-raw-math(value.fields().at("body", default: none))
+  }
+  if kind == "sequence" {
+    return _contains-raw-math(value.fields().at("children", default: ()))
+  }
+  false
+}
+
 #let _portable-index(engine, value) = {
   if type(value) == content {
+    if _contains-raw-math(value) {
+      panic(
+        "manual index math resolved to a non-math Typst value; " +
+        "a local binding may shadow the symbol (use a string such as \"mu\", " +
+        "or qualify literal math as $std.sym.mu$)",
+      )
+    }
     return (
       kind: "display-index",
       version: 1,
-      ast: _ast-bytes(value, engine.grammar),
+      ast: _display-ast-bytes(value, engine.grammar),
     )
   }
   value
@@ -217,6 +295,18 @@
 }
 
 #let _construct(engine, value) = engine.plugin.construct(cbor.encode(_portable(engine, value)))
+
+#let _portable-tensor-argument(engine, value) = {
+  if type(value) == content {
+    return (
+      kind: "display-math",
+      version: 1,
+      ast: _display-ast-bytes(value, engine.grammar),
+    )
+  }
+  _portable(engine, value)
+}
+
 #let _payload(engine, value, label: "expression") = {
   if type(value) == bytes { return value }
   if type(value) == content { return _from-math(engine, value) }
@@ -356,11 +446,14 @@
       panic("tensor calls accept only positional arguments")
     }
     let kind = if rank-one { "vector" } else { "tensor" }
+    let arguments = arguments.pos().map(
+      argument => _portable-tensor-argument(engine, argument),
+    )
     let constructor = (
       kind: kind,
       name: name,
       namespace: namespace,
-      arguments: arguments.pos(),
+      arguments: arguments,
       symmetric: symmetric,
       antisymmetric: antisymmetric,
       cycle-symmetric: cycle-symmetric,
@@ -443,24 +536,29 @@
   index-start: 1,
   index-row: none,
 ) = {
+  let resolved-indices = if indices == none {
+    _default-representation-indices(name, namespace)
+  } else {
+    indices
+  }
   if dual-name != none and dual-name != name {
     panic(
       "dual-name cannot name a different representation symbol; " +
       "duality is stored as slot variance, so omit dual-name or set it to name",
     )
   }
-  if indices != none {
-    if type(indices) != array or indices.len() == 0 {
-      panic("indices must be a non-empty array, or none for numeric indices")
+  if resolved-indices != none {
+    if type(resolved-indices) != array or resolved-indices.len() == 0 {
+      panic("indices must be a non-empty array, or none for the representation default")
     }
-    if not indices.all(index => type(index) in (content, str, int)) {
+    if not resolved-indices.all(index => type(index) in (content, str, int)) {
       panic("indices must contain only Typst math content, strings, or integers")
     }
   }
   if type(index-start) != int or index-start < 0 {
     panic("index-start must be a non-negative integer")
   }
-  if indices == none and index-start != 1 {
+  if resolved-indices == none and index-start != 1 {
     panic("index-start requires an indices palette")
   }
   let index-row = if index-row == none {
@@ -481,7 +579,7 @@
     // Both orientations share one canonical representation head. The slot's
     // `dual` flag is the only algebraic variance marker.
     dual-name: name,
-    indices: indices,
+    indices: resolved-indices,
     index-start: index-start,
     index-row: index-row,
   )
@@ -496,7 +594,7 @@
       self-dual: self-dual,
       is-dual: if self-dual { false } else { not is-dual },
       dual-name: descriptor.name,
-      indices: indices,
+      indices: resolved-indices,
       index-start: index-start,
       index-row: index-row,
     ),
@@ -571,7 +669,7 @@
 /// #let tensors = init()
 /// #let V = (tensors.mink)(4)
 /// #let p = (tensors.vector)("p")
-/// #(tensors.to-typst)(p((tensors.slot)(V, "mu")))
+/// #(tensors.to-typst)(p((tensors.slot)(V, 1)))
 /// ```
 ///
 /// -> dictionary
@@ -745,13 +843,16 @@
 /// Construct a named tensor function.
 ///
 /// The result is callable with any mixture of slots, representations, scalar
-/// values, and compatible Atom payloads. Symmetry flags follow Spenso's
-/// `TensorName` model and are registered on the underlying Symbolica symbol.
+/// values, display math, and compatible Atom payloads. Raw Typst math in a
+/// non-slot argument is retained as one atomic display label; pass `math($...$)`
+/// when that argument should instead be parsed as Symbolica algebra. Symmetry
+/// flags follow Spenso's `TensorName` model and are registered on the underlying
+/// Symbolica symbol.
 ///
 /// ```example
 /// #let V = mink(4)
 /// #let Z = tensor("Z")
-/// #to-typst(Z(slot(V, "mu"), slot(V, "nu")))
+/// #to-typst(Z(slot(V, 1), slot(V, 2)))
 /// ```
 ///
 /// -> function
@@ -790,12 +891,15 @@
 /// Construct a named rank-one tensor function.
 ///
 /// Non-slot arguments are rendered as symbol subscripts in Spenso's Typst
-/// mode, while the vector slot is rendered as an abstract index.
+/// mode, while the vector slot is rendered as an abstract index. Raw Typst math
+/// is preserved as the notation for one atomic label, so accents, fractions,
+/// attachments, and arithmetic can be written directly. Use `math($...$)` when
+/// the argument should remain an algebraic expression rather than a label.
 ///
 /// ```example
 /// #let V = mink(4)
 /// #let p = vector("p")
-/// #to-typst(p(1, slot(V, "mu")))
+/// #to-typst(p($arrow(x + y)$, V))
 /// ```
 ///
 /// -> function
@@ -838,9 +942,9 @@
 /// ```example
 /// #let M = mink(4)
 /// #let B = bis(4)
-/// #let mu = slot(M, "mu")
-/// #let a = slot(B, "a")
-/// #let b = slot(B, "b")
+/// #let mu = slot(M, 1)
+/// #let a = slot(B, 1)
+/// #let b = slot(B, 2)
 /// #let factor = gamma(mu)
 /// #let explicit = gamma(mu, a, b)
 /// #to-typst(chain(a, b, factor))
@@ -881,8 +985,8 @@
 /// ```example
 /// #let M = mink(4)
 /// #let B = bis(4)
-/// #let mu = slot(M, "mu")
-/// #let nu = slot(M, "nu")
+/// #let mu = slot(M, 1)
+/// #let nu = slot(M, 2)
 /// #to-typst(trace(B, cyclic(gamma(mu), gamma(nu))))
 /// ```
 ///
@@ -952,7 +1056,8 @@
   /// -> str | none
   dual-name: none,
   /// Fixed cyclic display palette for automatic integer indices. Entries may
-  /// be Typst math content, strings, or integers. `none` keeps numeric display.
+  /// be Typst math content, strings, or integers. `none` selects the canonical
+  /// built-in palette when one exists, and numeric display otherwise.
   /// -> array | none
   indices: none,
   /// Integer represented by the first palette entry. Each wrap adds a numeric
@@ -978,40 +1083,64 @@
 
 /// Construct a Minkowski representation.
 ///
+/// Integer slots cycle through `mu`, `nu`, `rho`, and `sigma`. This is a
+/// self-dual inline-metric representation whose indices print on the top row.
+///
 /// -> dictionary
 #let mink(dimension) = (_default-engine().mink)(dimension)
 
 /// Construct a Euclidean representation.
+///
+/// Integer slots cycle through `i`, `j`, `k`, and `l`. This representation is
+/// self-dual and prints its indices on the top row.
 ///
 /// -> dictionary
 #let euc(dimension) = (_default-engine().euc)(dimension)
 
 /// Construct a Lorentz representation.
 ///
+/// Integer slots cycle through `mu`, `nu`, `rho`, and `sigma`. Base indices
+/// print on the top row and dual indices on the bottom row.
+///
 /// -> dictionary
 #let lor(dimension) = (_default-engine().lor)(dimension)
 
 /// Construct a bispinor representation.
+///
+/// Integer slots cycle through `a`, `b`, `c`, and `d`. The representation is
+/// self-dual and conventionally prints all of its indices on the bottom row.
 ///
 /// -> dictionary
 #let bis(dimension) = (_default-engine().bis)(dimension)
 
 /// Construct a spin-fundamental representation.
 ///
+/// Integer slots cycle through `alpha`, `beta`, `gamma`, and `delta`. Base
+/// indices print on the top row and dual indices on the bottom row.
+///
 /// -> dictionary
 #let spf(dimension) = (_default-engine().spf)(dimension)
 
 /// Construct a color-fundamental representation.
+///
+/// Integer slots cycle through `i`, `j`, `k`, and `l`. Base indices print on
+/// the top row and dual indices on the bottom row.
 ///
 /// -> dictionary
 #let cof(dimension) = (_default-engine().cof)(dimension)
 
 /// Construct a color-adjoint representation.
 ///
+/// Integer slots cycle through `a`, `b`, `c`, and `d`. This representation is
+/// self-dual and prints its indices on the top row.
+///
 /// -> dictionary
 #let coad(dimension) = (_default-engine().coad)(dimension)
 
 /// Construct a color-sextet representation.
+///
+/// Integer slots cycle through `I`, `J`, `K`, and `L`. Base indices print on
+/// the top row and dual indices on the bottom row.
 ///
 /// -> dictionary
 #let cos(dimension) = (_default-engine().cos)(dimension)
@@ -1027,7 +1156,10 @@
   /// -> dictionary
   representation,
   /// Abstract index label. Typst math content such as `$mu_1$` is retained as
-  /// safe display metadata on a symbolic index.
+  /// safe display metadata on a symbolic index. A string instead names an
+  /// ordinary Symbolica identifier and uses Symbolica's native quoted Typst
+  /// output. If a local variable shadows a math name, qualify the literal
+  /// symbol, for example `$std.sym.mu$`.
   /// -> int | str | bytes | content
   index,
   /// Wrap the slot with Spenso's dual-index marker. `none` inherits the

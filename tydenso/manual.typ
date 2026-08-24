@@ -109,8 +109,8 @@ dictionary; `vector` creates a callable rank-one tensor name.
 
 ```worked
 #let V = mink(4)
-#let mu = slot(V, "mu")
-#let nu = slot(V, "nu")
+#let mu = slot(V, 1)
+#let nu = slot(V, 2)
 #let p = vector("p")
 
 #let before = math($#metric(V, mu, nu) #p(nu)$)
@@ -123,7 +123,8 @@ $
 $
 ```
 
-The constructor calls already produce readable math. Their hidden, versioned
+Here `mink` turns the integer slots `1` and `2` into $mu$ and $nu$. The
+constructor calls already produce readable math. Their hidden, versioned
 metadata contains the exact Symbolica Atom, so `math` does not have to infer a
 tensor from its appearance. It returns Atom bytes for algebra; `to-typst`
 renders transformed results.
@@ -154,7 +155,7 @@ well. The package directory already contains its compressed engine and loader.
 
 The public concepts follow Spenso's Python surface, adapted to what is natural
 in Typst. Python objects can overload calls; Typst dictionaries cannot, so
-index construction is the explicit `slot(V, "mu")`. Tensor names are functions,
+index construction is the explicit `slot(V, 1)`. Tensor names are functions,
 which keeps the pleasant `p(mu)` spelling.
 
 #table(
@@ -171,8 +172,8 @@ expr = TensorName.g(mu, nu) * p(nu)
 ```],
   [```typst
 #let V = mink(4)
-#let mu = slot(V, "mu")
-#let nu = slot(V, "nu")
+#let mu = slot(V, 1)
+#let nu = slot(V, 2)
 #let p = vector("p")
 #let expr = math($#metric(V, mu, nu) #p(nu)$)
 ```],
@@ -189,6 +190,27 @@ expressions are Atom bytes.
 Built-in constructors cover the representations initialized by Spenso and
 Idenso: `mink`, `euc`, `lor`, `bis`, `spf`, `cof`, `coad`, and `cos`. Use
 `representation` when a model introduces another representation.
+
+Each built-in owns a conventional palette for integer slots:
+
+#table(
+  columns: (auto, 1fr, 1.25fr, auto),
+  inset: 5pt,
+  stroke: 0.4pt + rgb("#d7cfda"),
+  table.header([*Constructor*], [*Class*], [*Palette*], [*Base row*]),
+  [`mink`], [inline metric], [$mu, nu, rho, sigma$], [top],
+  [`euc`], [self-dual], [$i, j, k, l$], [top],
+  [`lor`], [dualizable], [$mu, nu, rho, sigma$], [top],
+  [`bis`], [self-dual], [$a, b, c, d$], [bottom],
+  [`spf`], [dualizable], [$alpha, beta, gamma, delta$], [top],
+  [`cof`], [dualizable], [$i, j, k, l$], [top],
+  [`coad`], [self-dual], [$a, b, c, d$], [top],
+  [`cos`], [dualizable], [$I, J, K, L$], [top],
+)
+
+Every palette starts at 1. After its fourth entry it repeats with a numeric
+subscript, so `slot(mink(4), 5)` displays as $mu_1$. A dualizable
+representation uses the same palette for its dual; only the script row flips.
 
 A custom representation can name its automatic indices. The palette repeats;
 each pass adds a subscript. Manually written indices use the same notation but
@@ -214,22 +236,24 @@ keep their own symbolic identity.
 $ #to-typst(expression, settings: detailed) $
 ```
 
-Here the qualified form distinguishes the indices as members of $M_4$. Leave
-`indices` unset to keep the ordinary numeric display used by the built-in
-representations.
+Here the qualified form distinguishes the indices as members of $M_4$. A
+custom representation without `indices` keeps numeric display. A string is a
+Symbolica identifier and uses Symbolica's native quoted Typst output; Typst
+math such as `$rho_2$` instead creates an opaque index symbol carrying exactly
+that display notation. Neither form consults the automatic palette.
 
 ```worked
 #let color = cof(3)
-#let a = slot(color, "a")
-#let b-lower = slot(color, "b", dual: true)
+#let i = slot(color, 1)
+#let j-lower = slot(color, 2, dual: true)
 
 #table(
   columns: (auto, 1fr),
   inset: 5pt,
   [representation], [#color.name],
   [dimension], [#color.dimension],
-  [first index], [#a.index],
-  [second index is dual], [#b-lower.dual],
+  [first index], [#i.index],
+  [second index is dual], [#j-lower.dual],
 )
 ```
 
@@ -247,8 +271,8 @@ attributes while it constructs the function, not as a later cosmetic step.
 
 ```worked
 #let V = euc(3)
-#let mu-slot = slot(V, "mu")
-#let nu-slot = slot(V, "nu")
+#let mu-slot = slot(V, $std.sym.mu$)
+#let nu-slot = slot(V, $std.sym.nu$)
 #let F = tensor("F", antisymmetric: true)
 
 #let cancellation = math($#F(mu-slot, nu-slot) + #F(nu-slot, mu-slot)$)
@@ -266,8 +290,8 @@ ordinary arithmetic, while each annotated value contributes its exact Atom.
 
 ```worked
 #let V = mink("D")
-#let mu = slot(V, "mu")
-#let nu = slot(V, "nu")
+#let mu = slot(V, 1)
+#let nu = slot(V, 2)
 #let p = vector("p")
 #let mass = symbol("m", namespace: "model")
 
@@ -280,6 +304,34 @@ useful for generated expressions. They accept Atom bytes, annotated content,
 numbers, slots, and representation dictionaries. Both paths construct the
 same Atom; neither reconstructs tensors from printed subscripts.
 
+== Give vectors mathematical labels
+
+Raw Typst math in a tensor or vector argument describes how one atomic label
+is written. It can contain arithmetic, attachments, fractions, calls, accents,
+and the usual structural math elements. This is useful for momentum labels
+that should stay visually rich without becoming part of the tensor algebra.
+
+```worked
+#let V = mink(4)
+#let p = vector("p")
+
+#let routed = p($arrow(x + y)$, V)
+#let algebraic = p(math($x + y$), V)
+
+#table(
+  columns: (auto, 1fr),
+  inset: 5pt,
+  [one display-defined label], [$ #to-typst(routed) $],
+  [a genuine Symbolica sum], [$ #to-typst(algebraic) $],
+)
+```
+
+The first call stores one opaque Symbolica symbol together with a portable,
+structured Typst display tree. The second call stores the actual sum $x + y$,
+so Symbolica may inspect or transform it. Tymbolica and Rubi preserve the
+display attachment without needing to understand it; Tydenso restores it when
+the payload returns.
+
 == Build open and closed Spenso chains
 
 The chain helpers construct Spenso's actual Atom heads; they are not drawing
@@ -290,8 +342,8 @@ placeholders for a chain factor.
 ```worked
 #let M = mink(4)
 #let B = bis(4)
-#let mu = slot(M, "mu")
-#let nu = slot(M, "nu")
+#let mu = slot(M, 1)
+#let nu = slot(M, 2)
 
 #let p = vector("p")
 #let q = vector("q")
@@ -323,6 +375,33 @@ and `trace` combines that cycle with its representation. The
 notation example] also inspects the constructed trees and checks their exact
 Spenso shapes.
 
+Explicit slots are also valid chain endpoints; they render as endpoint scripts
+on the chain body, while compact vectors produce the named bra and ket ends.
+
+A string and Typst math deliberately mean different things. `slot(B, "mu")`
+uses the semantic Symbolica identifier `mu`; Symbolica prints its
+multi-character name as the quoted Typst text `"mu"`. `slot(B,
+$std.sym.mu$)` creates a different, opaque index whose attached notation prints
+as the Greek $mu$. They are not interchangeable contraction labels.
+
+```worked
+#let B = bis(4)
+#let q = vector("q")
+#let identifier = slot(B, "mu")
+#let notation = slot(B, $std.sym.mu$)
+
+#table(
+  columns: (auto, 1fr),
+  [semantic identifier `"mu"`], [$ #to-typst(q(identifier)) $],
+  [Typst notation `$mu$`], [$ #to-typst(q(notation)) $],
+)
+```
+
+Use palette integers for a representation's standard indices, and use math
+content when the written notation itself defines a manual index. Typst scope
+still applies: after `#let mu = ...`, `$mu$` evaluates that binding, so qualify
+a literal Greek symbol as `$std.sym.mu$`.
+
 = Transform tensors
 
 Idenso provides the domain-specific transformations. The most common ones
@@ -336,9 +415,9 @@ eliminates both contracted dummy indices in one pass.
 
 ```worked
 #let V = mink(4)
-#let mu = slot(V, "mu")
-#let nu = slot(V, "nu")
-#let rho = slot(V, "rho")
+#let mu = slot(V, 1)
+#let nu = slot(V, 2)
+#let rho = slot(V, 3)
 #let p = vector("p")
 
 #let chain = mul(
@@ -391,7 +470,7 @@ custom tensor notation. `to-string` uses Spenso's compact Symbolica notation.
 ```worked
 #let V = mink(4)
 #let p = vector("p")
-#let expression = p(1, slot(V, "mu"))
+#let expression = p(1, slot(V, 1))
 
 #let detailed = print-settings(with-dim: true, commas: true)
 
@@ -401,9 +480,10 @@ Compact Spenso form:
 #raw(to-string(expression), block: true)
 ```
 
-Upper and lower indices align in matching columns. A plain self-dual slot is
-placed on the top row; for a dualizable representation, its dual orientation
-is placed on the bottom row.
+Upper and lower indices align in matching columns. `bis` uses the conventional
+bottom row; the other built-in base orientations use the top row. A
+dualizable representation puts its dual orientation on the opposite row,
+while a self-dual representation does not flip.
 
 `print-settings` exposes the real `SpensoPrintSettings` switches:
 `with-dim`, `parens`, `commas`, `index-subscripts`, and `symbol-scripts`. Start
@@ -421,7 +501,7 @@ arguments, and symmetry flags.
 ```worked
 #let V = euc(3)
 #let A = tensor("A", symmetric: true)
-#let expression = A(slot(V, "i"), slot(V, "j"))
+#let expression = A(slot(V, 1), slot(V, 2))
 #let tree = inspect(expression)
 
 #table(

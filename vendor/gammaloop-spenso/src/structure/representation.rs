@@ -764,6 +764,26 @@ fn default_index_row(name: &str) -> IndexRow {
     }
 }
 
+fn default_index_palette(name: &str) -> IndexPalette {
+    let labels: &[&str] = match canonical_representation_name(name).as_str() {
+        "spenso::mink" | "spenso::lor" => &["mu", "nu", "rho", "sigma"],
+        "spenso::euc" | "spenso::cof" => &["i", "j", "k", "l"],
+        "spenso::bis" | "spenso::coad" => &["a", "b", "c", "d"],
+        "spenso::spf" => &["alpha", "beta", "gamma", "delta"],
+        "spenso::cos" => &["I", "J", "K", "L"],
+        _ => return IndexPalette::Numeric,
+    };
+
+    IndexPalette::cyclic(
+        1,
+        labels.iter().map(|label| {
+            IndexDisplay::symbol(*label)
+                .expect("the built-in representation palettes contain valid symbols")
+        }),
+    )
+    .expect("the built-in representation palettes are non-empty and valid")
+}
+
 fn representation_typst_body(label: &IndexDisplay) -> String {
     format!(
         "(dim, ind ) = (content: $ {}^#dim _#ind $, upper:true)",
@@ -779,8 +799,21 @@ fn representation_typst_body(label: &IndexDisplay) -> String {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IndexDisplay {
     Symbol(String),
+    /// Upright text embedded in a mathematical label.
+    Text(String),
     Number(i64),
     Sequence(Vec<IndexDisplay>),
+    /// A nested argument/row list. Unlike `Sequence`, entries retain their
+    /// comma/row boundary when used by a safe mathematical display node.
+    List(Vec<IndexDisplay>),
+    /// A validated mathematical display node.
+    ///
+    /// `head` is never emitted directly. Rendering dispatches through a fixed
+    /// allowlist, so imported symbol metadata cannot inject Typst source.
+    Math {
+        head: String,
+        arguments: Vec<IndexDisplay>,
+    },
     Attach {
         base: Box<IndexDisplay>,
         top: Option<Box<IndexDisplay>>,
@@ -842,12 +875,178 @@ impl IndexDisplay {
         }
     }
 
+    pub fn text(value: impl Into<String>) -> Result<Self, RepLibraryError> {
+        let value = value.into();
+        if value.chars().count() > 1024 || value.chars().any(char::is_control) {
+            return Err(RepLibraryError::InvalidIndexDisplay(
+                "display text must contain at most 1024 non-control characters".to_owned(),
+            ));
+        }
+        Ok(Self::Text(value))
+    }
+
+    pub fn math(
+        head: impl Into<String>,
+        arguments: Vec<IndexDisplay>,
+    ) -> Result<Self, RepLibraryError> {
+        let head = head.into();
+        if !matches!(
+            head.as_str(),
+            "arg"
+                | "add"
+                | "sub"
+                | "plus"
+                | "neg"
+                | "times"
+                | "dot"
+                | "factorial"
+                | "mul"
+                | "()"
+                | "group"
+                | "lr"
+                | "pow"
+                | "frac"
+                | "root"
+                | "call"
+                | "op-call"
+                | "op"
+                | "accent"
+                | "underline"
+                | "overline"
+                | "underbrace"
+                | "overbrace"
+                | "underbracket"
+                | "overbracket"
+                | "underparen"
+                | "overparen"
+                | "undershell"
+                | "overshell"
+                | "cancel"
+                | "vec"
+                | "mat"
+                | "cases"
+                | "class"
+                | "mid"
+                | "scripts"
+                | "limits"
+                | "stretch"
+        ) {
+            return Err(RepLibraryError::InvalidIndexDisplay(format!(
+                "unsupported mathematical display node {head:?}"
+            )));
+        }
+        if arguments.len() > 64 {
+            return Err(RepLibraryError::InvalidIndexDisplay(
+                "a mathematical display node cannot contain more than 64 arguments".to_owned(),
+            ));
+        }
+        Ok(Self::Math { head, arguments })
+    }
+
     fn escaped_typst_string(value: &str) -> String {
         value
             .replace('\\', "\\\\")
             .replace('"', "\\\"")
             .replace('\n', "\\n")
             .replace('\r', "\\r")
+    }
+
+    fn literal_text(&self) -> Option<&str> {
+        match self {
+            Self::Symbol(value) | Self::Text(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn typst_math_source(head: &str, arguments: &[Self]) -> String {
+        let sources = arguments
+            .iter()
+            .map(Self::to_typst_source)
+            .collect::<Vec<_>>();
+        let joined = |separator: &str| sources.join(separator);
+        let unary = |prefix: &str, suffix: &str| {
+            sources
+                .first()
+                .map(|body| format!("{prefix}{body}{suffix}"))
+                .unwrap_or_else(|| r#"upright("?")"#.to_owned())
+        };
+        let call = |name: &str| format!("{name}({})", joined(","));
+
+        match head {
+            "arg" => joined(","),
+            "add" => joined(" + "),
+            "sub" => joined(" - "),
+            "plus" => unary("+", ""),
+            "neg" => unary("-", ""),
+            "times" => joined(" times "),
+            "dot" => joined(" dot "),
+            "factorial" => unary("", "!"),
+            "mul" => joined(" "),
+            "()" | "group" | "lr" => unary("lr((", "))"),
+            "pow" if sources.len() == 2 => {
+                format!("attach({},t:{})", sources[0], sources[1])
+            }
+            "frac" if sources.len() == 2 => format!("frac({},{})", sources[0], sources[1]),
+            "root" if sources.len() == 1 => format!("root({})", sources[0]),
+            "root" if sources.len() == 2 => {
+                format!("root({},{})", sources[0], sources[1])
+            }
+            "call" | "op-call" if !sources.is_empty() => {
+                let body = sources[1..].join(",");
+                format!("{}({body})", sources[0])
+            }
+            "op" if arguments.len() == 1 => {
+                let text = arguments[0].literal_text().unwrap_or("?");
+                format!(r#"op("{}")"#, Self::escaped_typst_string(text))
+            }
+            "accent" if arguments.len() == 2 => {
+                let accent = arguments[1].literal_text().unwrap_or("?");
+                format!(
+                    r#"accent({},"{}")"#,
+                    sources[0],
+                    Self::escaped_typst_string(accent)
+                )
+            }
+            "underline" | "overline" | "cancel" | "mid" | "scripts" | "limits" | "stretch"
+                if sources.len() == 1 =>
+            {
+                call(head)
+            }
+            "underbrace" | "overbrace" | "underbracket" | "overbracket" | "underparen"
+            | "overparen" | "undershell" | "overshell"
+                if (1..=2).contains(&sources.len()) =>
+            {
+                call(head)
+            }
+            "vec" => call("vec"),
+            "mat" => {
+                let rows = arguments
+                    .iter()
+                    .map(|row| match row {
+                        Self::List(entries) => entries
+                            .iter()
+                            .map(Self::to_typst_source)
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        value => value.to_typst_source(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";");
+                format!("mat({rows})")
+            }
+            "cases" => call("cases"),
+            "class" if arguments.len() == 2 => {
+                let class = arguments[0].literal_text().unwrap_or("normal");
+                format!(
+                    r#"class("{}",{})"#,
+                    Self::escaped_typst_string(class),
+                    sources[1]
+                )
+            }
+            // The constructor rejects unknown nodes. This fixed fallback also
+            // keeps forged/imported user data from becoming executable source.
+            _ => r#"upright("?")"#.to_owned(),
+        }
     }
 
     fn is_typst_math_name(name: &str) -> bool {
@@ -895,12 +1094,21 @@ impl IndexDisplay {
             Self::Symbol(name) => {
                 format!(r#"italic("{}")"#, Self::escaped_typst_string(name))
             }
+            Self::Text(value) => {
+                format!(r#"upright("{}")"#, Self::escaped_typst_string(value))
+            }
             Self::Number(number) => number.to_string(),
             Self::Sequence(items) => items
                 .iter()
                 .map(Self::to_typst_source)
                 .collect::<Vec<_>>()
                 .join(" "),
+            Self::List(items) => items
+                .iter()
+                .map(Self::to_typst_source)
+                .collect::<Vec<_>>()
+                .join(","),
+            Self::Math { head, arguments } => Self::typst_math_source(head, arguments),
             Self::Attach { base, top, bottom } => {
                 let mut source = format!("attach({}", base.to_typst_source());
                 if let Some(top) = top {
@@ -920,12 +1128,19 @@ impl IndexDisplay {
     pub fn to_native_string(&self) -> String {
         match self {
             Self::Symbol(name) => name.clone(),
+            Self::Text(value) => value.clone(),
             Self::Number(number) => number.to_string(),
             Self::Sequence(items) => items
                 .iter()
                 .map(Self::to_native_string)
                 .collect::<Vec<_>>()
                 .join(" "),
+            Self::List(items) => items
+                .iter()
+                .map(Self::to_native_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            Self::Math { .. } => self.to_typst_source(),
             Self::Attach { base, top, bottom } => {
                 let mut output = base.to_native_string();
                 if let Some(top) = top {
@@ -950,6 +1165,10 @@ impl IndexDisplay {
                 UserData::String("symbol".to_owned()),
                 UserData::String(name.clone()),
             ]),
+            Self::Text(value) => UserData::List(vec![
+                UserData::String("text".to_owned()),
+                UserData::String(value.clone()),
+            ]),
             Self::Number(number) => UserData::List(vec![
                 UserData::String("number".to_owned()),
                 UserData::Integer(*number),
@@ -957,6 +1176,15 @@ impl IndexDisplay {
             Self::Sequence(items) => UserData::List(vec![
                 UserData::String("sequence".to_owned()),
                 UserData::List(items.iter().map(Self::node_user_data).collect()),
+            ]),
+            Self::List(items) => UserData::List(vec![
+                UserData::String("list".to_owned()),
+                UserData::List(items.iter().map(Self::node_user_data).collect()),
+            ]),
+            Self::Math { head, arguments } => UserData::List(vec![
+                UserData::String("math".to_owned()),
+                UserData::String(head.clone()),
+                UserData::List(arguments.iter().map(Self::node_user_data).collect()),
             ]),
             Self::Attach { base, top, bottom } => UserData::List(vec![
                 UserData::String("attach".to_owned()),
@@ -984,6 +1212,9 @@ impl IndexDisplay {
             [UserData::String(kind), UserData::String(name)] if kind == "symbol" => {
                 Self::symbol(name.clone()).ok()
             }
+            [UserData::String(kind), UserData::String(value)] if kind == "text" => {
+                Self::text(value.clone()).ok()
+            }
             [UserData::String(kind), UserData::Integer(number)] if kind == "number" => {
                 Some(Self::Number(*number))
             }
@@ -997,6 +1228,28 @@ impl IndexDisplay {
                         .map(|item| Self::from_node_user_data(item, depth + 1))
                         .collect::<Option<Vec<_>>>()?,
                 ))
+            }
+            [UserData::String(kind), UserData::List(items)] if kind == "list" => {
+                if items.len() > 64 {
+                    return None;
+                }
+                Some(Self::List(
+                    items
+                        .iter()
+                        .map(|item| Self::from_node_user_data(item, depth + 1))
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+            [
+                UserData::String(kind),
+                UserData::String(head),
+                UserData::List(arguments),
+            ] if kind == "math" => {
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| Self::from_node_user_data(argument, depth + 1))
+                    .collect::<Option<Vec<_>>>()?;
+                Self::math(head.clone(), arguments).ok()
             }
             [UserData::String(kind), base, top, bottom] if kind == "attach" => Some(Self::Attach {
                 base: Box::new(Self::from_node_user_data(base, depth + 1)?),
@@ -1650,7 +1903,7 @@ impl ExtendibleReps {
         let rep = LibraryRep::Dualizable(DUALIZABLE.len() as i16 + 1);
         let symbol = rep.new_symbol_with_index_row(
             &canonical_name,
-            index_palette.unwrap_or_default(),
+            index_palette.unwrap_or_else(|| default_index_palette(&canonical_name)),
             index_row.unwrap_or_else(|| default_index_row(&canonical_name)),
         )?;
         self.name_map.insert(canonical_name, rep);
@@ -1754,7 +2007,7 @@ impl ExtendibleReps {
         #[cfg(feature = "shadowing")]
         let symbol = rep.new_symbol_with_index_row(
             &canonical_name,
-            index_palette.unwrap_or_default(),
+            index_palette.unwrap_or_else(|| default_index_palette(&canonical_name)),
             index_row.unwrap_or_else(|| default_index_row(&canonical_name)),
         )?;
         #[cfg(not(feature = "shadowing"))]
@@ -1789,9 +2042,11 @@ impl ExtendibleReps {
                 LibraryRep::InlineMetric(a) => {
                     if INLINE_METRIC[*a as usize].1.metric_data == metric_fn {
                         #[cfg(feature = "shadowing")]
-                        if RepresentationMetadata::from_symbol(self[*rep].symbol)
-                            .is_none_or(|metadata| metadata.index_palette != IndexPalette::Numeric)
-                        {
+                        if RepresentationMetadata::from_symbol(self[*rep].symbol).is_none_or(
+                            |metadata| {
+                                metadata.index_palette != default_index_palette(&canonical_name)
+                            },
+                        ) {
                             return Err(RepLibraryError::AlreadyExistsDifferentMetadata(
                                 name.into(),
                             ));
@@ -1808,7 +2063,7 @@ impl ExtendibleReps {
 
         let rep = LibraryRep::InlineMetric(INLINE_METRIC.len() as u16);
         #[cfg(feature = "shadowing")]
-        let symbol = rep.new_symbol(&canonical_name, IndexPalette::Numeric)?;
+        let symbol = rep.new_symbol(&canonical_name, default_index_palette(&canonical_name))?;
         self.name_map.insert(canonical_name, rep);
         #[cfg(feature = "shadowing")]
         self.symbol_map.insert(symbol, rep);
@@ -2293,7 +2548,7 @@ mod shadowing_tests {
     use crate::network::tags::SPENSO_TAG;
 
     use super::{
-        IndexDisplay, IndexPalette, IndexRow, LibraryRep, RepLibraryError, RepName,
+        IndexDisplay, IndexPalette, IndexRow, LibraryRep, Minkowski, RepLibraryError, RepName,
         RepresentationClass, RepresentationError, RepresentationMetadata,
         representation_typst_body,
     };
@@ -2369,6 +2624,82 @@ mod shadowing_tests {
                     .with_bottom(IndexDisplay::Number(2))
             )
         );
+    }
+
+    #[test]
+    fn canonical_representations_own_conventional_index_palettes() {
+        let cases = [
+            (
+                LibraryRep::from(Minkowski {}),
+                RepresentationClass::InlineMetric,
+                &["mu", "nu", "rho", "sigma"][..],
+                IndexRow::Top,
+            ),
+            (
+                LibraryRep::new_self_dual("euc").unwrap(),
+                RepresentationClass::SelfDual,
+                &["i", "j", "k", "l"][..],
+                IndexRow::Top,
+            ),
+            (
+                LibraryRep::new_dual("lor").unwrap(),
+                RepresentationClass::Dualizable,
+                &["mu", "nu", "rho", "sigma"][..],
+                IndexRow::Top,
+            ),
+            (
+                LibraryRep::new_self_dual("bis").unwrap(),
+                RepresentationClass::SelfDual,
+                &["a", "b", "c", "d"][..],
+                IndexRow::Bottom,
+            ),
+            (
+                LibraryRep::new_dual("spf").unwrap(),
+                RepresentationClass::Dualizable,
+                &["alpha", "beta", "gamma", "delta"][..],
+                IndexRow::Top,
+            ),
+            (
+                LibraryRep::new_dual("cof").unwrap(),
+                RepresentationClass::Dualizable,
+                &["i", "j", "k", "l"][..],
+                IndexRow::Top,
+            ),
+            (
+                LibraryRep::new_self_dual("coad").unwrap(),
+                RepresentationClass::SelfDual,
+                &["a", "b", "c", "d"][..],
+                IndexRow::Top,
+            ),
+            (
+                LibraryRep::new_dual("cos").unwrap(),
+                RepresentationClass::Dualizable,
+                &["I", "J", "K", "L"][..],
+                IndexRow::Top,
+            ),
+        ];
+
+        for (representation, class, labels, row) in cases {
+            let metadata = representation.metadata().unwrap();
+            assert_eq!(metadata.class, class);
+            assert_eq!(metadata.index_row, row);
+            let expected = IndexPalette::cyclic(
+                1,
+                labels
+                    .iter()
+                    .map(|label| IndexDisplay::symbol(*label).unwrap()),
+            )
+            .unwrap();
+            assert_eq!(metadata.index_palette, expected);
+            assert_eq!(
+                metadata.index_palette.resolve(5),
+                Some(
+                    IndexDisplay::symbol(labels[0])
+                        .unwrap()
+                        .with_bottom(IndexDisplay::Number(1))
+                )
+            );
+        }
     }
 
     #[test]
@@ -2472,6 +2803,47 @@ mod shadowing_tests {
 
         assert!(body.contains(r#"italic("M\"; raw-source")"#));
         assert!(!body.contains(r#""M"; raw-source"#));
+    }
+
+    #[test]
+    fn mathematical_display_nodes_render_and_round_trip_as_safe_user_data() {
+        let display = IndexDisplay::math(
+            "add",
+            vec![
+                IndexDisplay::math(
+                    "accent",
+                    vec![
+                        IndexDisplay::symbol("p").unwrap(),
+                        IndexDisplay::symbol("⃗").unwrap(),
+                    ],
+                )
+                .unwrap(),
+                IndexDisplay::math(
+                    "frac",
+                    vec![IndexDisplay::symbol("q").unwrap(), IndexDisplay::Number(2)],
+                )
+                .unwrap(),
+                IndexDisplay::text("soft").unwrap(),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            display.to_typst_source(),
+            r#"accent(p,"⃗") + frac(q,2) + upright("soft")"#
+        );
+        let symbol = SymbolBuilder::new(NamespacedSymbol::parse(
+            "spenso_rep_metadata_tests::MathDisplayRoundTrip",
+        ))
+        .with_user_data(display.symbol_user_data())
+        .build()
+        .unwrap();
+        assert_eq!(IndexDisplay::from_symbol(symbol), Some(display));
+    }
+
+    #[test]
+    fn unknown_math_display_heads_cannot_be_constructed() {
+        assert!(IndexDisplay::math("raw-code", vec![]).is_err());
     }
 
     #[test]

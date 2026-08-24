@@ -109,6 +109,26 @@
             fi
             ls -lh rubi/tymbolica-rubi.wasm.zlib
           '';
+          dependencyBoundaryScript = ''
+            assert_dependency_absent() {
+              local package="$1"
+              local dependency="$2"
+              local tree
+              tree="$(cargo tree --edges normal --prefix none --format '{p}' --package "$package")"
+              if [[ "$tree" == "$dependency v"* || "$tree" == *$'\n'"$dependency v"* ]]; then
+                echo "$package must not depend on $dependency" >&2
+                exit 1
+              fi
+            }
+
+            for dependency in spenso idenso symbolica-integrate; do
+              assert_dependency_absent tymbolica-plugin "$dependency"
+              assert_dependency_absent tymbolica-typst-ast "$dependency"
+            done
+            for dependency in spenso idenso; do
+              assert_dependency_absent tymbolica-rubi-plugin "$dependency"
+            done
+          '';
           buildScript = loaderBuildScript + engineBuildScript + tydensoBuildScript + rubiBuildScript;
         in rec {
           default = build;
@@ -126,7 +146,7 @@
             typst compile --root . rubi/manual.typ "$rubi_out"
             ls -lh "$tymbolica_out" "$tydenso_out" "$rubi_out"
           '');
-          check = app "tymbolica-check" (buildScript + ''
+          check = app "tymbolica-check" (dependencyBoundaryScript + buildScript + ''
             check_dir="$(mktemp -d)"
             trap 'rm -rf "$check_dir"' EXIT
 
@@ -142,6 +162,7 @@
             typst compile --root . tydenso/examples/symmetry.typ "$check_dir/tydenso-symmetry.pdf"
             typst compile --root . tydenso/examples/interop.typ "$check_dir/tydenso-interop.pdf"
             typst compile --root . tydenso/examples/spenso-notation.typ "$check_dir/tydenso-spenso-notation.pdf"
+            typst compile --root . tydenso/examples/index-palettes.typ "$check_dir/tydenso-index-palettes.pdf"
             typst compile --root . tydenso/manual.typ "$check_dir/tydenso-manual.pdf"
             typst compile --root . rubi/examples/basic.typ "$check_dir/rubi-basic.pdf"
             typst compile --root . rubi/manual.typ "$check_dir/rubi-manual.pdf"
@@ -224,6 +245,7 @@
             typst compile --root "$work" "$work/tydenso/examples/symmetry.typ" "$out/tydenso-symmetry.pdf"
             typst compile --root "$work" "$work/tydenso/examples/interop.typ" "$out/tydenso-interop.pdf"
             typst compile --root "$work" "$work/tydenso/examples/spenso-notation.typ" "$out/tydenso-spenso-notation.pdf"
+            typst compile --root "$work" "$work/tydenso/examples/index-palettes.typ" "$out/tydenso-index-palettes.pdf"
             typst compile --root "$work" "$work/tydenso/manual.typ" "$out/tydenso-manual.pdf"
             typst compile --root "$work" "$work/rubi/examples/basic.typ" "$out/rubi-basic.pdf"
             typst compile --root "$work" "$work/rubi/manual.typ" "$out/rubi-manual.pdf"
