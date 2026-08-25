@@ -358,6 +358,20 @@
   _annotated-visual(atom, visual, _portable(engine, semantic))
 }
 
+#let _eval-printer-leaves(rendered, printer) = {
+  let leaves = rendered.leaves.map(leaf => {
+    let visual = eval(leaf.source, mode: "math")
+    _annotated-visual(leaf.atom, visual.body, (
+      kind: "printer-leaf",
+      leaf-kind: leaf.kind,
+      printer: printer,
+    ))
+  })
+  eval(rendered.source, mode: "math", scope: (
+    __tymbolica_leaf: index => leaves.at(index),
+  ))
+}
+
 #let _validate-tags(tags) = {
   if type(tags) != array or not tags.all(tag => type(tag) == str) {
     panic("tags must be an array of strings")
@@ -650,14 +664,12 @@
 
 #let _to-typst(engine, expression, settings: _print-settings(), block: false) = {
   let atom = _payload(engine, expression)
-  let equation = eval(str(engine.plugin.to_typst(cbor.encode((
+  let rendered = cbor(engine.plugin.to_typst_with_leaves(cbor.encode((
     expr: atom,
     settings: settings,
-  )))), mode: "math")
-  let body = _annotated-visual(atom, equation.body, (
-    kind: "rendered-atom",
-    printer: "spenso-typst",
-  ))
+  ))))
+  let equation = _eval-printer-leaves(rendered, "spenso-typst")
+  let body = equation.body
   if block { math.equation(body, block: true) } else { body }
 }
 
@@ -1289,9 +1301,11 @@
 
 /// Print and evaluate an expression as Typst math content.
 ///
-/// The returned content carries the exact Atom payload as invisible metadata.
-/// Interpolating it into `math` therefore recovers the original Atom even when
-/// Spenso's displayed tensor notation is not textually invertible.
+/// Ordinary algebra and normal function arguments remain visible parseable
+/// structure. Symbols and function heads carry exact Atom metadata, while each
+/// non-invertible Spenso custom rendering is one metadata-backed semantic leaf.
+/// Interpolating the result into `math` therefore preserves exact identities
+/// without making the surrounding algebra opaque.
 ///
 /// -> content
 #let to-typst(

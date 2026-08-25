@@ -57,15 +57,19 @@
 #let custom-expression = (custom.math)($#custom-q + 1$)
 #assert((custom.canonical)(custom-expression, namespaces: true).contains("model"))
 
-// Rendered Atom content retains the authoritative payload. This matters for
-// namespaces and custom printers that cannot be reconstructed from appearance.
+// Rendered Atom content retains exact payloads only at semantic leaves. The
+// ordinary call and its arguments remain visible Parsely structure.
 #let rendered-q = algebra.symbol("q", namespace: "rendered_model")
 #let rendered-f = algebra.function("f", namespace: "rendered_model")
 #let original-call = rendered-f(rendered-q)
 #let shown-call = algebra.to-typst(original-call)
 #let shown-tree = parsely.parse($#shown-call$, grammar).tree
-#assert.eq(shown-tree.head, "semantic-metadata")
-#assert.eq(shown-tree.slots.value.semantic.kind, "rendered-atom")
+#assert.eq(shown-tree.head, "op-call")
+#assert.eq(shown-tree.slots.op.head, "semantic-metadata")
+#assert.eq(shown-tree.slots.op.slots.value.semantic.kind, "printer-leaf")
+#assert.eq(shown-tree.slots.op.slots.value.semantic.leaf-kind, "function-head")
+#assert.eq(shown-tree.slots.args.head, "semantic-metadata")
+#assert.eq(shown-tree.slots.args.slots.value.semantic.leaf-kind, "symbol")
 
 #let restored-call = algebra.math($#shown-call$)
 #assert.eq(
@@ -78,6 +82,17 @@
 #assert.eq(
   algebra.canonical(composed-call, namespaces: true),
   algebra.canonical(expected-call, namespaces: true),
+)
+
+// A normal function's argument is not hidden by the exact head payload.
+#let original-sum-call = rendered-f(algebra.add(rendered-q, 1))
+#let shown-sum-call = algebra.to-typst(original-sum-call)
+#let shown-sum-tree = parsely.parse($#shown-sum-call$, grammar).tree
+#assert.eq(shown-sum-tree.head, "op-call")
+#assert.eq(shown-sum-tree.slots.args.head, "add")
+#assert.eq(
+  algebra.canonical(algebra.math($#shown-sum-call$), namespaces: true),
+  algebra.canonical(original-sum-call, namespaces: true),
 )
 
 // Matrices have a separate payload format and remain ordinary display content.

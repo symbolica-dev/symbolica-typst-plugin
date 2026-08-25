@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{collections::HashSet, io::Cursor};
 
 use ahash::HashMap;
 
@@ -27,8 +27,8 @@ use ciborium::value::Value;
 use symbolica::domains::SelfRing;
 use symbolica::prelude::{
     Atom, AtomCore, AtomPrinter, AtomView, Coefficient, CoefficientView, Complex, DoubleFloat,
-    ExpressionEvaluator, F64, Float, Indeterminate, IntegerRing, Matrix, PolyVariable,
-    PrintOptions, PrintState, Q, RationalPolynomial, RationalPolynomialField, Real,
+    ExpressionEvaluator, F64, Float, FunctionBuilder, Indeterminate, IntegerRing, Matrix,
+    PolyVariable, PrintOptions, PrintState, Q, RationalPolynomial, RationalPolynomialField, Real,
     ReplaceSettings, Replacement, Ring, SeriesDepth, SolutionCondition, SolveDomain, Symbol, Z,
 };
 use tymbolica_atom_payload::{
@@ -898,6 +898,161 @@ fn render_atom(atom: &Atom, opts: PrintOptions, float_style: FloatRenderStyle) -
     rendered.into_bytes()
 }
 
+fn typst_leaf_source(atom: &Atom, opts: &PrintOptions) -> String {
+    String::from_utf8(render_atom(
+        atom,
+        opts.clone(),
+        FloatRenderStyle::Typst,
+    ))
+    .expect("Symbolica's Typst printer returns UTF-8")
+}
+
+fn custom_typst_source(view: AtomView<'_>, opts: &PrintOptions) -> Option<String> {
+    let symbol = view.get_symbol()?;
+    symbol.get_print_function()?(view, opts, &PrintState::new())
+}
+
+fn is_float_leaf(view: AtomView<'_>) -> bool {
+    matches!(
+        view,
+        AtomView::Num(number)
+            if matches!(number.get_coeff_view(), CoefficientView::Float(_, _))
+    )
+}
+
+fn push_typst_leaf(
+    leaves: &mut Vec<Value>,
+    replacements: &mut Vec<(String, String)>,
+    placeholders: &mut HashSet<Symbol>,
+    payload: Vec<u8>,
+    source: String,
+    kind: &'static str,
+    opts: &PrintOptions,
+) -> Atom {
+    let index = leaves.len();
+    let placeholder_name = format!("tymbolicaleafplaceholderq{index}q");
+    let placeholder_symbol = Symbol::parse(&placeholder_name, "tymbolica")
+        .expect("internal leaf placeholder is a valid symbol");
+    let placeholder = Atom::var(placeholder_symbol);
+    let token = AtomPrinter::new_with_options(placeholder.as_view(), opts.clone()).to_string();
+
+    placeholders.insert(placeholder_symbol);
+    replacements.push((token, format!("#__tymbolica_leaf({index})")));
+    leaves.push(Value::Map(vec![
+        (Value::Text("kind".to_owned()), Value::Text(kind.to_owned())),
+        (Value::Text("source".to_owned()), Value::Text(source)),
+        (Value::Text("atom".to_owned()), Value::Bytes(payload)),
+    ]));
+    placeholder
+}
+
+/// Preserve Symbolica's arithmetic printer while replacing only semantic
+/// leaves with scoped Typst content. Custom printers own their complete
+/// subtree; ordinary function heads and variables remain independent leaves.
+fn render_atom_with_typst_leaves(
+    atom: &Atom,
+    attachments: &AttachmentSet,
+) -> Result<(String, Vec<Value>), String> {
+    let opts = PrintOptions::typst();
+    let mut leaves = Vec::new();
+    let mut replacements = Vec::new();
+    let mut placeholders = HashSet::new();
+    let mut failure = None;
+
+    // A custom printer can hide arbitrary structure, so its largest matching
+    // subexpression is one authoritative leaf and its children are not walked.
+    let custom_masked = atom.replace_map(|view, _, output| {
+        if failure.is_some() || !matches!(view, AtomView::Var(_) | AtomView::Fun(_)) {
+            return;
+        }
+        let Some(source) = custom_typst_source(view, &opts) else {
+            return;
+        };
+        let leaf = view.to_owned();
+        match encode_attached_atom(&leaf, attachments) {
+            Ok(payload) => {
+                **output = push_typst_leaf(
+                    &mut leaves,
+                    &mut replacements,
+                    &mut placeholders,
+                    payload,
+                    source,
+                    "custom",
+                    &opts,
+                );
+            }
+            Err(error) => failure = Some(error),
+        }
+    });
+    if let Some(error) = failure.take() {
+        return Err(error);
+    }
+
+    // The remaining printer structure is invertible. Annotate normal variable
+    // symbols, float leaves, and function heads while retaining Add/Mul/Pow and
+    // all ordinary function arguments for Parsely to reconstruct.
+    let masked = custom_masked.replace_map_bottom_up(|view, _, output| {
+        if failure.is_some() {
+            return;
+        }
+        let (leaf, source, kind, rebuild_function) = match view {
+            AtomView::Var(variable) if !placeholders.contains(&variable.get_symbol()) => {
+                let leaf = view.to_owned();
+                let source = typst_leaf_source(&leaf, &opts);
+                (leaf, source, "symbol", None)
+            }
+            AtomView::Num(_) if is_float_leaf(view) => {
+                let leaf = view.to_owned();
+                let source = typst_leaf_source(&leaf, &opts);
+                (leaf, source, "float", None)
+            }
+            AtomView::Fun(function) => {
+                let leaf = Atom::var(function.get_symbol());
+                let source = typst_leaf_source(&leaf, &opts);
+                (
+                    leaf,
+                    source,
+                    "function-head",
+                    Some(function.iter().map(Atom::from).collect::<Vec<_>>()),
+                )
+            }
+            _ => return,
+        };
+
+        match encode_attached_atom(&leaf, attachments) {
+            Ok(payload) => {
+                let placeholder = push_typst_leaf(
+                    &mut leaves,
+                    &mut replacements,
+                    &mut placeholders,
+                    payload,
+                    source,
+                    kind,
+                    &opts,
+                );
+                if let Some(arguments) = rebuild_function {
+                    let head = placeholder
+                        .get_symbol()
+                        .expect("leaf placeholder is a variable");
+                    **output = FunctionBuilder::new(head).add_args(arguments).finish();
+                } else {
+                    **output = placeholder;
+                }
+            }
+            Err(error) => failure = Some(error),
+        }
+    });
+    if let Some(error) = failure {
+        return Err(error);
+    }
+
+    let mut source = typst_leaf_source(&masked, &opts);
+    for (token, replacement) in replacements {
+        source = source.replace(&token, &replacement);
+    }
+    Ok((source, leaves))
+}
+
 fn render_payload_symbolica(input: &[u8], namespaces: bool) -> Result<Vec<u8>, String> {
     if is_matrix_payload(input) {
         let matrix = decode_matrix(input, "matrix")?;
@@ -1749,16 +1904,20 @@ pub fn to_typst(payload: &[u8]) -> Result<Vec<u8>, String> {
 /// second payload transfer before attaching exact Atom metadata.
 #[wasm_func]
 pub fn to_typst_with_kind(payload: &[u8]) -> Result<Vec<u8>, String> {
-    let kind = if is_matrix_payload(payload) {
-        "matrix"
+    let (kind, source, leaves) = if is_matrix_payload(payload) {
+        let source = String::from_utf8(render_payload_typst(payload)?)
+            .map_err(|error| format!("Typst renderer returned invalid UTF-8: {error}"))?;
+        ("matrix", source, Vec::new())
     } else {
-        "atom"
+        let attached = decode_attached_atom(payload, "expr")?;
+        let (source, leaves) =
+            render_atom_with_typst_leaves(&attached.atom, &attached.attachments)?;
+        ("atom", source, leaves)
     };
-    let source = String::from_utf8(render_payload_typst(payload)?)
-        .map_err(|error| format!("Typst renderer returned invalid UTF-8: {error}"))?;
     encode_cbor(Value::Map(vec![
         (Value::Text("kind".to_owned()), Value::Text(kind.to_owned())),
         (Value::Text("source".to_owned()), Value::Text(source)),
+        (Value::Text("leaves".to_owned()), Value::Array(leaves)),
     ]))
 }
 

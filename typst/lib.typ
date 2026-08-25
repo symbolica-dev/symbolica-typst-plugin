@@ -177,6 +177,19 @@
   let visual = eval(str(engine.plugin.to_typst(atom)), mode: "math")
   _annotated-visual(atom, visual, semantic)
 }
+#let _eval-printer-leaves(rendered, printer) = {
+  let leaves = rendered.leaves.map(leaf => {
+    let visual = eval(leaf.source, mode: "math")
+    _annotated-visual(leaf.atom, visual.body, (
+      kind: "printer-leaf",
+      leaf-kind: leaf.kind,
+      printer: printer,
+    ))
+  })
+  eval(rendered.source, mode: "math", scope: (
+    __tymbolica_leaf: index => leaves.at(index),
+  ))
+}
 #let _validate-tags(tags) = {
   if type(tags) != array or not tags.all(tag => type(tag) == str) {
     panic("tags must be an array of strings")
@@ -263,15 +276,12 @@
 #let _to_typst(engine, expr, block: false) = {
   let payload = _payload_bytes(engine, expr)
   let rendered = cbor(engine.plugin.to_typst_with_kind(payload))
-  let equation = eval(rendered.source, mode: "math")
-  let body = if rendered.kind == "atom" {
-    _annotated-visual(payload, equation.body, (
-      kind: "rendered-atom",
-      printer: "symbolica-typst",
-    ))
+  let equation = if rendered.kind == "atom" {
+    _eval-printer-leaves(rendered, "symbolica-typst")
   } else {
-    equation.body
+    eval(rendered.source, mode: "math")
   }
+  let body = equation.body
   if block { _typst_math.equation(body, block: true) } else { body }
 }
 #let _to_latex(engine, expr) = str(engine.plugin.to_latex(_payload_bytes(engine, expr)))
@@ -860,9 +870,10 @@
 /// Render an atom or matrix payload as evaluated Typst math content.
 ///
 /// The payload is first printed as Typst math source and then evaluated in math
-/// mode. Atom output carries the exact binary payload as invisible metadata,
-/// so interpolating it into `math` recovers the original Atom instead of
-/// reparsing its appearance. Matrix output remains display-only. Use
+/// mode. Ordinary sums, products, powers, calls, and call arguments remain
+/// visible parseable structure. Exact binary metadata is attached only to
+/// printer leaves: symbols, function heads, non-textual floats, and complete
+/// custom-printed subtrees. Matrix output remains display-only. Use
 /// `to-typst-source` when you need the source string instead.
 ///
 /// ```example

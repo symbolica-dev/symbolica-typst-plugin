@@ -1,4 +1,5 @@
 #import "../lib.typ": *
+#import "@preview/parsely:0.1.0"
 
 #set page(width: auto, height: auto, margin: 8pt)
 
@@ -28,6 +29,17 @@
 #let gamma5 = function("gamma5")
 #let projp = function("projp")
 #let color-t = function("t")
+#let ordinary-f = function("ordinary", namespace: "leaf_test")
+#let ordinary-x = symbol("x", namespace: "leaf_test")
+
+#let leaf-grammar = (
+  semantic-metadata: (postfix: metadata, prec: 5),
+  add: (infix: $+$, prec: 1, assoc: true),
+  mul: (infix: $$, prec: 2.5, assoc: true),
+  "()": (match: $(#parsely.slot("expr*"))$),
+  op-call: (match: $op(#parsely.slot("op"))(#parsely.slot("args*"))$),
+  op: math.op,
+)
 
 #let atom-shape(node) = {
   if node.kind == "function" {
@@ -116,6 +128,25 @@
 #let composed-rendering = math($#shown-open-chain + #shown-product$)
 #let expected-composition = add(open-chain, product)
 #assert.eq(inspect(composed-rendering), inspect(expected-composition))
+
+// The custom chains are opaque leaves, but the sum between them is ordinary
+// editable syntax rather than one authoritative root payload.
+#let shown-composition = to-typst(expected-composition)
+#let shown-composition-tree = parsely.parse(
+  shown-composition,
+  leaf-grammar,
+).tree
+#assert.eq(shown-composition-tree.head, "add")
+#assert(shown-composition-tree.args.all(node => node.head == "semantic-metadata"))
+
+// Normal function heads retain their exact namespace independently while the
+// argument expression remains visible Parsely structure.
+#let ordinary-call = ordinary-f(add(ordinary-x, 1))
+#let ordinary-tree = parsely.parse(to-typst(ordinary-call), leaf-grammar).tree
+#assert.eq(ordinary-tree.head, "op-call")
+#assert.eq(ordinary-tree.slots.op.head, "semantic-metadata")
+#assert.eq(ordinary-tree.slots.args.head, "add")
+#assert.eq(inspect(math($#to-typst(ordinary-call)$)), inspect(ordinary-call))
 
 #let shown-block = to-typst(open-chain, block: true)
 #assert(shown-block.fields().block)

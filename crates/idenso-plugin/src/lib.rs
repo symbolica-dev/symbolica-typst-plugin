@@ -1,6 +1,6 @@
 //! Tydenso tensor construction, printing, inspection, and Idenso transforms.
 
-use std::{io::Cursor, sync::Once};
+use std::{collections::HashSet, io::Cursor, sync::Once};
 
 use ciborium::value::Value;
 use idenso::color::ColorSimplifier;
@@ -15,10 +15,11 @@ use spenso::structure::representation::{
     IndexDisplay, IndexPalette, IndexRow, LibraryRep, RepName,
 };
 use symbolica::atom::{
-    Atom, AtomCore, AtomView, DefaultNamespace, NamespacedSymbol, Symbol, SymbolAttribute,
-    SymbolBuilder,
+    Atom, AtomCore, AtomView, DefaultNamespace, FunctionBuilder, NamespacedSymbol, Symbol,
+    SymbolAttribute, SymbolBuilder,
 };
-use symbolica::printer::PrintOptions;
+use symbolica::coefficient::CoefficientView;
+use symbolica::printer::{PrintOptions, PrintState};
 use tydenso_representation_registry::{
     MATH_DISPLAY_ATTACHMENT_SCHEMA, MathDisplayDeclaration, MathDisplayDeclarations,
     PortableRepresentationClass, REPRESENTATION_ATTACHMENT_SCHEMA, RepresentationDeclaration,
@@ -1255,6 +1256,173 @@ fn render_request(input: &[u8], typst: bool) -> Result<Vec<u8>, String> {
     Ok(printable.printer(options).to_string().into_bytes())
 }
 
+fn tydenso_typst_source(atom: &Atom, options: &PrintOptions) -> String {
+    prepare_tensor_print(atom)
+        .printer(options.clone())
+        .to_string()
+}
+
+fn custom_tydenso_typst_source(
+    view: AtomView<'_>,
+    options: &PrintOptions,
+) -> Option<String> {
+    let original = view.to_owned();
+    let printable = prepare_tensor_print(&original);
+    let printable_view = printable.as_view();
+    let symbol = printable_view.get_symbol()?;
+    symbol.get_print_function()?(printable_view, options, &PrintState::new())
+}
+
+fn is_float_leaf(view: AtomView<'_>) -> bool {
+    matches!(
+        view,
+        AtomView::Num(number)
+            if matches!(number.get_coeff_view(), CoefficientView::Float(_, _))
+    )
+}
+
+fn push_tydenso_typst_leaf(
+    leaves: &mut Vec<Value>,
+    replacements: &mut Vec<(String, String)>,
+    placeholders: &mut HashSet<Symbol>,
+    payload: Vec<u8>,
+    source: String,
+    kind: &'static str,
+    options: &PrintOptions,
+) -> Atom {
+    let index = leaves.len();
+    let placeholder_name = format!("tydensoleafplaceholderq{index}q");
+    let placeholder_symbol = Symbol::parse(&placeholder_name, "tydenso")
+        .expect("internal leaf placeholder is a valid symbol");
+    let placeholder = Atom::var(placeholder_symbol);
+    let token = placeholder.printer(options.clone()).to_string();
+
+    placeholders.insert(placeholder_symbol);
+    replacements.push((token, format!("#__tymbolica_leaf({index})")));
+    leaves.push(cbor_map([
+        ("kind", Value::Text(kind.to_owned())),
+        ("source", Value::Text(source)),
+        ("atom", Value::Bytes(payload)),
+    ]));
+    placeholder
+}
+
+fn render_request_with_typst_leaves(input: &[u8]) -> Result<Vec<u8>, String> {
+    let value = decode_cbor(input, "request")?;
+    let map = value_map(&value, "request")?;
+    let (expr, context) = match map_get(map, "expr") {
+        Some(Value::Bytes(bytes)) => decode_atom_with_context(bytes, "expr")?,
+        Some(other) => atom_from_value_with_context(other, "spenso")?,
+        None => return Err("missing expr".to_owned()),
+    };
+    let settings = print_settings(map_get(map, "settings"), "typst")?;
+    let options = PrintOptions {
+        custom_print_mode: (&settings).into(),
+        ..PrintOptions::typst()
+    };
+
+    let mut leaves = Vec::new();
+    let mut replacements = Vec::new();
+    let mut placeholders = HashSet::new();
+    let mut failure = None;
+
+    // Tensor and Spenso notation can discard structural information. Preserve
+    // the largest custom-printed subexpression as one exact semantic leaf.
+    let custom_masked = expr.replace_map(|view, _, output| {
+        if failure.is_some() || !matches!(view, AtomView::Var(_) | AtomView::Fun(_)) {
+            return;
+        }
+        let Some(source) = custom_tydenso_typst_source(view, &options) else {
+            return;
+        };
+        let leaf = view.to_owned();
+        match encode_atom_with_context(&leaf, &context) {
+            Ok(payload) => {
+                **output = push_tydenso_typst_leaf(
+                    &mut leaves,
+                    &mut replacements,
+                    &mut placeholders,
+                    payload,
+                    source,
+                    "custom",
+                    &options,
+                );
+            }
+            Err(error) => failure = Some(error),
+        }
+    });
+    if let Some(error) = failure.take() {
+        return Err(error);
+    }
+
+    // Keep ordinary arithmetic and call arguments as native source. Exact
+    // metadata is limited to variables, float leaves, and function heads.
+    let masked = custom_masked.replace_map_bottom_up(|view, _, output| {
+        if failure.is_some() {
+            return;
+        }
+        let (leaf, source, kind, rebuild_function) = match view {
+            AtomView::Var(variable) if !placeholders.contains(&variable.get_symbol()) => {
+                let leaf = view.to_owned();
+                let source = tydenso_typst_source(&leaf, &options);
+                (leaf, source, "symbol", None)
+            }
+            AtomView::Num(_) if is_float_leaf(view) => {
+                let leaf = view.to_owned();
+                let source = tydenso_typst_source(&leaf, &options);
+                (leaf, source, "float", None)
+            }
+            AtomView::Fun(function) => {
+                let leaf = Atom::var(function.get_symbol());
+                let source = tydenso_typst_source(&leaf, &options);
+                (
+                    leaf,
+                    source,
+                    "function-head",
+                    Some(function.iter().map(Atom::from).collect::<Vec<_>>()),
+                )
+            }
+            _ => return,
+        };
+
+        match encode_atom_with_context(&leaf, &context) {
+            Ok(payload) => {
+                let placeholder = push_tydenso_typst_leaf(
+                    &mut leaves,
+                    &mut replacements,
+                    &mut placeholders,
+                    payload,
+                    source,
+                    kind,
+                    &options,
+                );
+                if let Some(arguments) = rebuild_function {
+                    let head = placeholder
+                        .get_symbol()
+                        .expect("leaf placeholder is a variable");
+                    **output = FunctionBuilder::new(head).add_args(arguments).finish();
+                } else {
+                    **output = placeholder;
+                }
+            }
+            Err(error) => failure = Some(error),
+        }
+    });
+    if let Some(error) = failure {
+        return Err(error);
+    }
+
+    let printable = prepare_tensor_print(&masked);
+    let mut source = printable.printer(options).to_string();
+    for (token, replacement) in replacements {
+        source = source.replace(&token, &replacement);
+    }
+    encode_cbor(cbor_map([
+        ("source", Value::Text(source)),
+        ("leaves", Value::Array(leaves)),
+    ]))
+}
+
 fn symbol_from_atom(atom: &Atom, label: &str) -> Result<Symbol, String> {
     match atom.as_view() {
         AtomView::Var(variable) => Ok(variable.get_symbol()),
@@ -1311,6 +1479,11 @@ pub fn inspect(expr: &[u8]) -> Result<Vec<u8>, String> {
 #[wasm_func]
 pub fn to_typst(request: &[u8]) -> Result<Vec<u8>, String> {
     render_request(request, true)
+}
+
+#[wasm_func]
+pub fn to_typst_with_leaves(request: &[u8]) -> Result<Vec<u8>, String> {
+    render_request_with_typst_leaves(request)
 }
 
 #[wasm_func]
