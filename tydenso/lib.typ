@@ -346,12 +346,16 @@
   symbol-scripts: true,
 )
 
+#let _annotated-visual(atom, visual, semantic) = {
+  _typst-math.attach(visual) + metadata(_atom-envelope(atom, semantic))
+}
+
 #let _annotated(engine, atom, semantic) = {
   let visual = eval(str(engine.plugin.to_typst(cbor.encode((
     expr: atom,
     settings: _default-typst-settings,
   )))), mode: "math")
-  _typst-math.attach(visual) + metadata(_atom-envelope(atom, _portable(engine, semantic)))
+  _annotated-visual(atom, visual, _portable(engine, semantic))
 }
 
 #let _validate-tags(tags) = {
@@ -645,8 +649,16 @@
 )
 
 #let _to-typst(engine, expression, settings: _print-settings(), block: false) = {
-  let equation = eval(_to-typst-source(engine, expression, settings: settings), mode: "math")
-  if block { math.equation(equation.body, block: true) } else { equation }
+  let atom = _payload(engine, expression)
+  let equation = eval(str(engine.plugin.to_typst(cbor.encode((
+    expr: atom,
+    settings: settings,
+  )))), mode: "math")
+  let body = _annotated-visual(atom, equation.body, (
+    kind: "rendered-atom",
+    printer: "spenso-typst",
+  ))
+  if block { math.equation(body, block: true) } else { body }
 }
 
 #let _to-string(engine, expression, settings: _print-settings(preset: "compact")) = str(
@@ -1276,6 +1288,10 @@
 ) = (_default-engine().to-typst-source)(expression, settings: settings)
 
 /// Print and evaluate an expression as Typst math content.
+///
+/// The returned content carries the exact Atom payload as invisible metadata.
+/// Interpolating it into `math` therefore recovers the original Atom even when
+/// Spenso's displayed tensor notation is not textually invertible.
 ///
 /// -> content
 #let to-typst(

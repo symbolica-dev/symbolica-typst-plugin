@@ -106,6 +106,28 @@
     == "chain(u(1,bis(4)),v(2,bis(4)),gamma(in,out,mink(4,1)),gamma(in,out,p(1,mink(4))),gamma(in,out,mink(4,2)))",
 )
 
+// The custom bra-ket rendering is not an inverse serialization. `to-typst`
+// therefore carries the exact Atom as metadata for lossless composition.
+#let shown-open-chain = to-typst(open-chain)
+#let restored-open-chain = math($#shown-open-chain$)
+#assert.eq(inspect(restored-open-chain), inspect(open-chain))
+
+#let shown-product = to-typst(product)
+#let composed-rendering = math($#shown-open-chain + #shown-product$)
+#let expected-composition = add(open-chain, product)
+#assert.eq(inspect(composed-rendering), inspect(expected-composition))
+
+#let shown-block = to-typst(open-chain, block: true)
+#assert(shown-block.fields().block)
+#assert.eq(inspect(math(shown-block)), inspect(open-chain))
+
+#let labelled-momentum = p($arrow(x + y)$, M)
+#let restored-momentum = math($#to-typst(labelled-momentum)$)
+#assert.eq(
+  to-typst-source(restored-momentum),
+  to-typst-source(labelled-momentum),
+)
+
 #let closed-tree = inspect(closed-chain)
 #assert(closed-tree.kind == "function")
 #assert(closed-tree.short-name == "trace")

@@ -170,9 +170,12 @@
   atom: atom,
   semantic: semantic,
 )
+#let _annotated-visual(atom, visual, semantic) = {
+  _typst_math.attach(visual) + metadata(_atom-envelope(atom, semantic))
+}
 #let _annotated-atom(engine, atom, semantic) = {
   let visual = eval(str(engine.plugin.to_typst(atom)), mode: "math")
-  _typst_math.attach(visual) + metadata(_atom-envelope(atom, semantic))
+  _annotated-visual(atom, visual, semantic)
 }
 #let _validate-tags(tags) = {
   if type(tags) != array or not tags.all(tag => type(tag) == str) {
@@ -258,8 +261,18 @@
 #let _canonical(engine, expr, namespaces: false) = str(engine.plugin.canonical(_payload_bytes(engine, expr), cbor.encode(namespaces)))
 #let _to_typst_source(engine, expr) = str(engine.plugin.to_typst(_payload_bytes(engine, expr)))
 #let _to_typst(engine, expr, block: false) = {
-  let eqn = eval(_to_typst_source(engine, expr), mode: "math")
-  if block { _typst_math.equation(eqn.body, block: true) } else { eqn }
+  let payload = _payload_bytes(engine, expr)
+  let rendered = cbor(engine.plugin.to_typst_with_kind(payload))
+  let equation = eval(rendered.source, mode: "math")
+  let body = if rendered.kind == "atom" {
+    _annotated-visual(payload, equation.body, (
+      kind: "rendered-atom",
+      printer: "symbolica-typst",
+    ))
+  } else {
+    equation.body
+  }
+  if block { _typst_math.equation(body, block: true) } else { body }
 }
 #let _to_latex(engine, expr) = str(engine.plugin.to_latex(_payload_bytes(engine, expr)))
 
@@ -847,7 +860,10 @@
 /// Render an atom or matrix payload as evaluated Typst math content.
 ///
 /// The payload is first printed as Typst math source and then evaluated in math
-/// mode. Use `to-typst-source` when you need the source string instead.
+/// mode. Atom output carries the exact binary payload as invisible metadata,
+/// so interpolating it into `math` recovers the original Atom instead of
+/// reparsing its appearance. Matrix output remains display-only. Use
+/// `to-typst-source` when you need the source string instead.
 ///
 /// ```example
 /// #to-typst(math($x + 1$))

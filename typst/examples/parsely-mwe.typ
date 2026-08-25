@@ -56,3 +56,30 @@
 #let custom-q = (custom.symbol)("q", namespace: "model")
 #let custom-expression = (custom.math)($#custom-q + 1$)
 #assert((custom.canonical)(custom-expression, namespaces: true).contains("model"))
+
+// Rendered Atom content retains the authoritative payload. This matters for
+// namespaces and custom printers that cannot be reconstructed from appearance.
+#let rendered-q = algebra.symbol("q", namespace: "rendered_model")
+#let rendered-f = algebra.function("f", namespace: "rendered_model")
+#let original-call = rendered-f(rendered-q)
+#let shown-call = algebra.to-typst(original-call)
+#let shown-tree = parsely.parse($#shown-call$, grammar).tree
+#assert.eq(shown-tree.head, "semantic-metadata")
+#assert.eq(shown-tree.slots.value.semantic.kind, "rendered-atom")
+
+#let restored-call = algebra.math($#shown-call$)
+#assert.eq(
+  algebra.canonical(restored-call, namespaces: true),
+  algebra.canonical(original-call, namespaces: true),
+)
+
+#let composed-call = algebra.math($2 #shown-call + 1$)
+#let expected-call = algebra.add(algebra.mul(2, original-call), 1)
+#assert.eq(
+  algebra.canonical(composed-call, namespaces: true),
+  algebra.canonical(expected-call, namespaces: true),
+)
+
+// Matrices have a separate payload format and remain ordinary display content.
+#let shown-matrix = algebra.to-typst(algebra.matrix(((1, 2), (3, 4))))
+#assert(type(shown-matrix) == content)

@@ -1744,6 +1744,24 @@ pub fn to_typst(payload: &[u8]) -> Result<Vec<u8>, String> {
     render_payload_typst(payload)
 }
 
+/// Render a payload and identify whether its source represents an Atom or the
+/// separate matrix wire format. Typst uses this combined response to avoid a
+/// second payload transfer before attaching exact Atom metadata.
+#[wasm_func]
+pub fn to_typst_with_kind(payload: &[u8]) -> Result<Vec<u8>, String> {
+    let kind = if is_matrix_payload(payload) {
+        "matrix"
+    } else {
+        "atom"
+    };
+    let source = String::from_utf8(render_payload_typst(payload)?)
+        .map_err(|error| format!("Typst renderer returned invalid UTF-8: {error}"))?;
+    encode_cbor(Value::Map(vec![
+        (Value::Text("kind".to_owned()), Value::Text(kind.to_owned())),
+        (Value::Text("source".to_owned()), Value::Text(source)),
+    ]))
+}
+
 #[wasm_func]
 pub fn to_latex(expr: &[u8]) -> Result<Vec<u8>, String> {
     if is_matrix_payload(expr) {

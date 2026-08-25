@@ -53,6 +53,10 @@ local `0.1.0` package while its initial public surface is being prepared.
   create real Symbolica algebra. Semantic string identifiers such as `"mu"`
   use Symbolica's native quoted Typst output and remain visibly distinct from
   notation such as `$mu$`.
+- Attach one authoritative Atom payload to evaluated `to-typst` output. Live
+  Typst content can therefore be interpolated back into `math` without
+  reverse-parsing Symbolica or Spenso's displayed notation; source strings,
+  copied visual text, and the separate matrix payload remain display-only.
 - Added recursive CBOR inspection of Symbolica Atom internals while retaining
   the native Atom export as the lossless cross-plugin payload.
 - Documented every public parameter, default, return shape, and current
