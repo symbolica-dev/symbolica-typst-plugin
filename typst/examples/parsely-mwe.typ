@@ -9,6 +9,8 @@
   "()": (match: $(#parsely.slot("expr*"))$),
   pow: (match: $#parsely.slot("base")^#parsely.slot("exp")$),
   frac: math.frac,
+  op-call: (match: $op(#parsely.slot("op"))(#parsely.slot("args*"))$),
+  op: math.op,
 )
 
 #let input = $((y^x + 1)^2)/(1/a + "some" + "thing")$
@@ -17,7 +19,7 @@
 #metadata(repr(parsed)) <parsed>
 
 // Metadata must bind before the empty implicit-multiplication operator.
-#let tagged = algebra.symbol("q", namespace: "model", tags: ("positive", "parameter"))
+#let tagged = algebra.symbol("q", namespace: "model", tags: ("model::positive", "model::parameter"))
 #let annotated = parsely.parse($#tagged + 1$, grammar)
 #let annotation = annotated.tree.args.first()
 #assert.eq(annotation.head, "semantic-metadata")
@@ -26,15 +28,15 @@
 #assert.eq(annotation.slots.value.kind, "atom")
 #assert(type(annotation.slots.value.atom) == bytes)
 #assert.eq(annotation.slots.value.semantic.namespace, "model")
-#assert.eq(annotation.slots.value.semantic.tags, ("positive", "parameter"))
+#assert.eq(annotation.slots.value.semantic.tags, ("model::positive", "model::parameter"))
 
 // A function constructor annotates the whole call, not merely its head.
-#let f = algebra.function("f", namespace: "model", tags: ("smooth",))
+#let f = algebra.function("f", namespace: "model", tags: ("model::smooth",))
 #let call = parsely.parse($#f(tagged)$, grammar).tree
 #assert.eq(call.head, "semantic-metadata")
 #assert.eq(call.slots.value.semantic.kind, "function-call")
 #assert.eq(call.slots.value.semantic.head.namespace, "model")
-#assert.eq(call.slots.value.semantic.head.tags, ("smooth",))
+#assert.eq(call.slots.value.semantic.head.tags, ("model::smooth",))
 #assert(algebra.canonical(algebra.math($#f(tagged)$), namespaces: true).contains("model"))
 
 // Metadata from other packages remains visually transparent to the algebra.
@@ -66,10 +68,10 @@
 #let shown-tree = parsely.parse($#shown-call$, grammar).tree
 #assert.eq(shown-tree.head, "op-call")
 #assert.eq(shown-tree.slots.op.head, "semantic-metadata")
-#assert.eq(shown-tree.slots.op.slots.value.semantic.kind, "printer-leaf")
-#assert.eq(shown-tree.slots.op.slots.value.semantic.leaf-kind, "function-head")
+#assert.eq(shown-tree.slots.op.slots.value.semantic.kind, "render-node")
+#assert.eq(shown-tree.slots.op.slots.value.semantic.node-kind, "function-head")
 #assert.eq(shown-tree.slots.args.head, "semantic-metadata")
-#assert.eq(shown-tree.slots.args.slots.value.semantic.leaf-kind, "symbol")
+#assert.eq(shown-tree.slots.args.slots.value.semantic.node-kind, "variable")
 
 #let restored-call = algebra.math($#shown-call$)
 #assert.eq(

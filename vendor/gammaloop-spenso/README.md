@@ -5,6 +5,11 @@ Gammaloop worktree at Git commit `114c5e158c06c2450a467557c31ec1b1f4cb725d`.
 The Idenso plugin itself remains a direct path dependency on
 `../gammaloop/crates/idenso`.
 
+`src/shadowing/symbolica_utils.rs` is synchronized with Gammaloop commit
+`092811c505463cca1f1ec9aa9ee90fe51b56a87f` so the snapshot exposes the print
+backend resolver required by that Idenso revision. The remaining source stays
+at the base snapshot unless a newer Idenso API requires it.
+
 The snapshot is temporary. It makes the current Spenso code usable in a
 `wasm32-unknown-unknown` Typst plugin without changing the sibling Gammaloop
 worktree:

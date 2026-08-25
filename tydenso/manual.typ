@@ -100,7 +100,7 @@
 = Start with a contraction
 
 Tydenso is the tensor-focused companion to Tymbolica. It has its own package,
-manual, printer, and WebAssembly engine. You do not need Tymbolica to construct,
+manual, notation, and WebAssembly engine. You do not need Tymbolica to construct,
 simplify, inspect, or display a tensor expression.
 
 The first example contracts a Minkowski metric with a vector. A representation
@@ -232,8 +232,8 @@ keep their own symbolic identity.
   slot(M, $rho_2$), // exactly the index written here
 )
 
-#let detailed = print-settings(with-dim: true)
-$ #to-typst(expression, settings: detailed) $
+#let detailed = notation(with-dim: true)
+$ #to-typst(expression, notation: detailed) $
 ```
 
 Here the qualified form distinguishes the indices as members of $M_4$. A
@@ -271,8 +271,8 @@ attributes while it constructs the function, not as a later cosmetic step.
 
 ```worked
 #let V = euc(3)
-#let mu-slot = slot(V, $std.sym.mu$)
-#let nu-slot = slot(V, $std.sym.nu$)
+#let mu-slot = slot(V, $mu$)
+#let nu-slot = slot(V, $nu$)
 #let F = tensor("F", antisymmetric: true)
 
 #let cancellation = math($#F(mu-slot, nu-slot) + #F(nu-slot, mu-slot)$)
@@ -381,14 +381,14 @@ on the chain body, while compact vectors produce the named bra and ket ends.
 A string and Typst math deliberately mean different things. `slot(B, "mu")`
 uses the semantic Symbolica identifier `mu`; Symbolica prints its
 multi-character name as the quoted Typst text `"mu"`. `slot(B,
-$std.sym.mu$)` creates a different, opaque index whose attached notation prints
-as the Greek $mu$. They are not interchangeable contraction labels.
+$mu$)` creates a different, opaque index whose attached notation prints as the
+Greek $mu$. They are not interchangeable contraction labels.
 
 ```worked
 #let B = bis(4)
 #let q = vector("q")
 #let identifier = slot(B, "mu")
-#let notation = slot(B, $std.sym.mu$)
+#let notation = slot(B, $mu$)
 
 #table(
   columns: (auto, 1fr),
@@ -398,9 +398,10 @@ as the Greek $mu$. They are not interchangeable contraction labels.
 ```
 
 Use palette integers for a representation's standard indices, and use math
-content when the written notation itself defines a manual index. Typst scope
-still applies: after `#let mu = ...`, `$mu$` evaluates that binding, so qualify
-a literal Greek symbol as `$std.sym.mu$`.
+content when the written notation itself defines a manual index. Plain `$mu$`
+works when the name is unbound. After `#let mu = ...`, Typst resolves `$mu$` to
+that binding; write `$std.sym.mu$` when a literal Greek symbol must remain
+unambiguous.
 
 = Transform tensors
 
@@ -459,22 +460,23 @@ $
 The mathematical conventions and supported identities track
 #link(idenso-guide)[Idenso's API].
 
-= Print and inspect
+= Display and inspect
 
-== Use the Spenso printer directly
+== Control tensor notation in Typst
 
-Tydenso does not send tensor output through Tymbolica's general printer.
-`to-typst-source` uses Symbolica's Typst arithmetic mode together with Spenso's
-custom tensor notation. `to-string` uses Spenso's compact Symbolica notation.
+`to-typst` returns math content. Tydenso lays out slots, tensor arguments,
+chains, dots, and traces with ordinary Typst functions, so notation can follow
+the document's own visual language. `to-string` remains available when a
+compact Spenso expression is useful for logs or debugging.
 
 ```worked
 #let V = mink(4)
 #let p = vector("p")
 #let expression = p(1, slot(V, 1))
 
-#let detailed = print-settings(with-dim: true, commas: true)
+#let detailed = notation(with-dim: true, commas: true)
 
-Rendered: $ #to-typst(expression, settings: detailed) $
+Rendered: $ #to-typst(expression, notation: detailed) $
 
 Compact Spenso form:
 #raw(to-string(expression), block: true)
@@ -485,10 +487,39 @@ bottom row; the other built-in base orientations use the top row. A
 dualizable representation puts its dual orientation on the opposite row,
 while a self-dual representation does not flip.
 
-`print-settings` exposes the real `SpensoPrintSettings` switches:
-`with-dim`, `parens`, `commas`, `index-subscripts`, and `symbol-scripts`. Start
-from either the `"typst"` or `"compact"` preset and override only what the
-document needs.
+The most common layout switches live directly on `notation`: `with-dim`,
+`parens`, `commas`, `symbol-scripts`, `index-gap`, and `factor-gap`.
+`print-settings` configures the separate compact string returned by
+`to-string`.
+
+Exact namespaced heads and complete calls can be restyled without changing the
+Atom. A call renderer receives its arguments as both structured nodes and
+already rendered math. Tydenso attaches the exact call after the renderer
+returns, so the result can still be interpolated into `math` losslessly.
+
+```worked
+#let x = symbol("x", namespace: "notation_example")
+#let f = function("f", namespace: "notation_example")
+#let expression = f(add(x, 1))
+
+#let display = notation(
+  heads: ("notation_example::x": $xi$),
+  calls: (
+    "notation_example::f": ctx => {
+      let (argument,) = ctx.visual-arguments
+      $cal(F)[#argument]$
+    },
+  ),
+)
+
+$ #to-typst(expression, notation: display) $
+```
+
+Use `tags` for a named family and `classes` for Symbolica attributes such as
+`"antisymmetric"`. Tags are canonical namespaced identities—for example
+`"model::kinematic"`—so they remain unambiguous when expressions move between
+plugins. Document overrides win over Tydenso's defaults and over display labels
+carried by a payload.
 
 == Inspect the Atom as CBOR data
 
@@ -571,11 +602,11 @@ surface as a dictionary bound to a selected plugin module.
   ),
   (
     title: [Spenso products and chains],
-    names: ("dot", "gamma", "chain", "cyclic", "trace"),
+    names: ("dot", "gamma", "gamma0", "gamma5", "projp", "projm", "chain", "cyclic", "trace"),
   ),
   (
     title: [Printing and inspection],
-    names: ("print-settings", "to-typst-source", "to-typst", "to-string", "inspect"),
+    names: ("notation", "merge-notation", "to-typst", "print-settings", "to-string", "inspect"),
   ),
   (
     title: [Metric and index transformations],

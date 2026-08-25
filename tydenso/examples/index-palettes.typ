@@ -25,13 +25,15 @@
   assert.eq(dual.is-dual, if case.self-dual { false } else { true })
 
   let T = tensor("T_" + case.name, namespace: "index_palette_example")
-  let source = to-typst-source(T(
+  let expression = T(
     slot(case.rep, 1),
     slot(case.rep, 2),
     slot(case.rep, 5),
-  ))
-  assert(source.contains(case.labels.first()))
-  assert(source.contains("attach(" + case.labels.first() + ",b:1)"))
+  )
+  let shown = to-typst(expression)
+  assert.eq(inspect(math($#shown$)), inspect(expression))
+
+  [#case.name: $#shown$]
 }
 
 // Canonical built-ins behave the same through the generic constructor.
@@ -41,8 +43,8 @@
 // A manually named index keeps exactly the author's display metadata.
 #let p = vector("p")
 #let manual = p(slot(mink(4), $zeta_7$))
-#assert(to-typst-source(manual).contains("attach(ζ,b:upright(\"7\"))"))
+#assert.eq(inspect(math($#to-typst(manual)$)), inspect(manual))
 
 Automatic built-in indices: $ #to-typst(
   p(slot(mink(4), 1)),
-) $, $ #to-typst(p(slot(mink(4), 5))) $.
+) $, $ #to-typst(p(slot(mink(4), 5))) $. Manual index: $#to-typst(manual)$.

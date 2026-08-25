@@ -285,7 +285,7 @@ below turns that rule into a concrete example.
 Interpolate it with `#` when that information matters to the calculation:
 
 ```worked
-#let mass = symbol("m", namespace: "model", tags: ("positive",))
+#let mass = symbol("m", namespace: "model", tags: ("model::positive",))
 #let shell = math($p^2 - #mass^2$)
 
 $ p^2 - m^2 = #to-typst(shell) $
@@ -294,20 +294,42 @@ $ p^2 - m^2 = #to-typst(shell) $
 The page still shows an ordinary $m$. Behind it, a versioned envelope carries
 the exact Symbolica Atom plus an inspectable description containing its
 namespace and tags. The Atom is authoritative when `math` reads the formula;
-packages layered on top can give the tags their own meaning. Algebraic
-transformations return Atom bytes, so arbitrary Typst-only tags are not copied
-onto later printed results. There is no separate `notation.symbol` or `var`
+packages layered on top can give the tags their own meaning. Namespaced tags
+are registered on the Symbolica symbol itself, so they survive algebraic and
+cross-plugin round trips. There is no separate `notation.symbol` or `var`
 alias.
 
 A content value is not callable in Typst, so a custom function head uses the
 separate `function` constructor. Its metadata belongs to the whole call:
 
 ```worked
-#let response = function("R", namespace: "model", tags: ("response",))
+#let response = function("R", namespace: "model", tags: ("model::response",))
 #let time = symbol("t", namespace: "model")
 #let value = math($#response(time) + 1$)
 
 $ R(t) + 1 = #to-typst(value) $
+```
+
+The same identities can control document-side notation. Exact `heads` style a
+symbol everywhere; exact `calls` receive the complete function arguments and
+can choose a different layout. This changes only presentation—the returned
+content still carries the exact Atom.
+
+```worked
+#let x = symbol("x", namespace: "notation_example")
+#let f = function("f", namespace: "notation_example")
+#let expression = f(add(x, 1))
+#let display = notation(
+  heads: ("notation_example::x": $xi$),
+  calls: (
+    "notation_example::f": ctx => {
+      let (argument,) = ctx.visual-arguments
+      $cal(F)[#argument]$
+    },
+  ),
+)
+
+$ #to-typst(expression, notation: display) $
 ```
 
 == Built-in functions such as sine and cosine
@@ -726,7 +748,7 @@ things up. The generated groups below cover the complete top-level API.
     title: [Parsing, symbols, and rendering],
     names: (
       "math", "atom", "symbol", "function", "wild", "array-tree", "canonical",
-      "to-typst-source", "to-typst", "to-latex", "to-float",
+      "notation", "merge-notation", "to-typst-source", "to-typst", "to-latex", "to-float",
     ),
   ),
   (

@@ -11,7 +11,11 @@ use std::{
     str,
 };
 
-use symbolica::prelude::Atom;
+use ciborium::value::Value;
+use symbolica::{
+    atom::{Atom, AtomCore, AtomView, Symbol, SymbolAttribute},
+    printer::PrintOptions,
+};
 
 /// Exact Symbolica revision shared by producers and consumers.
 ///
@@ -23,6 +27,13 @@ pub const SYMBOLICA_REVISION: &str = env!("TYMBOLICA_SYMBOLICA_REVISION");
 pub const PAYLOAD_MAGIC: &[u8; 8] = b"TYMATOM\0";
 /// Current binary-envelope version.
 pub const PAYLOAD_VERSION: u16 = 1;
+
+/// Protocol discriminator for the generic CBOR Atom render tree.
+pub const RENDER_TREE_PROTOCOL: &str = "tymbolica";
+/// Current schema version of the generic CBOR Atom render tree.
+pub const RENDER_TREE_VERSION: u16 = 1;
+/// Kind discriminator for the generic CBOR Atom render tree.
+pub const RENDER_TREE_KIND: &str = "atom-render-tree";
 
 pub const MAX_ATOM_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_PAYLOAD_BYTES: usize = 10 * 1024 * 1024;
@@ -359,6 +370,7 @@ pub enum PayloadError {
     InvalidAttachment(&'static str),
     ConflictingAttachment(AttachmentKey),
     RevisionMismatch(String),
+    Cbor(String),
     Export(std::io::Error),
     Import(std::io::Error),
 }
@@ -386,6 +398,7 @@ impl fmt::Display for PayloadError {
                 formatter,
                 "Atom payload uses Symbolica revision {found}, expected {SYMBOLICA_REVISION}"
             ),
+            Self::Cbor(error) => write!(formatter, "could not encode Atom render tree: {error}"),
             Self::Export(error) => write!(formatter, "could not export Atom: {error}"),
             Self::Import(error) => write!(formatter, "could not import Atom: {error}"),
         }
@@ -587,6 +600,224 @@ pub fn encode_atom_from_set(
 /// Export one Atom in a versioned envelope with no attachments.
 pub fn encode_atom(atom: &Atom) -> Result<Vec<u8>, PayloadError> {
     encode_atom_with_attachments(atom, std::iter::empty())
+}
+
+fn render_tree_map(entries: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
+    Value::Map(
+        entries
+            .into_iter()
+            .map(|(key, value)| (Value::Text(key.to_owned()), value))
+            .collect(),
+    )
+}
+
+fn symbol_attribute_name(attribute: SymbolAttribute) -> &'static str {
+    match attribute {
+        SymbolAttribute::Symmetric => "symmetric",
+        SymbolAttribute::Antisymmetric => "antisymmetric",
+        SymbolAttribute::Cyclesymmetric => "cyclesymmetric",
+        SymbolAttribute::Linear => "linear",
+        SymbolAttribute::Flat => "flat",
+        SymbolAttribute::Scalar => "scalar",
+        SymbolAttribute::Real => "real",
+        SymbolAttribute::Integer => "integer",
+        SymbolAttribute::Positive => "positive",
+    }
+}
+
+/// Render a symbol using Symbolica's built-in Typst symbol rules.
+///
+/// This deliberately does not call the symbol's custom Rust print callback.
+/// The implementation mirrors `Symbol::format` with
+/// [`PrintOptions::typst`] (which hides namespaces); the complete namespaced
+/// identity remains available separately in the symbol descriptor.
+fn builtin_typst_symbol_source(symbol: Symbol) -> String {
+    if symbol == Symbol::E {
+        "e".to_owned()
+    } else if symbol == Symbol::PI {
+        "pi".to_owned()
+    } else if symbol == Symbol::COS {
+        "cos".to_owned()
+    } else if symbol == Symbol::SIN {
+        "sin".to_owned()
+    } else if symbol == Symbol::EXP {
+        "exp".to_owned()
+    } else if symbol == Symbol::LOG {
+        "log".to_owned()
+    } else {
+        let name = symbol.get_stripped_name();
+        if name.chars().count() == 1 {
+            name.to_owned()
+        } else {
+            format!("\"{name}\"")
+        }
+    }
+}
+
+fn symbol_render_tree_value(symbol: Symbol) -> Value {
+    render_tree_map([
+        ("name", Value::Text(symbol.get_name().to_owned())),
+        ("namespace", Value::Text(symbol.get_namespace().to_owned())),
+        (
+            "short-name",
+            Value::Text(symbol.get_stripped_name().to_owned()),
+        ),
+        (
+            "tags",
+            Value::Array(
+                symbol
+                    .get_tags()
+                    .iter()
+                    .map(|tag| Value::Text(tag.clone()))
+                    .collect(),
+            ),
+        ),
+        (
+            "attributes",
+            Value::Array(
+                symbol
+                    .get_attributes()
+                    .into_iter()
+                    .map(|attribute| Value::Text(symbol_attribute_name(attribute).to_owned()))
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+fn atom_render_node_value(
+    view: AtomView<'_>,
+    attachments: &AttachmentSet,
+) -> Result<Value, PayloadError> {
+    match view {
+        AtomView::Num(_) => {
+            // Numeric nodes intentionally carry no exact Atom payload. They
+            // stay editable as ordinary textual Typst mathematics.
+            let source = view.printer(PrintOptions::typst()).to_string();
+            Ok(render_tree_map([
+                ("kind", Value::Text("number".to_owned())),
+                ("text", Value::Text(source.clone())),
+                ("source", Value::Text(source)),
+            ]))
+        }
+        AtomView::Var(variable) => {
+            let atom = view.to_owned();
+            let symbol = variable.get_symbol();
+            Ok(render_tree_map([
+                ("kind", Value::Text("variable".to_owned())),
+                ("symbol", symbol_render_tree_value(symbol)),
+                ("source", Value::Text(builtin_typst_symbol_source(symbol))),
+                (
+                    "atom",
+                    Value::Bytes(encode_atom_from_set(&atom, attachments)?),
+                ),
+            ]))
+        }
+        AtomView::Fun(function) => {
+            let atom = view.to_owned();
+            let symbol = function.get_symbol();
+            let head = Atom::var(symbol);
+            let arguments = function
+                .iter()
+                .map(|argument| atom_render_node_value(argument, attachments))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(render_tree_map([
+                ("kind", Value::Text("function".to_owned())),
+                ("symbol", symbol_render_tree_value(symbol)),
+                ("source", Value::Text(builtin_typst_symbol_source(symbol))),
+                (
+                    "head-atom",
+                    Value::Bytes(encode_atom_from_set(&head, attachments)?),
+                ),
+                (
+                    "atom",
+                    Value::Bytes(encode_atom_from_set(&atom, attachments)?),
+                ),
+                ("arguments", Value::Array(arguments)),
+            ]))
+        }
+        AtomView::Pow(power) => {
+            let (base, exponent) = power.get_base_exp();
+            Ok(render_tree_map([
+                ("kind", Value::Text("power".to_owned())),
+                ("base", atom_render_node_value(base, attachments)?),
+                ("exponent", atom_render_node_value(exponent, attachments)?),
+            ]))
+        }
+        AtomView::Mul(product) => Ok(render_tree_map([
+            ("kind", Value::Text("product".to_owned())),
+            (
+                "factors",
+                Value::Array(
+                    product
+                        .iter()
+                        .map(|factor| atom_render_node_value(factor, attachments))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+            ),
+        ])),
+        AtomView::Add(sum) => Ok(render_tree_map([
+            ("kind", Value::Text("sum".to_owned())),
+            (
+                "terms",
+                Value::Array(
+                    sum.iter()
+                        .map(|term| atom_render_node_value(term, attachments))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+            ),
+        ])),
+    }
+}
+
+/// Build the versioned, generic CBOR render tree for an Atom.
+///
+/// Algebraic structure and Symbolica symbol metadata are exposed without any
+/// package-specific interpretation. Variable nodes carry an exact portable
+/// Atom payload; function nodes carry exact payloads for both the complete call
+/// and its variable head. Every exact payload receives the complete supplied
+/// attachment set, including attachment schemas unknown to this crate.
+pub fn atom_render_tree_value(
+    atom: &Atom,
+    attachments: &AttachmentSet,
+) -> Result<Value, PayloadError> {
+    let attachment_values = attachments
+        .iter()
+        .map(|attachment| {
+            render_tree_map([
+                ("schema", Value::Text(attachment.schema().to_owned())),
+                (
+                    "version",
+                    Value::Integer(i64::from(attachment.version()).into()),
+                ),
+                ("identity", Value::Bytes(attachment.identity().to_vec())),
+                ("data", Value::Bytes(attachment.data().to_vec())),
+            ])
+        })
+        .collect();
+
+    Ok(render_tree_map([
+        ("protocol", Value::Text(RENDER_TREE_PROTOCOL.to_owned())),
+        (
+            "version",
+            Value::Integer(i64::from(RENDER_TREE_VERSION).into()),
+        ),
+        ("kind", Value::Text(RENDER_TREE_KIND.to_owned())),
+        ("root", atom_render_node_value(atom.as_view(), attachments)?),
+        ("attachments", Value::Array(attachment_values)),
+    ]))
+}
+
+/// Encode the generic Atom render tree as CBOR bytes.
+pub fn encode_atom_render_tree(
+    atom: &Atom,
+    attachments: &AttachmentSet,
+) -> Result<Vec<u8>, PayloadError> {
+    let value = atom_render_tree_value(atom, attachments)?;
+    let mut output = Vec::new();
+    ciborium::into_writer(&value, &mut output)
+        .map_err(|error| PayloadError::Cbor(error.to_string()))?;
+    Ok(output)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -800,6 +1031,44 @@ mod tests {
             payload.extend_from_slice(&entry);
         }
         payload
+    }
+
+    fn value_field<'a>(map: &'a [(Value, Value)], key: &str) -> Option<&'a Value> {
+        map.iter().find_map(|(candidate, value)| {
+            matches!(candidate, Value::Text(candidate) if candidate == key).then_some(value)
+        })
+    }
+
+    fn find_node<'a>(value: &'a Value, kind: &str) -> Option<&'a [(Value, Value)]> {
+        match value {
+            Value::Map(map) => {
+                if value_field(map, "kind") == Some(&Value::Text(kind.to_owned())) {
+                    return Some(map);
+                }
+                map.iter().find_map(|(_, child)| find_node(child, kind))
+            }
+            Value::Array(values) => values.iter().find_map(|child| find_node(child, kind)),
+            _ => None,
+        }
+    }
+
+    fn collect_node_kinds(value: &Value, kinds: &mut std::collections::BTreeSet<String>) {
+        match value {
+            Value::Map(map) => {
+                if let Some(Value::Text(kind)) = value_field(map, "kind") {
+                    kinds.insert(kind.clone());
+                }
+                for (_, child) in map {
+                    collect_node_kinds(child, kinds);
+                }
+            }
+            Value::Array(values) => {
+                for child in values {
+                    collect_node_kinds(child, kinds);
+                }
+            }
+            _ => {}
+        }
     }
 
     #[test]
@@ -1135,7 +1404,11 @@ mod tests {
         );
         assert_eq!(decode_atom(&payload).unwrap(), atom);
 
-        let rich = symbol!("tymbolica_payload_test::g"; Symmetric, Linear, Real);
+        let rich = symbol!(
+            "tymbolica_payload_test::g";
+            Symmetric, Linear, Real;
+            tags = ["tymbolica_test::render"]
+        );
         let rich_atom = function!(
             rich,
             symbol!("tymbolica_payload_test::y"),
@@ -1153,6 +1426,163 @@ mod tests {
         assert_eq!(
             decode_atom(&encode_atom(&float_atom).unwrap()).unwrap(),
             float_atom
+        );
+        let float_tree = atom_render_tree_value(&float_atom, &AttachmentSet::new()).unwrap();
+        let float_number = find_node(&float_tree, "number").unwrap();
+        assert_eq!(
+            value_field(float_number, "source"),
+            value_field(float_number, "text")
+        );
+        assert!(matches!(
+            value_field(float_number, "source"),
+            Some(Value::Text(source)) if !source.is_empty()
+        ));
+
+        let render_attachments = AttachmentSet::from_attachments([
+            attachment(
+                "org.tymbolica.known",
+                1,
+                b"tymbolica_payload_test::g",
+                b"known declaration",
+            ),
+            attachment(
+                "example.unknown-schema",
+                19,
+                b"opaque identity",
+                &[0xa2, 0x01, 0x02, 0x03],
+            ),
+        ])
+        .unwrap();
+        let x = symbol!("tymbolica_payload_test::render_x");
+        let structured = rich_atom.clone() * Atom::var(x).pow(2) + Atom::num((1, 3));
+        let render_tree = atom_render_tree_value(&structured, &render_attachments).unwrap();
+
+        let Value::Map(envelope) = &render_tree else {
+            panic!("render tree envelope must be a map");
+        };
+        assert_eq!(
+            value_field(envelope, "protocol"),
+            Some(&Value::Text(RENDER_TREE_PROTOCOL.to_owned()))
+        );
+        assert_eq!(
+            value_field(envelope, "version"),
+            Some(&Value::Integer(i64::from(RENDER_TREE_VERSION).into()))
+        );
+        assert_eq!(
+            value_field(envelope, "kind"),
+            Some(&Value::Text(RENDER_TREE_KIND.to_owned()))
+        );
+        let Value::Array(exposed_attachments) = value_field(envelope, "attachments").unwrap()
+        else {
+            panic!("render tree attachments must be an array");
+        };
+        assert_eq!(exposed_attachments.len(), 2);
+        let Value::Map(unknown) = &exposed_attachments[0] else {
+            panic!("attachment must be a map");
+        };
+        assert_eq!(
+            value_field(unknown, "schema"),
+            Some(&Value::Text("example.unknown-schema".to_owned()))
+        );
+        assert_eq!(
+            value_field(unknown, "identity"),
+            Some(&Value::Bytes(b"opaque identity".to_vec()))
+        );
+        assert_eq!(
+            value_field(unknown, "data"),
+            Some(&Value::Bytes(vec![0xa2, 0x01, 0x02, 0x03]))
+        );
+
+        let root = value_field(envelope, "root").unwrap();
+        let mut kinds = std::collections::BTreeSet::new();
+        collect_node_kinds(root, &mut kinds);
+        assert!(
+            ["sum", "product", "power", "function", "variable", "number"]
+                .into_iter()
+                .all(|kind| kinds.contains(kind))
+        );
+
+        let function_node = find_node(root, "function").unwrap();
+        let Value::Map(function_symbol) = value_field(function_node, "symbol").unwrap() else {
+            panic!("function symbol must be a map");
+        };
+        assert_eq!(
+            value_field(function_symbol, "name"),
+            Some(&Value::Text("tymbolica_payload_test::g".to_owned()))
+        );
+        assert_eq!(
+            value_field(function_symbol, "namespace"),
+            Some(&Value::Text("tymbolica_payload_test".to_owned()))
+        );
+        assert_eq!(
+            value_field(function_symbol, "short-name"),
+            Some(&Value::Text("g".to_owned()))
+        );
+        assert_eq!(
+            value_field(function_symbol, "tags"),
+            Some(&Value::Array(vec![Value::Text(
+                "tymbolica_test::render".to_owned()
+            )]))
+        );
+        let Value::Array(attributes) = value_field(function_symbol, "attributes").unwrap() else {
+            panic!("attributes must be an array");
+        };
+        for attribute in ["symmetric", "linear", "real"] {
+            assert!(attributes.contains(&Value::Text(attribute.to_owned())));
+        }
+        assert_eq!(
+            value_field(function_node, "source"),
+            Some(&Value::Text("g".to_owned()))
+        );
+
+        let Value::Bytes(call_payload) = value_field(function_node, "atom").unwrap() else {
+            panic!("function atom must be bytes");
+        };
+        let parsed_call = parse_payload(call_payload).unwrap();
+        assert_eq!(parsed_call.attachment_set(), render_attachments);
+        assert_eq!(parsed_call.import_atom().unwrap(), rich_atom);
+
+        let Value::Bytes(head_payload) = value_field(function_node, "head-atom").unwrap() else {
+            panic!("function head Atom must be bytes");
+        };
+        let parsed_head = parse_payload(head_payload).unwrap();
+        assert_eq!(parsed_head.attachment_set(), render_attachments);
+        assert_eq!(parsed_head.import_atom().unwrap(), Atom::var(rich));
+
+        let variable_node = find_node(root, "variable").unwrap();
+        let Value::Bytes(variable_payload) = value_field(variable_node, "atom").unwrap() else {
+            panic!("variable atom must be bytes");
+        };
+        let parsed_variable = parse_payload(variable_payload).unwrap();
+        assert_eq!(parsed_variable.attachment_set(), render_attachments);
+        assert!(matches!(
+            parsed_variable.import_atom().unwrap().as_view(),
+            AtomView::Var(_)
+        ));
+
+        let number_node = find_node(root, "number").unwrap();
+        assert!(value_field(number_node, "atom").is_none());
+        assert_eq!(
+            value_field(number_node, "source"),
+            value_field(number_node, "text")
+        );
+
+        let encoded_render_tree =
+            encode_atom_render_tree(&structured, &render_attachments).unwrap();
+        let decoded_render_tree =
+            ciborium::from_reader::<Value, _>(Cursor::new(encoded_render_tree)).unwrap();
+        assert_eq!(decoded_render_tree, render_tree);
+
+        let custom = symbol!(
+            "tymbolica_payload_test::custom",
+            print = |_view, _options, _state| Some("callback-must-not-run".to_owned())
+        );
+        let custom_tree =
+            atom_render_tree_value(&Atom::var(custom), &AttachmentSet::new()).unwrap();
+        let custom_variable = find_node(&custom_tree, "variable").unwrap();
+        assert_eq!(
+            value_field(custom_variable, "source"),
+            Some(&Value::Text("\"custom\"".to_owned()))
         );
     }
 }

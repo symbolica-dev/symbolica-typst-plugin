@@ -35,10 +35,15 @@ local `0.1.0` package while its initial public surface is being prepared.
   preserve them opaquely without linking Spenso or Idenso; Tydenso alone uses
   them to restore custom representation classes and index palettes before
   importing an expression in another plugin runtime.
-- Added Tydenso's own Spenso-aware Typst and compact printers, configurable
-  through the real `SpensoPrintSettings` fields. Bra-ket delimiters and
-  contraction dots use compact mathematical spacing, and nested chain factors
-  no longer acquire redundant parentheses.
+- Added one portable recursive Atom render tree shared by Tymbolica and
+  Tydenso. It exposes algebraic structure, exact namespaced symbol identities,
+  tags, attributes, and opaque Atom payloads without linking tensor code into
+  the core plugin.
+- Moved Tydenso's Spenso notation to Typst. Exact heads, complete calls, tags,
+  and attribute classes can now be restyled by the document while bra-ket
+  delimiters, contraction dots, and nested chain factors retain compact
+  mathematical spacing. Spenso's compact Rust printer remains available
+  through `to-string`.
 - Render tensor and vector indices with Typst `attach`, including Physica-style
   hidden alignment columns. Built-in base orientations use the upper row except
   for bispinors; dualizable representations retain an explicit lower
@@ -53,10 +58,11 @@ local `0.1.0` package while its initial public surface is being prepared.
   create real Symbolica algebra. Semantic string identifiers such as `"mu"`
   use Symbolica's native quoted Typst output and remain visibly distinct from
   notation such as `$mu$`.
-- Attach one authoritative Atom payload to evaluated `to-typst` output. Live
-  Typst content can therefore be interpolated back into `math` without
-  reverse-parsing Symbolica or Spenso's displayed notation; source strings,
-  copied visual text, and the separate matrix payload remain display-only.
+- Attach exact Atom metadata at structural boundaries: variables and ordinary
+  function heads remain editable, while a custom complete-call renderer gets
+  one authoritative call payload after it returns. Live Typst content can be
+  interpolated back into `math` without reverse-parsing custom tensor notation;
+  numbers remain ordinary editable math.
 - Added recursive CBOR inspection of Symbolica Atom internals while retaining
   the native Atom export as the lossless cross-plugin payload.
 - Documented every public parameter, default, return shape, and current

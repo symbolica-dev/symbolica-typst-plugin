@@ -1,4 +1,4 @@
-use std::{collections::HashSet, io::Cursor};
+use std::io::Cursor;
 
 use ahash::HashMap;
 
@@ -24,15 +24,17 @@ unsafe extern "Rust" fn __getrandom_v03_custom(
 }
 
 use ciborium::value::Value;
+use symbolica::atom::{DefaultNamespace, SymbolBuilder};
 use symbolica::domains::SelfRing;
 use symbolica::prelude::{
     Atom, AtomCore, AtomPrinter, AtomView, Coefficient, CoefficientView, Complex, DoubleFloat,
-    ExpressionEvaluator, F64, Float, FunctionBuilder, Indeterminate, IntegerRing, Matrix,
-    PolyVariable, PrintOptions, PrintState, Q, RationalPolynomial, RationalPolynomialField, Real,
+    ExpressionEvaluator, F64, Float, Indeterminate, IntegerRing, Matrix, PolyVariable,
+    PrintOptions, PrintState, Q, RationalPolynomial, RationalPolynomialField, Real,
     ReplaceSettings, Replacement, Ring, SeriesDepth, SolutionCondition, SolveDomain, Symbol, Z,
 };
 use tymbolica_atom_payload::{
-    AttachmentSet, encode_atom as encode_shared_atom, encode_atom_from_set, parse_payload,
+    AttachmentSet, encode_atom as encode_shared_atom, encode_atom_from_set,
+    encode_atom_render_tree, parse_payload,
 };
 use tymbolica_typst_ast::AttachedAtom;
 use wasm_minimal_protocol::*;
@@ -347,6 +349,60 @@ fn attached_atom_from_ast(
 fn symbol_atom(name: &str, namespace: &str) -> Result<Atom, String> {
     initialize_core();
     Symbol::parse(name.trim(), namespace.to_owned()).map(Atom::var)
+}
+
+fn validate_symbol_tags(tags: &[String]) -> Result<(), String> {
+    for (index, tag) in tags.iter().enumerate() {
+        let Some((namespace, name)) = tag.rsplit_once("::") else {
+            return Err(format!(
+                "tags[{index}] must be a canonical namespaced tag such as \"model::positive\""
+            ));
+        };
+        if namespace.split("::").any(str::is_empty) || name.is_empty() {
+            return Err(format!(
+                "tags[{index}] must be a canonical namespaced tag such as \"model::positive\""
+            ));
+        }
+        if tags[..index].contains(tag) {
+            return Err(format!("tags[{index}] duplicates {tag:?}"));
+        }
+    }
+    Ok(())
+}
+
+fn symbol_tags(input: &[u8]) -> Result<Vec<String>, String> {
+    let Value::Array(values) = decode_cbor(input, "tags")? else {
+        return Err("tags must be an array of strings".to_owned());
+    };
+    let tags = values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            Value::Text(value) => Ok(value),
+            other => Err(format!("tags[{index}] must be text, got {other:?}")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_symbol_tags(&tags)?;
+    Ok(tags)
+}
+
+fn tagged_symbol_atom(name: &str, namespace: &str, tags: Vec<String>) -> Result<Atom, String> {
+    if tags.is_empty() {
+        return symbol_atom(name, namespace);
+    }
+
+    initialize_core();
+    let namespace = DefaultNamespace {
+        namespace: namespace.to_owned().into(),
+        data: "",
+        file: "".into(),
+        line: 0,
+    };
+    SymbolBuilder::new(namespace.attach_namespace(name.trim()))
+        .with_tags(tags)
+        .build()
+        .map(Atom::var)
+        .map_err(|error| error.to_string())
 }
 
 fn map_get<'a>(map: &'a [(Value, Value)], key: &str) -> Option<&'a Value> {
@@ -896,161 +952,6 @@ fn render_atom(atom: &Atom, opts: PrintOptions, float_style: FloatRenderStyle) -
         rendered = rendered.replace(&placeholder, &value);
     }
     rendered.into_bytes()
-}
-
-fn typst_leaf_source(atom: &Atom, opts: &PrintOptions) -> String {
-    String::from_utf8(render_atom(
-        atom,
-        opts.clone(),
-        FloatRenderStyle::Typst,
-    ))
-    .expect("Symbolica's Typst printer returns UTF-8")
-}
-
-fn custom_typst_source(view: AtomView<'_>, opts: &PrintOptions) -> Option<String> {
-    let symbol = view.get_symbol()?;
-    symbol.get_print_function()?(view, opts, &PrintState::new())
-}
-
-fn is_float_leaf(view: AtomView<'_>) -> bool {
-    matches!(
-        view,
-        AtomView::Num(number)
-            if matches!(number.get_coeff_view(), CoefficientView::Float(_, _))
-    )
-}
-
-fn push_typst_leaf(
-    leaves: &mut Vec<Value>,
-    replacements: &mut Vec<(String, String)>,
-    placeholders: &mut HashSet<Symbol>,
-    payload: Vec<u8>,
-    source: String,
-    kind: &'static str,
-    opts: &PrintOptions,
-) -> Atom {
-    let index = leaves.len();
-    let placeholder_name = format!("tymbolicaleafplaceholderq{index}q");
-    let placeholder_symbol = Symbol::parse(&placeholder_name, "tymbolica")
-        .expect("internal leaf placeholder is a valid symbol");
-    let placeholder = Atom::var(placeholder_symbol);
-    let token = AtomPrinter::new_with_options(placeholder.as_view(), opts.clone()).to_string();
-
-    placeholders.insert(placeholder_symbol);
-    replacements.push((token, format!("#__tymbolica_leaf({index})")));
-    leaves.push(Value::Map(vec![
-        (Value::Text("kind".to_owned()), Value::Text(kind.to_owned())),
-        (Value::Text("source".to_owned()), Value::Text(source)),
-        (Value::Text("atom".to_owned()), Value::Bytes(payload)),
-    ]));
-    placeholder
-}
-
-/// Preserve Symbolica's arithmetic printer while replacing only semantic
-/// leaves with scoped Typst content. Custom printers own their complete
-/// subtree; ordinary function heads and variables remain independent leaves.
-fn render_atom_with_typst_leaves(
-    atom: &Atom,
-    attachments: &AttachmentSet,
-) -> Result<(String, Vec<Value>), String> {
-    let opts = PrintOptions::typst();
-    let mut leaves = Vec::new();
-    let mut replacements = Vec::new();
-    let mut placeholders = HashSet::new();
-    let mut failure = None;
-
-    // A custom printer can hide arbitrary structure, so its largest matching
-    // subexpression is one authoritative leaf and its children are not walked.
-    let custom_masked = atom.replace_map(|view, _, output| {
-        if failure.is_some() || !matches!(view, AtomView::Var(_) | AtomView::Fun(_)) {
-            return;
-        }
-        let Some(source) = custom_typst_source(view, &opts) else {
-            return;
-        };
-        let leaf = view.to_owned();
-        match encode_attached_atom(&leaf, attachments) {
-            Ok(payload) => {
-                **output = push_typst_leaf(
-                    &mut leaves,
-                    &mut replacements,
-                    &mut placeholders,
-                    payload,
-                    source,
-                    "custom",
-                    &opts,
-                );
-            }
-            Err(error) => failure = Some(error),
-        }
-    });
-    if let Some(error) = failure.take() {
-        return Err(error);
-    }
-
-    // The remaining printer structure is invertible. Annotate normal variable
-    // symbols, float leaves, and function heads while retaining Add/Mul/Pow and
-    // all ordinary function arguments for Parsely to reconstruct.
-    let masked = custom_masked.replace_map_bottom_up(|view, _, output| {
-        if failure.is_some() {
-            return;
-        }
-        let (leaf, source, kind, rebuild_function) = match view {
-            AtomView::Var(variable) if !placeholders.contains(&variable.get_symbol()) => {
-                let leaf = view.to_owned();
-                let source = typst_leaf_source(&leaf, &opts);
-                (leaf, source, "symbol", None)
-            }
-            AtomView::Num(_) if is_float_leaf(view) => {
-                let leaf = view.to_owned();
-                let source = typst_leaf_source(&leaf, &opts);
-                (leaf, source, "float", None)
-            }
-            AtomView::Fun(function) => {
-                let leaf = Atom::var(function.get_symbol());
-                let source = typst_leaf_source(&leaf, &opts);
-                (
-                    leaf,
-                    source,
-                    "function-head",
-                    Some(function.iter().map(Atom::from).collect::<Vec<_>>()),
-                )
-            }
-            _ => return,
-        };
-
-        match encode_attached_atom(&leaf, attachments) {
-            Ok(payload) => {
-                let placeholder = push_typst_leaf(
-                    &mut leaves,
-                    &mut replacements,
-                    &mut placeholders,
-                    payload,
-                    source,
-                    kind,
-                    &opts,
-                );
-                if let Some(arguments) = rebuild_function {
-                    let head = placeholder
-                        .get_symbol()
-                        .expect("leaf placeholder is a variable");
-                    **output = FunctionBuilder::new(head).add_args(arguments).finish();
-                } else {
-                    **output = placeholder;
-                }
-            }
-            Err(error) => failure = Some(error),
-        }
-    });
-    if let Some(error) = failure {
-        return Err(error);
-    }
-
-    let mut source = typst_leaf_source(&masked, &opts);
-    for (token, replacement) in replacements {
-        source = source.replace(&token, &replacement);
-    }
-    Ok((source, leaves))
 }
 
 fn render_payload_symbolica(input: &[u8], namespaces: bool) -> Result<Vec<u8>, String> {
@@ -1877,7 +1778,7 @@ pub fn from_ast(ast: &[u8], namespace: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[wasm_func]
-pub fn symbol(name: &[u8], namespace: &[u8]) -> Result<Vec<u8>, String> {
+pub fn symbol(name: &[u8], namespace: &[u8], tags: &[u8]) -> Result<Vec<u8>, String> {
     let name = match decode_cbor(name, "name")? {
         Value::Text(name) => name,
         other => return Err(format!("name must be text, got {other:?}")),
@@ -1886,7 +1787,7 @@ pub fn symbol(name: &[u8], namespace: &[u8]) -> Result<Vec<u8>, String> {
         Value::Text(namespace) => namespace,
         other => return Err(format!("namespace must be text, got {other:?}")),
     };
-    encode_atom(&symbol_atom(&name, &namespace)?)
+    encode_atom(&tagged_symbol_atom(&name, &namespace, symbol_tags(tags)?)?)
 }
 
 #[wasm_func]
@@ -1899,26 +1800,32 @@ pub fn to_typst(payload: &[u8]) -> Result<Vec<u8>, String> {
     render_payload_typst(payload)
 }
 
-/// Render a payload and identify whether its source represents an Atom or the
-/// separate matrix wire format. Typst uses this combined response to avoid a
-/// second payload transfer before attaching exact Atom metadata.
+/// Export a versioned, printer-independent tree for Typst to lay out.
+///
+/// Atom trees carry exact payloads on semantic leaves and calls. Matrices use
+/// their separate display-only source format until that wire type is unified.
 #[wasm_func]
-pub fn to_typst_with_kind(payload: &[u8]) -> Result<Vec<u8>, String> {
-    let (kind, source, leaves) = if is_matrix_payload(payload) {
+pub fn render_tree(payload: &[u8]) -> Result<Vec<u8>, String> {
+    if is_matrix_payload(payload) {
         let source = String::from_utf8(render_payload_typst(payload)?)
             .map_err(|error| format!("Typst renderer returned invalid UTF-8: {error}"))?;
-        ("matrix", source, Vec::new())
+        encode_cbor(Value::Map(vec![
+            (
+                Value::Text("protocol".to_owned()),
+                Value::Text("tymbolica".to_owned()),
+            ),
+            (Value::Text("version".to_owned()), Value::Integer(1.into())),
+            (
+                Value::Text("kind".to_owned()),
+                Value::Text("matrix-render-source".to_owned()),
+            ),
+            (Value::Text("source".to_owned()), Value::Text(source)),
+        ]))
     } else {
         let attached = decode_attached_atom(payload, "expr")?;
-        let (source, leaves) =
-            render_atom_with_typst_leaves(&attached.atom, &attached.attachments)?;
-        ("atom", source, leaves)
-    };
-    encode_cbor(Value::Map(vec![
-        (Value::Text("kind".to_owned()), Value::Text(kind.to_owned())),
-        (Value::Text("source".to_owned()), Value::Text(source)),
-        (Value::Text("leaves".to_owned()), Value::Array(leaves)),
-    ]))
+        encode_atom_render_tree(&attached.atom, &attached.attachments)
+            .map_err(|error| format!("could not encode Atom render tree: {error}"))
+    }
 }
 
 #[wasm_func]
@@ -2857,6 +2764,20 @@ mod tests {
     use super::*;
     use tymbolica_atom_payload::{Attachment, AttachmentKey};
 
+    fn cbor_text(value: &str) -> Vec<u8> {
+        encode_cbor(Value::Text(value.to_owned())).unwrap()
+    }
+
+    fn cbor_tags(values: &[&str]) -> Vec<u8> {
+        encode_cbor(Value::Array(
+            values
+                .iter()
+                .map(|value| Value::Text((*value).to_owned()))
+                .collect(),
+        ))
+        .unwrap()
+    }
+
     fn test_attachment_key(identity: &[u8]) -> AttachmentKey {
         AttachmentKey::new("org.tymbolica.test", 1, identity.to_vec()).unwrap()
     }
@@ -2899,6 +2820,71 @@ mod tests {
                 Value::Text(domain.to_owned()),
             ),
         ])
+    }
+
+    #[test]
+    fn public_symbol_tags_are_validated_and_survive_a_transform() {
+        let validation_namespace = cbor_text("tymbolica_portable_tag_validation_test");
+        assert!(
+            symbol(
+                &cbor_text("bad"),
+                &validation_namespace,
+                &cbor_tags(&["positive"]),
+            )
+            .unwrap_err()
+            .contains("canonical namespaced tag")
+        );
+
+        let name = cbor_text("x");
+        let namespace = cbor_text("tymbolica_portable_tags_test");
+        let tags = cbor_tags(&["model::positive", "model::parameter"]);
+        let payload = symbol(&name, &namespace, &tags).unwrap();
+        let transformed = expand(&payload).unwrap();
+        let atom = decode_atom(&transformed, "expanded tagged symbol").unwrap();
+        let AtomView::Var(variable) = atom.as_view() else {
+            panic!("tagged public symbol should remain a variable");
+        };
+
+        assert_eq!(
+            variable.get_symbol().get_tags(),
+            &["model::positive", "model::parameter"]
+        );
+        let Value::Map(tree) = decode_cbor(
+            &render_tree(&transformed).unwrap(),
+            "tagged symbol render tree",
+        )
+        .unwrap() else {
+            panic!("render tree must be a dictionary");
+        };
+        let Some(Value::Map(root)) = map_get(&tree, "root") else {
+            panic!("render tree must have a root dictionary");
+        };
+        let Some(Value::Map(symbol_descriptor)) = map_get(root, "symbol") else {
+            panic!("variable root must have a symbol dictionary");
+        };
+        assert_eq!(
+            map_get(symbol_descriptor, "tags"),
+            Some(&Value::Array(vec![
+                Value::Text("model::positive".to_owned()),
+                Value::Text("model::parameter".to_owned()),
+            ]))
+        );
+
+        let conflict_name = cbor_text("conflict");
+        symbol(
+            &conflict_name,
+            &validation_namespace,
+            &cbor_tags(&["model::first"]),
+        )
+        .unwrap();
+        assert!(
+            symbol(
+                &conflict_name,
+                &validation_namespace,
+                &cbor_tags(&["model::second"]),
+            )
+            .is_err()
+        );
     }
 
     fn exact_solve_branches(system: &[Atom], variables: &[Atom], domain: &str) -> Vec<Value> {

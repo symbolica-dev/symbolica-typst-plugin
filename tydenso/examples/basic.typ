@@ -14,7 +14,7 @@
 #let W = lor(4)
 #let T = tensor("T")
 #let mixed = T(slot(W, 1), slot(W, 2, dual: true))
-#let mass = symbol("m", namespace: "model", tags: ("parameter",))
+#let mass = symbol("m", namespace: "model", tags: ("model::parameter",))
 #let kernel = function("K", namespace: "model")
 
 // Generic representations inherit an independently initialized API's namespace.
@@ -51,12 +51,8 @@ $
 #assert.eq(M-dual.name, M.name)
 #let X = tensor("X", namespace: "palette_example")
 #let named-indices = X(slot(M, 1), slot(M, 2), slot(M, 3), slot(M, $rho_2$))
-#let named-source = to-typst-source(named-indices)
-#assert(named-source.contains("t:μ ν"))
-#assert(named-source.contains("attach(μ,b:1)"))
-#assert(named-source.contains("attach(ρ,b:upright(\"2\"))"))
-#let qualified-source = to-typst-source(named-indices, settings: print-settings(with-dim: true))
-#assert(qualified-source.contains("attach(attach(μ,b:1),t:attach(M,b:4))"))
+#let shown-named-indices = to-typst(named-indices)
+#assert.eq(inspect(math($#shown-named-indices$)), inspect(named-indices))
 
 // A dual orientation retains the same representation identity. Only the slot
 // variance changes, so metric contraction still recognizes both orientations.
@@ -82,14 +78,15 @@ $
 // Wrap the same input in `math` when it should be Symbolica algebra instead.
 #let display-label = p($arrow(x + y)$, V)
 #let algebraic-argument = p(math($x + y$), V)
-#assert(to-typst-source(display-label).contains("accent("))
 #assert(inspect(display-label) != inspect(algebraic-argument))
+#assert.eq(
+  inspect(math($#to-typst(display-label)$)),
+  inspect(display-label),
+)
 
 // A string is a semantic identifier; math content owns its written notation.
 #let identifier-mu = p("mu", V)
-#let notation-mu = p($std.sym.mu$, V)
-#assert(to-typst-source(identifier-mu).contains("\"mu\""))
-#assert(to-typst-source(notation-mu).contains("b:μ"))
+#let notation-mu = p($mu$, V)
 #assert(inspect(identifier-mu) != inspect(notation-mu))
 
 #let color-dual = dual-representation(cof(3))
@@ -102,8 +99,21 @@ $
 #assert.eq(inspect(parsed-contracted), inspect(p(mu-slot)))
 #assert.eq(inspect(generic-call).kind, "function")
 
-// Tydenso's printer is independent of Tymbolica.
-#assert(type(to-typst-source(contracted)) == str)
-#assert(to-typst-source(p(mu-slot)).starts-with("attach("))
-#assert(to-typst-source(mixed).contains("b:std.hide(mu) nu"))
+// Tydenso lays out the shared Atom tree entirely on the Typst side.
+#assert(type(to-typst(contracted)) == content)
+#assert.eq(inspect(math($#to-typst(p(mu-slot))$)), inspect(p(mu-slot)))
+#assert.eq(inspect(math($#to-typst(mixed)$)), inspect(mixed))
 #assert(type(to-string(contracted)) == str)
+
+#grid(
+  columns: 2,
+  gutter: 0.8em,
+  [automatic and manual indices], $ #shown-named-indices $,
+  [indices with representation data], $ #to-typst(
+    named-indices,
+    notation: notation(with-dim: true),
+  ) $,
+  [arbitrary math as a label], $ #to-typst(display-label) $,
+  [the identifier `"mu"`], $ #to-typst(identifier-mu) $,
+  [the written symbol $mu$], $ #to-typst(notation-mu) $,
+)

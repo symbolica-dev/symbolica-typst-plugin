@@ -63,8 +63,8 @@ Both Rubi arguments are portable Atom payload bytes; `math($x$)` creates the
 single-symbol payload required for the integration variable.
 
 Tensor algebra is provided by the separate `tydenso` Typst package in this
-repository. Tydenso has its own manual, constructors, Spenso-aware printer, and
-compressed plugin. Representations and slots are inspectable Typst
+repository. Tydenso has its own manual, constructors, Typst-side Spenso
+notation, compact string printer, and compressed plugin. Representations and slots are inspectable Typst
 dictionaries. Symbols and tensor calls look like ordinary math and carry the
 same exact Symbolica Atom export understood by both plugins:
 

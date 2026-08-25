@@ -16,13 +16,13 @@
     in {
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.binaryen pkgs.cargo pkgs.lld pkgs.rustc pkgs.rustfmt pkgs.wizer (typstWithPackages pkgs) ];
+          packages = [ pkgs.binaryen pkgs.cargo pkgs.lld pkgs.rustc pkgs.rustfmt pkgs.stdenv.cc pkgs.wizer (typstWithPackages pkgs) ];
         };
       });
 
       apps = eachSystem (pkgs:
         let
-          path = [ pkgs.binaryen pkgs.cargo pkgs.coreutils pkgs.diffutils pkgs.lld pkgs.rustc pkgs.wizer (typstWithPackages pkgs) ];
+          path = [ pkgs.binaryen pkgs.cargo pkgs.coreutils pkgs.diffutils pkgs.lld pkgs.rustc pkgs.stdenv.cc pkgs.wizer (typstWithPackages pkgs) ];
           app = name: text: {
             type = "app";
             program = "${pkgs.writeShellApplication { inherit name; runtimeInputs = path; inherit text; }}/bin/${name}";
@@ -129,6 +129,12 @@
               assert_dependency_absent tymbolica-rubi-plugin "$dependency"
             done
           '';
+          rendererBoundaryScript = ''
+            if ! cmp -s typst/render.typ tydenso/render.typ; then
+              echo "tydenso/render.typ must be an exact copy of typst/render.typ" >&2
+              exit 1
+            fi
+          '';
           buildScript = loaderBuildScript + engineBuildScript + tydensoBuildScript + rubiBuildScript;
         in rec {
           default = build;
@@ -141,12 +147,12 @@
             tydenso_out="''${TYDENSO_MANUAL_OUT:-tydenso/manual.pdf}"
             rubi_out="''${TYMBOLICA_RUBI_MANUAL_OUT:-rubi/manual.pdf}"
             mkdir -p "$(dirname "$tymbolica_out")" "$(dirname "$tydenso_out")" "$(dirname "$rubi_out")"
-            typst compile --root . typst/manual.typ "$tymbolica_out"
-            typst compile --root . tydenso/manual.typ "$tydenso_out"
-            typst compile --root . rubi/manual.typ "$rubi_out"
+            typst compile --creation-timestamp 0 --root . typst/manual.typ "$tymbolica_out"
+            typst compile --creation-timestamp 0 --root . tydenso/manual.typ "$tydenso_out"
+            typst compile --creation-timestamp 0 --root . rubi/manual.typ "$rubi_out"
             ls -lh "$tymbolica_out" "$tydenso_out" "$rubi_out"
           '');
-          check = app "tymbolica-check" (dependencyBoundaryScript + buildScript + ''
+          check = app "tymbolica-check" (dependencyBoundaryScript + rendererBoundaryScript + buildScript + ''
             check_dir="$(mktemp -d)"
             trap 'rm -rf "$check_dir"' EXIT
 
@@ -157,15 +163,15 @@
             typst compile --root . typst/examples/phase-portrait.typ "$check_dir/phase-portrait.pdf"
             typst compile --root . typst/examples/api-surface.typ "$check_dir/api-surface.pdf"
             typst compile --root . typst/examples/parsely-mwe.typ "$check_dir/parsely-mwe.pdf"
-            typst compile --root . typst/manual.typ "$check_dir/manual.pdf"
+            typst compile --creation-timestamp 0 --root . typst/manual.typ "$check_dir/manual.pdf"
             typst compile --root . tydenso/examples/basic.typ "$check_dir/tydenso-basic.pdf"
             typst compile --root . tydenso/examples/symmetry.typ "$check_dir/tydenso-symmetry.pdf"
             typst compile --root . tydenso/examples/interop.typ "$check_dir/tydenso-interop.pdf"
             typst compile --root . tydenso/examples/spenso-notation.typ "$check_dir/tydenso-spenso-notation.pdf"
             typst compile --root . tydenso/examples/index-palettes.typ "$check_dir/tydenso-index-palettes.pdf"
-            typst compile --root . tydenso/manual.typ "$check_dir/tydenso-manual.pdf"
+            typst compile --creation-timestamp 0 --root . tydenso/manual.typ "$check_dir/tydenso-manual.pdf"
             typst compile --root . rubi/examples/basic.typ "$check_dir/rubi-basic.pdf"
-            typst compile --root . rubi/manual.typ "$check_dir/rubi-manual.pdf"
+            typst compile --creation-timestamp 0 --root . rubi/manual.typ "$check_dir/rubi-manual.pdf"
 
             package_dir="$check_dir/xdg/typst/packages/local/tymbolica"
             mkdir -p "$package_dir"
@@ -217,6 +223,11 @@
             chmod -R u+w "$work"
             mkdir -p "$out"
 
+            if ! cmp -s "$work/typst/render.typ" "$work/tydenso/render.typ"; then
+              echo "tydenso/render.typ must be an exact copy of typst/render.typ" >&2
+              exit 1
+            fi
+
             while IFS= read -r -d "" file; do
               size="$(wc -c < "$file")"
               if [ "$size" -gt 20971520 ]; then
@@ -240,15 +251,15 @@
             typst compile --root "$work" "$work/typst/examples/phase-portrait.typ" "$out/phase-portrait.pdf"
             typst compile --root "$work" "$work/typst/examples/api-surface.typ" "$out/api-surface.pdf"
             typst compile --root "$work" "$work/typst/examples/parsely-mwe.typ" "$out/parsely-mwe.pdf"
-            typst compile --root "$work" "$work/typst/manual.typ" "$out/manual.pdf"
+            typst compile --creation-timestamp 0 --root "$work" "$work/typst/manual.typ" "$out/manual.pdf"
             typst compile --root "$work" "$work/tydenso/examples/basic.typ" "$out/tydenso-basic.pdf"
             typst compile --root "$work" "$work/tydenso/examples/symmetry.typ" "$out/tydenso-symmetry.pdf"
             typst compile --root "$work" "$work/tydenso/examples/interop.typ" "$out/tydenso-interop.pdf"
             typst compile --root "$work" "$work/tydenso/examples/spenso-notation.typ" "$out/tydenso-spenso-notation.pdf"
             typst compile --root "$work" "$work/tydenso/examples/index-palettes.typ" "$out/tydenso-index-palettes.pdf"
-            typst compile --root "$work" "$work/tydenso/manual.typ" "$out/tydenso-manual.pdf"
+            typst compile --creation-timestamp 0 --root "$work" "$work/tydenso/manual.typ" "$out/tydenso-manual.pdf"
             typst compile --root "$work" "$work/rubi/examples/basic.typ" "$out/rubi-basic.pdf"
-            typst compile --root "$work" "$work/rubi/manual.typ" "$out/rubi-manual.pdf"
+            typst compile --creation-timestamp 0 --root "$work" "$work/rubi/manual.typ" "$out/rubi-manual.pdf"
 
             package_dir="$TMPDIR/xdg/typst/packages/local/tymbolica"
             mkdir -p "$package_dir"

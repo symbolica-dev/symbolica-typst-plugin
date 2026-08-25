@@ -1,6 +1,6 @@
 //! Tydenso tensor construction, printing, inspection, and Idenso transforms.
 
-use std::{collections::HashSet, io::Cursor, sync::Once};
+use std::{io::Cursor, sync::Once};
 
 use ciborium::value::Value;
 use idenso::color::ColorSimplifier;
@@ -8,29 +8,29 @@ use idenso::dirac::GammaSimplifier;
 use idenso::selective_expand::SelectiveExpand;
 use idenso::shorthands::{metric::MetricSimplifier, schoonschip::Schoonschip};
 use idenso::{Cookable, IndexTooling};
-use spenso::network::tags::{prepare_tensor_print, register_tensor_symbol};
+use spenso::network::tags::SPENSO_TAG;
 use spenso::shadowing::symbolica_utils::SpensoPrintSettings;
 use spenso::structure::abstract_index::AbstractIndex;
 use spenso::structure::representation::{
     IndexDisplay, IndexPalette, IndexRow, LibraryRep, RepName,
 };
 use symbolica::atom::{
-    Atom, AtomCore, AtomView, DefaultNamespace, FunctionBuilder, NamespacedSymbol, Symbol,
-    SymbolAttribute, SymbolBuilder,
+    Atom, AtomCore, AtomView, DefaultNamespace, NamespacedSymbol, Symbol, SymbolAttribute,
+    SymbolBuilder,
 };
-use symbolica::coefficient::CoefficientView;
-use symbolica::printer::{PrintOptions, PrintState};
 use tydenso_representation_registry::{
     MATH_DISPLAY_ATTACHMENT_SCHEMA, MathDisplayDeclaration, MathDisplayDeclarations,
     PortableRepresentationClass, REPRESENTATION_ATTACHMENT_SCHEMA, RepresentationDeclaration,
     RepresentationDeclarations, canonical_math_display_symbol_name, canonical_representation_name,
     register_math_display_symbol,
 };
-use tymbolica_atom_payload::{AttachmentSet, ParsedPayload, encode_atom_from_set, parse_payload};
+use tymbolica_atom_payload::{
+    AttachmentSet, ParsedPayload, encode_atom_from_set, encode_atom_render_tree, parse_payload,
+};
 use wasm_minimal_protocol::*;
 
 #[cfg(test)]
-use spenso::network::tags::SPENSO_TAG;
+use spenso::network::tags::prepare_tensor_print;
 #[cfg(test)]
 use tydenso_representation_registry::REPRESENTATION_ATTACHMENT_VERSION;
 #[cfg(test)]
@@ -223,7 +223,7 @@ fn decode_cbor_exact(input: &[u8], label: &str) -> Result<Value, String> {
     Ok(value)
 }
 
-fn encode_atom_with_context(atom: &Atom, context: &InputContext) -> Result<Vec<u8>, String> {
+fn output_attachments(atom: &Atom, context: &InputContext) -> Result<AttachmentSet, String> {
     let mut attachments = context.passthrough.clone();
     RepresentationDeclarations::referenced_by_atom(atom)
         .and_then(|declarations| declarations.append_attachments_to(&mut attachments))
@@ -231,6 +231,11 @@ fn encode_atom_with_context(atom: &Atom, context: &InputContext) -> Result<Vec<u
     MathDisplayDeclarations::referenced_by_atom(atom)
         .and_then(|declarations| declarations.append_attachments_to(&mut attachments))
         .map_err(|error| error.to_string())?;
+    Ok(attachments)
+}
+
+fn encode_atom_with_context(atom: &Atom, context: &InputContext) -> Result<Vec<u8>, String> {
+    let attachments = output_attachments(atom, context)?;
     encode_atom_from_set(atom, &attachments)
         .map_err(|error| format!("could not encode Tydenso result: {error}"))
 }
@@ -281,6 +286,44 @@ fn map_bool(map: &[(Value, Value)], key: &str, default: bool) -> Result<bool, St
         Some(other) => Err(format!("{key} must be bool, got {other:?}")),
         None => Ok(default),
     }
+}
+
+fn validate_symbol_tags(tags: &[String]) -> Result<(), String> {
+    for (index, tag) in tags.iter().enumerate() {
+        let Some((namespace, name)) = tag.rsplit_once("::") else {
+            return Err(format!(
+                "tags[{index}] must be a canonical namespaced tag such as \"model::positive\""
+            ));
+        };
+        if namespace.split("::").any(str::is_empty) || name.is_empty() {
+            return Err(format!(
+                "tags[{index}] must be a canonical namespaced tag such as \"model::positive\""
+            ));
+        }
+        if tags[..index].contains(tag) {
+            return Err(format!("tags[{index}] duplicates {tag:?}"));
+        }
+    }
+    Ok(())
+}
+
+fn map_symbol_tags(map: &[(Value, Value)]) -> Result<Vec<String>, String> {
+    let Some(value) = map_get(map, "tags") else {
+        return Ok(Vec::new());
+    };
+    let Value::Array(values) = value else {
+        return Err(format!("tags must be an array, got {value:?}"));
+    };
+    let tags = values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            Value::Text(value) => Ok(value.clone()),
+            other => Err(format!("tags[{index}] must be text, got {other:?}")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_symbol_tags(&tags)?;
+    Ok(tags)
 }
 
 fn value_map<'a>(value: &'a Value, label: &str) -> Result<&'a [(Value, Value)], String> {
@@ -799,6 +842,7 @@ fn parse_symbol(
         return Symbol::parse(name, namespace.to_owned());
     };
 
+    let tags = map_symbol_tags(map)?;
     let symmetric = map_bool(map, "symmetric", false)?;
     let antisymmetric = map_bool(map, "antisymmetric", false)?;
     let cyclesymmetric = map_bool(map, "cycle-symmetric", false)?;
@@ -828,7 +872,7 @@ fn parse_symbol(
     if linear {
         attributes.push(SymbolAttribute::Linear);
     }
-    if attributes.is_empty() {
+    if attributes.is_empty() && tags.is_empty() {
         return Symbol::parse(name, namespace.to_owned());
     }
 
@@ -840,6 +884,7 @@ fn parse_symbol(
     };
     SymbolBuilder::new(namespace.attach_namespace(name))
         .with_attributes(attributes)
+        .with_tags(tags)
         .build()
         .map_err(|error| error.to_string())
 }
@@ -850,6 +895,7 @@ fn parse_tensor_symbol(
     map: &[(Value, Value)],
     rank_one: bool,
 ) -> Result<Symbol, String> {
+    let requested_tags = map_symbol_tags(map)?;
     let symmetric = map_bool(map, "symmetric", false)?;
     let antisymmetric = map_bool(map, "antisymmetric", false)?;
     let cyclesymmetric = map_bool(map, "cycle-symmetric", false)?;
@@ -886,7 +932,37 @@ fn parse_tensor_symbol(
         file: "".into(),
         line: 0,
     };
-    register_tensor_symbol(namespace.attach_namespace(name), attributes, rank_one)
+    let name = namespace.attach_namespace(name);
+    let mut tags = vec![SPENSO_TAG.tensor.clone()];
+    if rank_one {
+        tags.push(SPENSO_TAG.rank1.clone());
+    } else if requested_tags.iter().any(|tag| tag == &SPENSO_TAG.rank1) {
+        return Err(format!(
+            "tag {:?} is reserved for vectors",
+            SPENSO_TAG.rank1
+        ));
+    }
+    for tag in requested_tags {
+        if !tags.contains(&tag) {
+            tags.push(tag);
+        }
+    }
+
+    if let Some(existing) = Symbol::get_symbol(name.clone()) {
+        if existing.get_attributes() != attributes || existing.get_tags() != tags {
+            return Err(format!(
+                "symbol {} already exists with a different tensor declaration",
+                existing.get_name()
+            ));
+        }
+        return Ok(existing);
+    }
+
+    SymbolBuilder::new(name)
+        .with_attributes(attributes)
+        .with_tags(tags)
+        .build()
+        .map_err(|error| error.to_string())
 }
 
 fn parse_representation(
@@ -981,8 +1057,12 @@ fn collect_construct_value(
                     context.merge_math_display(display, namespace)
                 }
             }
-            "symbol" => Ok(()),
+            "symbol" => {
+                map_symbol_tags(map)?;
+                Ok(())
+            }
             "call" | "tensor" | "vector" => {
+                map_symbol_tags(map)?;
                 let child_namespace = map_text_or(map, "namespace", namespace)?;
                 for argument in map_array(map, "arguments")? {
                     collect_construct_value(argument, child_namespace, context)?;
@@ -1224,7 +1304,7 @@ fn print_settings(
     Ok(settings)
 }
 
-fn render_request(input: &[u8], typst: bool) -> Result<Vec<u8>, String> {
+fn render_string_request(input: &[u8]) -> Result<Vec<u8>, String> {
     let value = decode_cbor(input, "request")?;
     let map = value_map(&value, "request")?;
     let expr = match map_get(map, "expr") {
@@ -1232,195 +1312,12 @@ fn render_request(input: &[u8], typst: bool) -> Result<Vec<u8>, String> {
         Some(other) => atom_from_value(other, "spenso")?,
         None => return Err("missing expr".to_owned()),
     };
-    let settings = print_settings(
-        map_get(map, "settings"),
-        if typst { "typst" } else { "compact" },
-    )?;
-    let options = if typst {
-        PrintOptions {
-            custom_print_mode: (&settings).into(),
-            ..PrintOptions::typst()
-        }
-    } else {
-        let mut options = settings.nice_symbolica();
-        options.color_builtin_symbols = false;
-        options.color_top_level_sum = false;
-        options.terms_on_new_line = false;
-        options
-    };
-    let printable = if typst {
-        prepare_tensor_print(&expr)
-    } else {
-        expr
-    };
-    Ok(printable.printer(options).to_string().into_bytes())
-}
-
-fn tydenso_typst_source(atom: &Atom, options: &PrintOptions) -> String {
-    prepare_tensor_print(atom)
-        .printer(options.clone())
-        .to_string()
-}
-
-fn custom_tydenso_typst_source(
-    view: AtomView<'_>,
-    options: &PrintOptions,
-) -> Option<String> {
-    let original = view.to_owned();
-    let printable = prepare_tensor_print(&original);
-    let printable_view = printable.as_view();
-    let symbol = printable_view.get_symbol()?;
-    symbol.get_print_function()?(printable_view, options, &PrintState::new())
-}
-
-fn is_float_leaf(view: AtomView<'_>) -> bool {
-    matches!(
-        view,
-        AtomView::Num(number)
-            if matches!(number.get_coeff_view(), CoefficientView::Float(_, _))
-    )
-}
-
-fn push_tydenso_typst_leaf(
-    leaves: &mut Vec<Value>,
-    replacements: &mut Vec<(String, String)>,
-    placeholders: &mut HashSet<Symbol>,
-    payload: Vec<u8>,
-    source: String,
-    kind: &'static str,
-    options: &PrintOptions,
-) -> Atom {
-    let index = leaves.len();
-    let placeholder_name = format!("tydensoleafplaceholderq{index}q");
-    let placeholder_symbol = Symbol::parse(&placeholder_name, "tydenso")
-        .expect("internal leaf placeholder is a valid symbol");
-    let placeholder = Atom::var(placeholder_symbol);
-    let token = placeholder.printer(options.clone()).to_string();
-
-    placeholders.insert(placeholder_symbol);
-    replacements.push((token, format!("#__tymbolica_leaf({index})")));
-    leaves.push(cbor_map([
-        ("kind", Value::Text(kind.to_owned())),
-        ("source", Value::Text(source)),
-        ("atom", Value::Bytes(payload)),
-    ]));
-    placeholder
-}
-
-fn render_request_with_typst_leaves(input: &[u8]) -> Result<Vec<u8>, String> {
-    let value = decode_cbor(input, "request")?;
-    let map = value_map(&value, "request")?;
-    let (expr, context) = match map_get(map, "expr") {
-        Some(Value::Bytes(bytes)) => decode_atom_with_context(bytes, "expr")?,
-        Some(other) => atom_from_value_with_context(other, "spenso")?,
-        None => return Err("missing expr".to_owned()),
-    };
-    let settings = print_settings(map_get(map, "settings"), "typst")?;
-    let options = PrintOptions {
-        custom_print_mode: (&settings).into(),
-        ..PrintOptions::typst()
-    };
-
-    let mut leaves = Vec::new();
-    let mut replacements = Vec::new();
-    let mut placeholders = HashSet::new();
-    let mut failure = None;
-
-    // Tensor and Spenso notation can discard structural information. Preserve
-    // the largest custom-printed subexpression as one exact semantic leaf.
-    let custom_masked = expr.replace_map(|view, _, output| {
-        if failure.is_some() || !matches!(view, AtomView::Var(_) | AtomView::Fun(_)) {
-            return;
-        }
-        let Some(source) = custom_tydenso_typst_source(view, &options) else {
-            return;
-        };
-        let leaf = view.to_owned();
-        match encode_atom_with_context(&leaf, &context) {
-            Ok(payload) => {
-                **output = push_tydenso_typst_leaf(
-                    &mut leaves,
-                    &mut replacements,
-                    &mut placeholders,
-                    payload,
-                    source,
-                    "custom",
-                    &options,
-                );
-            }
-            Err(error) => failure = Some(error),
-        }
-    });
-    if let Some(error) = failure.take() {
-        return Err(error);
-    }
-
-    // Keep ordinary arithmetic and call arguments as native source. Exact
-    // metadata is limited to variables, float leaves, and function heads.
-    let masked = custom_masked.replace_map_bottom_up(|view, _, output| {
-        if failure.is_some() {
-            return;
-        }
-        let (leaf, source, kind, rebuild_function) = match view {
-            AtomView::Var(variable) if !placeholders.contains(&variable.get_symbol()) => {
-                let leaf = view.to_owned();
-                let source = tydenso_typst_source(&leaf, &options);
-                (leaf, source, "symbol", None)
-            }
-            AtomView::Num(_) if is_float_leaf(view) => {
-                let leaf = view.to_owned();
-                let source = tydenso_typst_source(&leaf, &options);
-                (leaf, source, "float", None)
-            }
-            AtomView::Fun(function) => {
-                let leaf = Atom::var(function.get_symbol());
-                let source = tydenso_typst_source(&leaf, &options);
-                (
-                    leaf,
-                    source,
-                    "function-head",
-                    Some(function.iter().map(Atom::from).collect::<Vec<_>>()),
-                )
-            }
-            _ => return,
-        };
-
-        match encode_atom_with_context(&leaf, &context) {
-            Ok(payload) => {
-                let placeholder = push_tydenso_typst_leaf(
-                    &mut leaves,
-                    &mut replacements,
-                    &mut placeholders,
-                    payload,
-                    source,
-                    kind,
-                    &options,
-                );
-                if let Some(arguments) = rebuild_function {
-                    let head = placeholder
-                        .get_symbol()
-                        .expect("leaf placeholder is a variable");
-                    **output = FunctionBuilder::new(head).add_args(arguments).finish();
-                } else {
-                    **output = placeholder;
-                }
-            }
-            Err(error) => failure = Some(error),
-        }
-    });
-    if let Some(error) = failure {
-        return Err(error);
-    }
-
-    let printable = prepare_tensor_print(&masked);
-    let mut source = printable.printer(options).to_string();
-    for (token, replacement) in replacements {
-        source = source.replace(&token, &replacement);
-    }
-    encode_cbor(cbor_map([
-        ("source", Value::Text(source)),
-        ("leaves", Value::Array(leaves)),
-    ]))
+    let settings = print_settings(map_get(map, "settings"), "compact")?;
+    let mut options = settings.nice_symbolica();
+    options.color_builtin_symbols = false;
+    options.color_top_level_sum = false;
+    options.terms_on_new_line = false;
+    Ok(expr.printer(options).to_string().into_bytes())
 }
 
 fn symbol_from_atom(atom: &Atom, label: &str) -> Result<Symbol, String> {
@@ -1476,19 +1373,20 @@ pub fn inspect(expr: &[u8]) -> Result<Vec<u8>, String> {
     encode_cbor(atom_tree(decode_atom(expr, "expr")?.as_view()))
 }
 
+/// Export a versioned, printer-independent Atom tree. Tydenso's Typst module
+/// owns tensor notation and layout; this endpoint contains no Spenso printer
+/// callbacks or Typst-specific tensor lowering.
 #[wasm_func]
-pub fn to_typst(request: &[u8]) -> Result<Vec<u8>, String> {
-    render_request(request, true)
-}
-
-#[wasm_func]
-pub fn to_typst_with_leaves(request: &[u8]) -> Result<Vec<u8>, String> {
-    render_request_with_typst_leaves(request)
+pub fn render_tree(expr: &[u8]) -> Result<Vec<u8>, String> {
+    let (atom, context) = decode_atom_with_context(expr, "expr")?;
+    let attachments = output_attachments(&atom, &context)?;
+    encode_atom_render_tree(&atom, &attachments)
+        .map_err(|error| format!("could not encode Atom render tree: {error}"))
 }
 
 #[wasm_func]
 pub fn to_string(request: &[u8]) -> Result<Vec<u8>, String> {
-    render_request(request, false)
+    render_string_request(request)
 }
 
 #[wasm_func]
@@ -1805,6 +1703,33 @@ mod tests {
         ])
     }
 
+    fn tagged_constructor_value(
+        kind: &str,
+        name: &str,
+        namespace: &str,
+        arguments: Vec<Value>,
+        tags: &[&str],
+    ) -> Value {
+        cbor_map([
+            ("kind", Value::Text(kind.to_owned())),
+            ("name", Value::Text(name.to_owned())),
+            ("namespace", Value::Text(namespace.to_owned())),
+            ("arguments", Value::Array(arguments)),
+            (
+                "tags",
+                Value::Array(
+                    tags.iter()
+                        .map(|tag| Value::Text((*tag).to_owned()))
+                        .collect(),
+                ),
+            ),
+            ("symmetric", Value::Bool(false)),
+            ("antisymmetric", Value::Bool(false)),
+            ("cycle-symmetric", Value::Bool(false)),
+            ("linear", Value::Bool(false)),
+        ])
+    }
+
     fn representation_attachment(
         name: &str,
         declaration: &RepresentationDeclaration,
@@ -1823,6 +1748,89 @@ mod tests {
         let mut attachments = parsed.attachment_set();
         attachments.insert(attachment).unwrap();
         encode_atom_from_set(&parsed.import_atom().unwrap(), &attachments).unwrap()
+    }
+
+    #[test]
+    fn public_constructor_tags_are_portable_and_conflicts_fail_closed() {
+        let invalid_descriptor = tagged_constructor_value(
+            "call",
+            "f",
+            "tydenso_portable_tag_validation_test",
+            Vec::new(),
+            &["smooth"],
+        );
+        assert!(
+            construct(&value_bytes(&invalid_descriptor))
+                .unwrap_err()
+                .contains("canonical namespaced tag")
+        );
+
+        let namespace = "tydenso_portable_symbol_tags_test";
+        let symbol_descriptor = tagged_constructor_value(
+            "symbol",
+            "x",
+            namespace,
+            Vec::new(),
+            &["model::positive", "model::parameter"],
+        );
+        let symbol_payload = construct(&value_bytes(&symbol_descriptor)).unwrap();
+        let transformed = cook_indices(&symbol_payload).unwrap();
+        let symbol = decode_atom(&transformed, "transformed tagged symbol").unwrap();
+        assert_eq!(
+            variable_symbol(&symbol).get_tags(),
+            &["model::positive", "model::parameter"]
+        );
+
+        let call_descriptor = tagged_constructor_value(
+            "call",
+            "f",
+            namespace,
+            vec![Value::Bytes(symbol_payload)],
+            &["model::smooth"],
+        );
+        let call = decode_atom(
+            &construct(&value_bytes(&call_descriptor)).unwrap(),
+            "tagged function call",
+        )
+        .unwrap();
+        let AtomView::Fun(function) = call.as_view() else {
+            panic!("function constructor should produce a function atom");
+        };
+        assert_eq!(function.get_symbol().get_tags(), &["model::smooth"]);
+
+        let namespace = "tydenso_portable_tensor_tags_test";
+        let descriptor = tagged_constructor_value(
+            "tensor",
+            "T",
+            namespace,
+            vec![Value::Text("i".to_owned())],
+            &["model::observable"],
+        );
+        let tensor = decode_atom(
+            &construct(&value_bytes(&descriptor)).unwrap(),
+            "tagged tensor",
+        )
+        .unwrap();
+        let AtomView::Fun(function) = tensor.as_view() else {
+            panic!("tensor constructor should produce a function atom");
+        };
+        assert_eq!(
+            function.get_symbol().get_tags(),
+            &[SPENSO_TAG.tensor.as_str(), "model::observable"]
+        );
+
+        let conflict = tagged_constructor_value(
+            "tensor",
+            "T",
+            namespace,
+            vec![Value::Text("i".to_owned())],
+            &["model::hidden"],
+        );
+        assert!(
+            construct(&value_bytes(&conflict))
+                .unwrap_err()
+                .contains("different tensor declaration")
+        );
     }
 
     fn semantic_atom_payload_ast(payload: Vec<u8>) -> Value {

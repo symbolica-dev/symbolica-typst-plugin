@@ -1,4 +1,5 @@
 #import "@preview/parsely:0.1.0"
+#import "notation.typ" as tensor-notation
 
 #let _default-grammar = (
   arg: (infix: $,$, assoc: true, prec: 4),
@@ -31,7 +32,6 @@
   root: math.root,
   scripts: math.scripts,
   stretch: math.stretch,
-  text: text,
   underbrace: math.underbrace,
   underbracket: math.underbracket,
   underline: math.underline,
@@ -337,44 +337,31 @@
   semantic: semantic,
 )
 
-#let _default-typst-settings = (
-  preset: "typst",
-  with-dim: false,
-  parens: true,
-  commas: false,
-  index-subscripts: true,
-  symbol-scripts: true,
-)
-
 #let _annotated-visual(atom, visual, semantic) = {
   _typst-math.attach(visual) + metadata(_atom-envelope(atom, semantic))
 }
 
 #let _annotated(engine, atom, semantic) = {
-  let visual = eval(str(engine.plugin.to_typst(cbor.encode((
-    expr: atom,
-    settings: _default-typst-settings,
-  )))), mode: "math")
+  let tree = cbor(engine.plugin.render_tree(atom))
+  let visual = tensor-notation.render(
+    tree,
+    notation: engine.notation,
+  )
   _annotated-visual(atom, visual, _portable(engine, semantic))
-}
-
-#let _eval-printer-leaves(rendered, printer) = {
-  let leaves = rendered.leaves.map(leaf => {
-    let visual = eval(leaf.source, mode: "math")
-    _annotated-visual(leaf.atom, visual.body, (
-      kind: "printer-leaf",
-      leaf-kind: leaf.kind,
-      printer: printer,
-    ))
-  })
-  eval(rendered.source, mode: "math", scope: (
-    __tymbolica_leaf: index => leaves.at(index),
-  ))
 }
 
 #let _validate-tags(tags) = {
   if type(tags) != array or not tags.all(tag => type(tag) == str) {
     panic("tags must be an array of strings")
+  }
+  for (index, tag) in tags.enumerate() {
+    let parts = tag.split("::")
+    if parts.len() < 2 or parts.any(part => part == "") {
+      panic("tags must use canonical namespaced names such as model::positive")
+    }
+    if tag in tags.slice(0, index) {
+      panic("tags must not contain duplicates")
+    }
   }
 }
 
@@ -400,6 +387,7 @@
     antisymmetric: antisymmetric,
     cycle-symmetric: cycle-symmetric,
     linear: linear,
+    tags: tags,
   )
   let atom = _construct(engine, constructor)
   _annotated(engine, atom, (
@@ -418,7 +406,12 @@
 #let _symbol(engine, name, namespace: "spenso", tags: ()) = {
   if type(name) != str { panic("symbol name must be a string") }
   _validate-tags(tags)
-  let constructor = (kind: "symbol", name: name, namespace: namespace)
+  let constructor = (
+    kind: "symbol",
+    name: name,
+    namespace: namespace,
+    tags: tags,
+  )
   let atom = _construct(engine, constructor)
   _annotated(engine, atom, (
     kind: "symbol",
@@ -476,12 +469,10 @@
       antisymmetric: antisymmetric,
       cycle-symmetric: cycle-symmetric,
       linear: linear,
+      tags: tags,
     )
     let atom = _construct(engine, constructor)
-    _annotated(engine, atom, (
-      ..constructor,
-      tags: tags,
-    ))
+    _annotated(engine, atom, constructor)
   }
 }
 
@@ -508,6 +499,14 @@
   // `gamma` is also a Symbolica builtin. Qualifying the Idenso head avoids
   // Symbolica's parser resolving this constructor to `symbolica::gamma`.
   _call(engine, "spenso::gamma", arguments, semantic-kind: "gamma")
+}
+
+#let _spinor-factor(engine, name, endpoints) = {
+  if endpoints.len() not in (0, 2) {
+    panic(name + " needs either no arguments or two spinor endpoints")
+  }
+  let arguments = if endpoints.len() == 0 { ("in", "out") } else { endpoints }
+  _call(engine, name, arguments, semantic-kind: name)
 }
 
 #let _chain(engine, start, end, factors) = _call(
@@ -655,22 +654,44 @@
   )
 }
 
-#let _to-typst-source(engine, expression, settings: _print-settings()) = str(
-  engine.plugin.to_typst(cbor.encode((
-    expr: _payload(engine, expression),
-    settings: settings,
-  ))),
+#let _render-semantic(node) = (
+  kind: "render-node",
+  node-kind: node.at("kind", default: none),
+  symbol: node.at("symbol", default: none),
 )
 
-#let _to-typst(engine, expression, settings: _print-settings(), block: false) = {
+#let _resolve-notation(engine, settings: none, notation: none) = {
+  if settings != none and notation != none {
+    panic("pass either settings or notation to to-typst, not both")
+  }
+  if notation != none { return notation }
+  if settings != none { return tensor-notation.default-notation(settings: settings) }
+  engine.notation
+}
+
+#let _to-typst(
+  engine,
+  expression,
+  settings: none,
+  notation: none,
+  block: false,
+) = {
   let atom = _payload(engine, expression)
-  let rendered = cbor(engine.plugin.to_typst_with_leaves(cbor.encode((
-    expr: atom,
-    settings: settings,
-  ))))
-  let equation = _eval-printer-leaves(rendered, "spenso-typst")
-  let body = equation.body
-  if block { math.equation(body, block: true) } else { body }
+  let tree = cbor(engine.plugin.render_tree(atom))
+  tensor-notation.render(
+    tree,
+    notation: _resolve-notation(
+      engine,
+      settings: settings,
+      notation: notation,
+    ),
+    annotate: (exact, visual, node) => _annotated-visual(
+      exact,
+      visual,
+      _render-semantic(node),
+    ),
+    block: block,
+  )
 }
 
 #let _to-string(engine, expression, settings: _print-settings(preset: "compact")) = str(
@@ -684,8 +705,8 @@
 
 /// Create an independent Tydenso API.
 ///
-/// The returned dictionary contains tensor constructors, Spenso-aware printers,
-/// CBOR inspection, and Idenso transformations. Use a custom `source` only when
+/// The returned dictionary contains tensor constructors, document-side math
+/// rendering, CBOR inspection, and Idenso transformations. Use a custom `source` only when
 /// developing another compatible plugin; ordinary documents can use the
 /// imported top-level functions.
 ///
@@ -708,12 +729,17 @@
   /// Parser grammar used by `math` unless it receives an explicit override.
   /// -> dictionary
   grammar: _default-grammar,
+  /// Default document-side tensor notation used by constructors and
+  /// `to-typst`.
+  /// -> dictionary
+  notation: tensor-notation.default-notation(),
 ) = {
   let plugin-module = if source == none { _bundled-plugin() } else { plugin(source) }
   let engine = (
     plugin: plugin-module,
     grammar: grammar,
     namespace: namespace,
+    notation: notation,
   )
   (
     plugin: plugin-module,
@@ -751,6 +777,10 @@
     gamma: (lorentz, ..endpoints) => _gamma(
       engine, lorentz, endpoints.pos(),
     ),
+    gamma0: (..endpoints) => _spinor-factor(engine, "gamma0", endpoints.pos()),
+    gamma5: (..endpoints) => _spinor-factor(engine, "gamma5", endpoints.pos()),
+    projp: (..endpoints) => _spinor-factor(engine, "projp", endpoints.pos()),
+    projm: (..endpoints) => _spinor-factor(engine, "projm", endpoints.pos()),
     chain: (start, end, ..factors) => _chain(
       engine, start, end, factors.pos(),
     ),
@@ -812,8 +842,13 @@
       index-subscripts: index-subscripts,
       symbol-scripts: symbol-scripts,
     ),
-    to-typst-source: (expression, settings: _print-settings()) => _to-typst-source(engine, expression, settings: settings),
-    to-typst: (expression, settings: _print-settings(), block: false) => _to-typst(engine, expression, settings: settings, block: block),
+    to-typst: (expression, settings: none, notation: none, block: false) => _to-typst(
+      engine,
+      expression,
+      settings: settings,
+      notation: notation,
+      block: block,
+    ),
     to-string: (expression, settings: _print-settings(preset: "compact")) => _to-string(engine, expression, settings: settings),
     inspect: expression => _inspect(engine, expression),
     cook-function: expression => plugin-module.cook_function(_payload(engine, expression)),
@@ -978,6 +1013,29 @@
 #let gamma(lorentz, ..endpoints) = (
   _default-engine().gamma
 )(lorentz, ..endpoints)
+
+/// Construct the built-in $gamma_0$ spinor factor.
+///
+/// With no arguments, the hidden endpoints are Spenso's `in` and `out`
+/// markers. Pass two explicit spinor slots to display its indices.
+///
+/// -> content
+#let gamma0(..endpoints) = (_default-engine().gamma0)(..endpoints)
+
+/// Construct the built-in $gamma_5$ spinor factor.
+///
+/// -> content
+#let gamma5(..endpoints) = (_default-engine().gamma5)(..endpoints)
+
+/// Construct the positive-chirality spinor projector.
+///
+/// -> content
+#let projp(..endpoints) = (_default-engine().projp)(..endpoints)
+
+/// Construct the negative-chirality spinor projector.
+///
+/// -> content
+#let projm(..endpoints) = (_default-engine().projm)(..endpoints)
 
 /// Construct an open Spenso chain.
 ///
@@ -1253,11 +1311,10 @@
 /// -> bytes
 #let pow(base, exponent) = (_default-engine().pow)(base, exponent)
 
-/// Create Spenso printer settings.
+/// Configure Spenso's string printer.
 ///
-/// `"typst"` uses valid Typst math syntax with indexed tensor notation;
-/// `"compact"` uses Spenso's concise Symbolica-style form. Any field may be
-/// overridden without changing the others.
+/// These settings are primarily for `to-string`. Typst math layout is more
+/// directly configured through `notation`.
 ///
 /// -> dictionary
 #let print-settings(
@@ -1288,36 +1345,94 @@
   symbol-scripts: symbol-scripts,
 )
 
-/// Print an expression as Typst math source using Spenso's printer.
+/// Build Tydenso's document-side notation.
 ///
-/// -> str
-#let to-typst-source(
-  /// Atom payload or constructor value.
-  expression,
-  /// Settings created by `print-settings`.
+/// Exact `heads` and `calls` customize one namespaced Symbolica head or full
+/// call. `tags` and `classes` customize a family. Full-call renderers receive
+/// the complete arguments through their context; exact Atom metadata is added
+/// after they return.
+///
+/// -> dictionary
+#let notation(
+  /// Compatibility base settings created by `print-settings`.
   /// -> dictionary
-  settings: _print-settings(),
-) = (_default-engine().to-typst-source)(expression, settings: settings)
+  settings: (:),
+  /// Show each representation and dimension on its indices.
+  /// -> bool | none
+  with-dim: none,
+  /// Enclose chain bodies in brackets.
+  /// -> bool | none
+  parens: none,
+  /// Separate ordinary tensor arguments with commas.
+  /// -> bool | none
+  commas: none,
+  /// Place non-index arguments in tensor scripts when possible.
+  /// -> bool | none
+  symbol-scripts: none,
+  /// Space between adjacent index columns.
+  /// -> length | none
+  index-gap: none,
+  /// Space between factors in a chain or trace.
+  /// -> length | none
+  factor-gap: none,
+  /// Exact namespaced head renderers or content.
+  /// -> dictionary
+  heads: (:),
+  /// Exact namespaced full-call renderers.
+  /// -> dictionary
+  calls: (:),
+  /// Symbolica-tag renderer fallbacks.
+  /// -> dictionary
+  tags: (:),
+  /// Attribute/class renderer fallbacks.
+  /// -> dictionary
+  classes: (:),
+) = tensor-notation.notation(
+  settings: settings,
+  with-dim: with-dim,
+  parens: parens,
+  commas: commas,
+  symbol-scripts: symbol-scripts,
+  index-gap: index-gap,
+  factor-gap: factor-gap,
+  heads: heads,
+  calls: calls,
+  tags: tags,
+  classes: classes,
+)
+
+/// Merge notation layers from least to most specific.
+///
+/// -> dictionary
+#let merge-notation(..layers) = tensor-notation.merge-notation(..layers)
 
 /// Print and evaluate an expression as Typst math content.
 ///
-/// Ordinary algebra and normal function arguments remain visible parseable
-/// structure. Symbols and function heads carry exact Atom metadata, while each
-/// non-invertible Spenso custom rendering is one metadata-backed semantic leaf.
-/// Interpolating the result into `math` therefore preserves exact identities
-/// without making the surrounding algebra opaque.
+/// The plugin exports a generic Atom tree. Tydenso's pure Typst notation lays
+/// out tensors, indices, gamma matrices, dots, chains, and traces. Generic
+/// algebra stays structurally visible; a customized full call receives one
+/// exact metadata annotation after its renderer returns.
 ///
 /// -> content
 #let to-typst(
   /// Atom payload or constructor value.
   expression,
-  /// Settings created by `print-settings`.
-  /// -> dictionary
-  settings: _print-settings(),
+  /// Compatibility shorthand for a default notation with these settings.
+  /// Cannot be combined with `notation`.
+  /// -> dictionary | none
+  settings: none,
+  /// Per-call notation. `none` uses the engine default.
+  /// -> dictionary | none
+  notation: none,
   /// Display the result as a block equation.
   /// -> bool
   block: false,
-) = (_default-engine().to-typst)(expression, settings: settings, block: block)
+) = (_default-engine().to-typst)(
+  expression,
+  settings: settings,
+  notation: notation,
+  block: block,
+)
 
 /// Print an expression in Spenso's compact Symbolica notation.
 ///

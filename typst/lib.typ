@@ -1,4 +1,5 @@
 #import "@preview/parsely:0.1.0"
+#import "render.typ" as atom-render
 
 #let _default_grammar = (
   arg: (infix: $,$, assoc: true, prec: 4),
@@ -153,7 +154,11 @@
   ), leaf: _typst_math.equation)
 }
 
-#let _symbol-atom(engine, name, namespace: none) = engine.plugin.symbol(cbor.encode(name), _namespace_bytes(engine, namespace: namespace))
+#let _symbol-atom(engine, name, namespace: none, tags: ()) = engine.plugin.symbol(
+  cbor.encode(name),
+  _namespace_bytes(engine, namespace: namespace),
+  cbor.encode(tags),
+)
 #let _expr_bytes(engine, expr, namespace: none) = {
   if type(expr) == bytes {
     expr
@@ -174,25 +179,29 @@
   _typst_math.attach(visual) + metadata(_atom-envelope(atom, semantic))
 }
 #let _annotated-atom(engine, atom, semantic) = {
-  let visual = eval(str(engine.plugin.to_typst(atom)), mode: "math")
+  // Constructors use the same generic, document-side renderer as `to-typst`.
+  // The outer annotation intentionally represents the complete constructor
+  // result, so nested generic annotations are disabled here.
+  let rendered = cbor(engine.plugin.render_tree(atom))
+  let visual = if rendered.kind == "matrix-render-source" {
+    eval(rendered.source, mode: "math", scope: (:)).body
+  } else {
+    atom-render.render-tree(rendered, notation: engine.notation)
+  }
   _annotated-visual(atom, visual, semantic)
-}
-#let _eval-printer-leaves(rendered, printer) = {
-  let leaves = rendered.leaves.map(leaf => {
-    let visual = eval(leaf.source, mode: "math")
-    _annotated-visual(leaf.atom, visual.body, (
-      kind: "printer-leaf",
-      leaf-kind: leaf.kind,
-      printer: printer,
-    ))
-  })
-  eval(rendered.source, mode: "math", scope: (
-    __tymbolica_leaf: index => leaves.at(index),
-  ))
 }
 #let _validate-tags(tags) = {
   if type(tags) != array or not tags.all(tag => type(tag) == str) {
     panic("tags must be an array of strings")
+  }
+  for (index, tag) in tags.enumerate() {
+    let parts = tag.split("::")
+    if parts.len() < 2 or parts.any(part => part == "") {
+      panic("tags must use canonical namespaced names such as model::positive")
+    }
+    if tag in tags.slice(0, index) {
+      panic("tags must not contain duplicates")
+    }
   }
 }
 #let _symbol(engine, name, namespace: none, tags: ()) = {
@@ -200,7 +209,7 @@
   _validate-tags(tags)
 
   let namespace = _namespace(engine, namespace)
-  let atom = _symbol-atom(engine, name, namespace: namespace)
+  let atom = _symbol-atom(engine, name, namespace: namespace, tags: tags)
   _annotated-atom(engine, atom, (
     kind: "symbol",
     name: name,
@@ -208,9 +217,9 @@
     tags: tags,
   ))
 }
-#let _function-atom(engine, name, arguments, namespace: none) = {
+#let _function-atom(engine, name, arguments, namespace: none, tags: ()) = {
   let namespace = _namespace(engine, namespace)
-  let head = _symbol-atom(engine, name, namespace: namespace)
+  let head = _symbol-atom(engine, name, namespace: namespace, tags: tags)
   let tree = (
     head: "call",
     args: (),
@@ -235,7 +244,7 @@
       panic("symbolic function calls accept only positional arguments")
     }
     let arguments = arguments.pos()
-    let atom = _function-atom(engine, name, arguments, namespace: namespace)
+    let atom = _function-atom(engine, name, arguments, namespace: namespace, tags: tags)
     _annotated-atom(engine, atom, (
       kind: "function-call",
       head: (
@@ -273,15 +282,38 @@
 
 #let _canonical(engine, expr, namespaces: false) = str(engine.plugin.canonical(_payload_bytes(engine, expr), cbor.encode(namespaces)))
 #let _to_typst_source(engine, expr) = str(engine.plugin.to_typst(_payload_bytes(engine, expr)))
-#let _to_typst(engine, expr, block: false) = {
-  let payload = _payload_bytes(engine, expr)
-  let rendered = cbor(engine.plugin.to_typst_with_kind(payload))
-  let equation = if rendered.kind == "atom" {
-    _eval-printer-leaves(rendered, "symbolica-typst")
-  } else {
-    eval(rendered.source, mode: "math")
+#let _render-semantic(node) = {
+  let semantic = (
+    kind: "render-node",
+    node-kind: node.at("kind", default: none),
+  )
+  let descriptor = node.at("symbol", default: none)
+  if type(descriptor) == dictionary {
+    semantic.insert("symbol", descriptor)
   }
-  let body = equation.body
+  semantic
+}
+#let _to_typst(engine, expr, notation: none, block: false) = {
+  let payload = _payload_bytes(engine, expr)
+  let rendered = cbor(engine.plugin.render_tree(payload))
+  let display-notation = if notation == none {
+    engine.notation
+  } else {
+    atom-render.merge-notation(engine.notation, notation)
+  }
+  let body = if rendered.kind == "matrix-render-source" {
+    eval(rendered.source, mode: "math", scope: (:)).body
+  } else {
+    atom-render.render-tree(
+      rendered,
+      notation: display-notation,
+      annotate: (atom, visual, node) => _annotated-visual(
+        atom,
+        visual,
+        _render-semantic(node),
+      ),
+    )
+  }
   if block { _typst_math.equation(body, block: true) } else { body }
 }
 #let _to_latex(engine, expr) = str(engine.plugin.to_latex(_payload_bytes(engine, expr)))
@@ -608,6 +640,10 @@
   /// explicit override.
   /// -> dictionary
   grammar: _default_grammar,
+  /// Default document-side notation used by `to-typst`. Build one with
+  /// `notation`; a per-call override still takes precedence.
+  /// -> dictionary
+  notation: atom-render.notation(),
 ) = {
   let plugin-module = if source != none {
     plugin(source)
@@ -618,6 +654,7 @@
     plugin: plugin-module,
     grammar: grammar,
     namespace: namespace,
+    notation: notation,
   )
 
   let api = (
@@ -629,7 +666,9 @@
     array-tree: (eqn, grammar: none) => _array_tree(engine, eqn, grammar: grammar),
     canonical: (expr, namespaces: false) => _canonical(engine, expr, namespaces: namespaces),
     to-typst-source: expr => _to_typst_source(engine, expr),
-    to-typst: (expr, block: false) => _to_typst(engine, expr, block: block),
+    to-typst: (expr, notation: none, block: false) => _to_typst(
+      engine, expr, notation: notation, block: block,
+    ),
     to-latex: expr => _to_latex(engine, expr),
     simplify: expr => _simplify(engine, expr),
     expand: expr => _expand(engine, expr),
@@ -693,6 +732,39 @@
 
 #let _default_engine() = init()
 
+/// Build a document-side Atom notation layer.
+///
+/// Exact `heads` entries change one namespaced symbol. Exact `calls` entries
+/// receive the complete function node and its arguments. `tags` and `classes`
+/// provide broader fallbacks. Renderer closures receive a context dictionary;
+/// exact Atom metadata is attached by `to-typst` after a renderer returns.
+///
+/// -> dictionary
+#let notation(
+  heads: (:),
+  calls: (:),
+  tags: (:),
+  classes: (:),
+  fallback-head: none,
+  fallback-call: none,
+  fallback-node: none,
+  fallback: none,
+) = atom-render.notation(
+  heads: heads,
+  calls: calls,
+  tags: tags,
+  classes: classes,
+  fallback-head: fallback-head,
+  fallback-call: fallback-call,
+  fallback-node: fallback-node,
+  fallback: fallback,
+)
+
+/// Merge notation layers from least to most specific.
+///
+/// -> dictionary
+#let merge-notation(..layers) = atom-render.merge-notation(..layers)
+
 /// Parse Typst math content into an opaque Symbolica atom payload.
 ///
 /// Arithmetic, fractions, powers, roots, absolute values, calls, and common
@@ -751,7 +823,7 @@
 /// change Symbolica's algebraic behavior.
 ///
 /// ```example
-/// #let x = symbol("x", namespace: "model", tags: ("positive",))
+/// #let x = symbol("x", namespace: "model", tags: ("model::positive",))
 /// #to-typst(math($#x^2 + 1$))
 /// ```
 ///
@@ -775,7 +847,7 @@
 /// Interpolate callable bindings inside math, for example `#f(x)`.
 ///
 /// ```example
-/// #let f = function("f", namespace: "model", tags: ("smooth",))
+/// #let f = function("f", namespace: "model", tags: ("model::smooth",))
 /// #to-typst(math($#f(symbol("x")) + 1$))
 /// ```
 ///
@@ -869,12 +941,11 @@
 
 /// Render an atom or matrix payload as evaluated Typst math content.
 ///
-/// The payload is first printed as Typst math source and then evaluated in math
-/// mode. Ordinary sums, products, powers, calls, and call arguments remain
-/// visible parseable structure. Exact binary metadata is attached only to
-/// printer leaves: symbols, function heads, non-textual floats, and complete
-/// custom-printed subtrees. Matrix output remains display-only. Use
-/// `to-typst-source` when you need the source string instead.
+/// Symbolica exports a generic algebra tree; Typst constructs its visual math
+/// directly from that tree. Ordinary calls retain an exact annotated head and
+/// visible arguments. A custom full-call renderer receives the complete node,
+/// and the framework attaches the exact call metadata after it returns.
+/// Matrix output remains display-only.
 ///
 /// ```example
 /// #to-typst(math($x + 1$))
@@ -885,10 +956,14 @@
   /// Atom or matrix payload, or a supported expression value.
   /// -> bytes | content | int | float | str
   expr,
+  /// Per-call document notation layered over the engine's default. `none`
+  /// uses that default unchanged.
+  /// -> dictionary | none
+  notation: none,
   /// Render as a block equation instead of inline math.
   /// -> bool
   block: false,
-) = (_default_engine().to-typst)(expr, block: block)
+) = (_default_engine().to-typst)(expr, notation: notation, block: block)
 
 /// Render an atom or matrix payload as LaTeX source.
 ///

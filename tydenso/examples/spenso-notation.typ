@@ -1,5 +1,4 @@
 #import "../lib.typ": *
-#import "@preview/parsely:0.1.0"
 
 #set page(width: auto, height: auto, margin: 8pt)
 
@@ -25,21 +24,9 @@
 #let K = tensor("K")
 #let cin = symbol("in")
 #let cout = symbol("out")
-#let gamma0 = function("gamma0")
-#let gamma5 = function("gamma5")
-#let projp = function("projp")
 #let color-t = function("t")
 #let ordinary-f = function("ordinary", namespace: "leaf_test")
 #let ordinary-x = symbol("x", namespace: "leaf_test")
-
-#let leaf-grammar = (
-  semantic-metadata: (postfix: metadata, prec: 5),
-  add: (infix: $+$, prec: 1, assoc: true),
-  mul: (infix: $$, prec: 2.5, assoc: true),
-  "()": (match: $(#parsely.slot("expr*"))$),
-  op-call: (match: $op(#parsely.slot("op"))(#parsely.slot("args*"))$),
-  op: math.op,
-)
 
 #let atom-shape(node) = {
   if node.kind == "function" {
@@ -87,16 +74,16 @@
 #let nested-chain = chain(
   u(1, B),
   v(2, B),
-  gamma(slot(M, $std.sym.alpha$)),
+  gamma(slot(M, $alpha$)),
   A("in", "out", mu, p(3, M), nu),
-  gamma(slot(M, $std.sym.beta$)),
+  gamma(slot(M, $beta$)),
 )
 #let middle-representation-product = dot(p(1, M, 2), q(3, M, 4))
 #let marker-factor = K(mu, cin, a, cout, nu)
 #let reversed-marker-factor = K(mu, cout, a, cin, nu)
-#let gamma0-factor = gamma0(cin, cout)
+#let gamma0-factor = gamma0()
 #let reversed-gamma0-factor = gamma0(cout, cin)
-#let gamma5-factor = gamma5(cin, cout)
+#let gamma5-factor = gamma5()
 #let reversed-gamma5-factor = gamma5(cout, cin)
 #let projector = projp(a, b)
 #let Adj = coad("Na")
@@ -118,8 +105,8 @@
     == "chain(u(1,bis(4)),v(2,bis(4)),gamma(in,out,mink(4,1)),gamma(in,out,p(1,mink(4))),gamma(in,out,mink(4,2)))",
 )
 
-// The custom bra-ket rendering is not an inverse serialization. `to-typst`
-// therefore carries the exact Atom as metadata for lossless composition.
+// Presentation is not serialization. `to-typst` carries the exact Atom as
+// metadata, so even custom bra-ket notation composes losslessly.
 #let shown-open-chain = to-typst(open-chain)
 #let restored-open-chain = math($#shown-open-chain$)
 #assert.eq(inspect(restored-open-chain), inspect(open-chain))
@@ -129,23 +116,9 @@
 #let expected-composition = add(open-chain, product)
 #assert.eq(inspect(composed-rendering), inspect(expected-composition))
 
-// The custom chains are opaque leaves, but the sum between them is ordinary
-// editable syntax rather than one authoritative root payload.
-#let shown-composition = to-typst(expected-composition)
-#let shown-composition-tree = parsely.parse(
-  shown-composition,
-  leaf-grammar,
-).tree
-#assert.eq(shown-composition-tree.head, "add")
-#assert(shown-composition-tree.args.all(node => node.head == "semantic-metadata"))
-
-// Normal function heads retain their exact namespace independently while the
-// argument expression remains visible Parsely structure.
+// Normal function heads retain their exact namespace while their argument
+// expression stays visible and editable.
 #let ordinary-call = ordinary-f(add(ordinary-x, 1))
-#let ordinary-tree = parsely.parse(to-typst(ordinary-call), leaf-grammar).tree
-#assert.eq(ordinary-tree.head, "op-call")
-#assert.eq(ordinary-tree.slots.op.head, "semantic-metadata")
-#assert.eq(ordinary-tree.slots.args.head, "add")
 #assert.eq(inspect(math($#to-typst(ordinary-call)$)), inspect(ordinary-call))
 
 #let shown-block = to-typst(open-chain, block: true)
@@ -154,10 +127,7 @@
 
 #let labelled-momentum = p($arrow(x + y)$, M)
 #let restored-momentum = math($#to-typst(labelled-momentum)$)
-#assert.eq(
-  to-typst-source(restored-momentum),
-  to-typst-source(labelled-momentum),
-)
+#assert.eq(inspect(restored-momentum), inspect(labelled-momentum))
 
 #let closed-tree = inspect(closed-chain)
 #assert(closed-tree.kind == "function")
@@ -171,63 +141,73 @@
   atom-shape(inspect(mixed-polarity))
     == "D(mink(4,i),p(1,lor(4)),mink(4,j),q(2,dind(lor(4))))",
 )
-#assert(to-typst-source(product).contains("math.class(\"normal\",$dot$)"))
-#assert(
-  to-typst-source(middle-representation-product).contains(
-    "math.class(\"normal\",$dot$)",
+
+// Every specialized layout remains an exact, composable Atom. These checks
+// deliberately exercise the content API rather than a private source string.
+#let rendered-cases = (
+  product,
+  middle-representation-product,
+  gamma(p(1, M)),
+  open-chain,
+  nested-chain,
+  closed-chain,
+  explicit-slot-chain,
+  two-mink-ports,
+  mixed-polarity,
+  heterogeneous-bra,
+  dot(p(1, M), q(2, mink(5))),
+  dot(p(1, M), q(2, B)),
+  dot(p(1, L), q(2, L)),
+  marker-factor,
+  reversed-marker-factor,
+  gamma0-factor,
+  reversed-gamma0-factor,
+  gamma5-factor,
+  reversed-gamma5-factor,
+  projector,
+  color-generator,
+)
+#for expression in rendered-cases {
+  let shown = to-typst(expression)
+  assert.eq(inspect(math($#shown$)), inspect(expression))
+}
+
+// Exact heads, complete calls, tags, and Symbolica attribute classes can all
+// be styled in Typst. A complete-call renderer sees the visible arguments;
+// Tydenso adds the exact call metadata after the closure returns.
+#let special = function(
+  "weighted",
+  namespace: "leaf_test",
+  tags: ("display::operator",),
+)
+#let F = tensor("F", namespace: "leaf_test", antisymmetric: true)
+#let custom-display = notation(
+  heads: ("leaf_test::x": $xi$),
+  calls: (
+    "leaf_test::ordinary": ctx => {
+      let (argument,) = ctx.visual-arguments
+      $cal(F)[#argument]$
+    },
+  ),
+  tags: (
+    "display::operator": ctx => {
+      let (argument,) = ctx.visual-arguments
+      $bold(W)(#argument)$
+    },
+  ),
+  classes: (
+    "antisymmetric": ctx => {
+      let arguments = ctx.visual-arguments.join($,$)
+      $cal(A)[#arguments]$
+    },
   ),
 )
-#assert(to-typst-source(gamma(p(1, M))).contains("cancel("))
-#assert(to-typst-source(open-chain).contains("upright(\"⟨\")"))
-#assert(to-typst-source(open-chain).contains("upright(\"⟩\")"))
-#assert(not to-typst-source(nested-chain).contains("lr(("))
-#assert(to-typst-source(closed-chain).contains("op(\"Tr\") lr(("))
-#assert(to-typst-source(explicit-slot-chain).contains("blou"))
-#assert(not to-typst-source(explicit-slot-chain).contains("upright(\"⟨\")"))
-#assert(to-typst-source(two-mink-ports).contains("○"))
-#assert(to-typst-source(mixed-polarity).contains("upright(\"⟨\")"))
-#assert(to-typst-source(mixed-polarity).contains("upright(\"⟩\")"))
-#assert(
-  to-typst-source(
-    heterogeneous-bra,
-    settings: print-settings(with-dim: true),
-  ).contains("attach(○,t:attach("),
-)
-#assert(
-  not to-typst-source(dot(p(1, M), q(2, mink(5)))).contains(
-    "math.class(\"normal\",$dot$)",
-  ),
-)
-#assert(
-  not to-typst-source(dot(p(1, M), q(2, B))).contains(
-    "math.class(\"normal\",$dot$)",
-  ),
-)
-#assert(
-  not to-typst-source(dot(p(1, L), q(2, L))).contains(
-    "math.class(\"normal\",$dot$)",
-  ),
-)
-#assert(
-  to-typst-source(marker-factor)
-    == "attach(#($K$,std.hide($zws$)).join(),t:mu std.hide(a) nu,b:std.hide(mu) a std.hide(nu))",
-)
-#assert(
-  to-typst-source(reversed-marker-factor)
-    == "attach(attach(#($K$,std.hide($zws$)).join(),t:mu std.hide(a) nu,b:std.hide(mu) a std.hide(nu)),t:upright(\"T\"))",
-)
-#assert(to-typst-source(gamma0-factor) == "gamma_0")
-#assert(to-typst-source(reversed-gamma0-factor) == "gamma_0")
-#assert(to-typst-source(gamma5-factor) == "gamma_5")
-#assert(
-  to-typst-source(reversed-gamma5-factor)
-    == "attach(gamma_5,t:upright(\"T\"))",
-)
-#assert(to-typst-source(projector).contains("ℙ_p"))
-#assert(
-  to-typst-source(color-generator)
-    == "attach(#($t$,std.hide($zws$)).join(),t:c i std.hide(j),b:std.hide(c) std.hide(i) j)",
-)
+#let custom-call = to-typst(ordinary-call, notation: custom-display)
+#let custom-tag = to-typst(special(ordinary-x), notation: custom-display)
+#let custom-class = to-typst(F(mu, nu), notation: custom-display)
+#assert.eq(inspect(math($#custom-call$)), inspect(ordinary-call))
+#assert.eq(inspect(math($#custom-tag$)), inspect(special(ordinary-x)))
+#assert.eq(inspect(math($#custom-class$)), inspect(F(mu, nu)))
 
 #grid(
   columns: 2,
@@ -245,10 +225,13 @@
   [mixed polarity], $ #to-typst(mixed-polarity) $,
   [typed ports], $ #to-typst(
     heterogeneous-bra,
-    settings: print-settings(with-dim: true),
+    notation: notation(with-dim: true),
   ) $,
   [middle rep], $ #to-typst(middle-representation-product) $,
   [reversed factor], $ #to-typst(reversed-marker-factor) $,
   [Idenso heads], $ #to-typst(projector) #to-typst(gamma0-factor) #to-typst(gamma5-factor) $,
   [color rows], $ #to-typst(color-generator) $,
+  [custom exact call], $ #custom-call $,
+  [custom tag], $ #custom-tag $,
+  [custom class], $ #custom-class $,
 )

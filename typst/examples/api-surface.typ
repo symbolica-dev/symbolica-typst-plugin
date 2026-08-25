@@ -60,7 +60,7 @@
 #let y = symbol("y")
 #let xp = symbol("x", namespace: "physics")
 #let namespaced = add(xp, x)
-#let tagged = symbol("q", namespace: "model", tags: ("positive", "parameter"))
+#let tagged = symbol("q", namespace: "model", tags: ("model::positive", "model::parameter"))
 #let tagged-expression = parse($#tagged + x$)
 #let f = symbolic-function("f", namespace: "model")
 #let function-expression = parse($#f(tagged) + x$)

@@ -16,7 +16,7 @@ $ #F(mu, nu) + #F(nu, mu) = #to-typst(cancellation) $
 #assert.eq(to-string(parsed-cancellation), "0")
 
 // The sidecar remains inspectable Typst data at the Parsely boundary.
-#let T = tensor("T", tags: ("field-strength",))
+#let T = tensor("T", tags: ("physics::field-strength",))
 #let annotation = parsely.parse(
   $#T(mu, nu)$,
   (
@@ -29,7 +29,7 @@ $ #F(mu, nu) + #F(nu, mu) = #to-typst(cancellation) $
 #assert(type(annotation.atom) == bytes)
 #assert.eq(annotation.semantic.kind, "tensor")
 #assert.eq(annotation.semantic.name, "T")
-#assert.eq(annotation.semantic.tags, ("field-strength",))
+#assert.eq(annotation.semantic.tags, ("physics::field-strength",))
 #assert.eq(annotation.semantic.arguments.len(), 2)
 #assert.eq(annotation.semantic.arguments.at(0).index, 1)
 #assert.eq(annotation.semantic.arguments.at(1).index, 2)
