@@ -3,14 +3,16 @@
 #import "../lib.typ": init
 
 #set document(title: "A complex-function phase portrait")
-#set page(width: auto, height: auto, margin: 8mm)
+#set page(paper: "a4", margin: 18mm)
 #set text(size: 9.5pt)
 
 = A complex phase portrait
 
 The hue below records the phase of
 
-$ f(z) = (z^2 - 1 - i) / (z^2 + 1 + i), $
+#align(center)[
+  $ f(z) = (z^2 - 1 - i) / (z^2 + 1 + i), $
+]
 
 while lightness records its magnitude. All complex values are evaluated in one
 batch; Typst then turns the returned grid into coloured cells.
@@ -53,7 +55,6 @@ batch; Typst then turns the returned grid into coloured cells.
 }
 
 #let values = evaluate-many(expression, (z, imaginary-unit), points).map(row => row.first())
-#assert.eq(values.len(), x-samples * y-samples)
 
 #let phase-color(value) = {
   let magnitude = calc.sqrt(value.re * value.re + value.im * value.im)

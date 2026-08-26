@@ -350,29 +350,19 @@
   )
 }
 #let _qualified-port(rep, ctx, settings) = {
-
-
-  let port = if rep.class == "inline-metric"{
+  let port = if rep.class == "inline-metric" {
     sym.square.stroked.small
-  }else if rep.class == "self-dual"{
+  } else if rep.class == "self-dual" {
     sym.circle.stroked.small
-  }else if rep.class == "dualizable"{
-    if rep.dual{
+  } else if rep.class == "dualizable" {
+    if rep.dual {
       sym.triangle.r.small.stroked
-      // box(baseline:-0.1em,text(weight: 600,size: 0.6em,[#sym.bar.v#sym.chevron.r]))
-    }else{
-     sym.triangle.l.small.stroked 
-      // sym.triangle.l.small.stroked
-      // text(weight: 600,size: 0.8em,sym.chevron.l.closed)
-        // sym.chevron.l.dot
-      // .stroked.l.small
+    } else {
+      sym.triangle.l.small.stroked
     }
-  } else{
+  } else {
     rep.class
   }
-  // if rep.dual
-  // let port = sym.circle.stroked.tiny
-  // math.upright("○");
   if not settings.with-dim { return port }
   math.attach(
     port,
@@ -477,6 +467,26 @@
     base = math.attach(base, t: math.upright("T"))
   }
   _ports(base, bras, kets)
+}
+
+// A document tag or class attached to a tensor should see the same visual
+// arguments that Tydenso itself uses, rather than generic Atom calls such as
+// `mink(4, 1)`. The structured `arguments` remain untouched for callers that
+// need the exact tree.
+#let _tensor-document-context(ctx, settings) = {
+  let visual-arguments = ctx.arguments.map(argument => {
+    let slot = _slot(argument, ctx)
+    if slot != none {
+      return _qualified-index(slot, _slot-index(slot, ctx), ctx, settings)
+    }
+    let compact = _compact-vector(argument, ctx, settings)
+    if compact != none { return compact.label }
+    _visual(ctx, argument)
+  })
+  let result = ctx
+  result.insert("visual-arguments", visual-arguments)
+  result.insert("default", () => _render-tensor(ctx, settings))
+  result
 }
 
 #let _render-gamma(ctx, settings) = {
@@ -631,6 +641,8 @@
 /// Exact `heads` and `calls` win over package defaults. Call, tag, and class
 /// closures receive the common renderer's full context dictionary, including
 /// `arguments`, `visual-arguments`, `attachments`, and `render-visual`.
+/// Tensor tag and class renderers receive slot-aware visual arguments such as
+/// $mu$ rather than the underlying representation call `mink(4, 1)`.
 #let notation(
   settings: (:),
   with-dim: none,
@@ -667,7 +679,7 @@
     if renderer == none {
       _render-tensor(ctx, settings)
     } else {
-      _invoke-document-renderer(renderer, ctx)
+      _invoke-document-renderer(renderer, _tensor-document-context(ctx, settings))
     }
   } else {
     (ctx.default)()

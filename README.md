@@ -159,9 +159,10 @@ nix run .#check       # rebuild, compile the public examples, and verify the PDF
 nix flake check       # validate the Typst distribution using tracked plugins
 ```
 
-Maintainer checks also compile
-[the API surface](typst/examples/api-surface.typ) and verify the
-[`@local` package import](typst/examples/local-package.typ).
+Maintainer checks also compile the non-user-facing regression fixtures under
+[`typst/tests`](typst/tests), [`tydenso/tests`](tydenso/tests), and
+[`rubi/tests`](rubi/tests), and verify the [`@local` package
+import](typst/examples/local-package.typ).
 
 `nix run .#check` verifies all documented `@local` installation layouts and
 fails when any committed manual PDF is stale. Commit the source, bundles, and

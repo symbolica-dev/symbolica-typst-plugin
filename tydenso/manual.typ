@@ -276,7 +276,7 @@ attributes while it constructs the function, not as a later cosmetic step.
 #let F = tensor("F", antisymmetric: true)
 
 #let cancellation = math($#F(mu-slot, nu-slot) + #F(nu-slot, mu-slot)$)
-$ #F(mu-slot, nu-slot) + F^(nu mu) = #F(mu-slot, nu-slot)  #F(nu-slot, mu-slot) = #to-typst(cancellation) $
+$ F^(mu nu) + F^(nu mu) = #to-typst(cancellation) $
 ```
 
 Only one of `symmetric`, `antisymmetric`, and `cycle-symmetric` may be true for
@@ -465,8 +465,7 @@ The mathematical conventions and supported identities track
 == Control tensor notation in Typst
 
 `to-typst` returns math content. Tydenso lays out slots, tensor arguments,
-chains, dots, and traces with ordinary Typst functions, so not$mu_1$
-ation can follow
+chains, dots, and traces with ordinary Typst functions, so notation can follow
 the document's own visual language. `to-string` remains available when a
 compact Spenso expression is useful for logs or debugging.
 

@@ -775,8 +775,8 @@
 /// coefficients; write a fraction when you need exact input.
 ///
 /// ```example
-/// #let expr = math($x + 2$)
-/// $#to-typst(expr)$
+/// #let expr = math($x + 1$)
+/// #to-typst(expr)
 /// ```
 ///
 /// -> bytes

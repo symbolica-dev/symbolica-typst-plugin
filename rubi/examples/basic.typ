@@ -7,17 +7,18 @@
 = Rubi as a separate integration engine
 
 #let x = sym.math($x$)
-#let integrand = sym.math($x / (x - 2+y)$)
+#let integrand = sym.math($x / (x + 1)$)
 #let primitive = integrate(integrand, x)
 #let explanation = integrate-with-steps(integrand, x)
-#let residual = sym.together(sym.sub(sym.derivative(primitive, x), integrand))
-
-#assert(type(primitive) == bytes)
-#assert(explanation.complete)
-#assert(type(explanation.result) == bytes)
-#assert(explanation.steps.len() > 0)
-#assert.eq(sym.canonical(primitive), sym.canonical(explanation.result))
-#assert.eq(sym.canonical(residual), "0")
+#let step-notation = sym.notation(
+  calls: (
+    "symbolica_integrate::rubi_int": ctx => {
+      let (body, variable) = ctx.visual-arguments
+      $ integral #body dif #variable $
+    },
+  ),
+)
+#let show-step(expression) = sym.to-typst(expression, notation: step-notation)
 
 $ integral #sym.to-typst(integrand) dif x
   = #sym.to-typst(primitive) + C $
@@ -28,6 +29,6 @@ $ integral #sym.to-typst(integrand) dif x
   #if step.description != "" [: #step.description]
   #linebreak()
   #h(step.depth * 1.2em)
-  $#sym.to-typst(step.input) = #sym.to-typst(step.output)$
+  $#show-step(step.input) = #show-step(step.output)$
   #linebreak()
 ]

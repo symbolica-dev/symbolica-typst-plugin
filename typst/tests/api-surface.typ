@@ -1,3 +1,4 @@
+// Maintainer regression coverage for the public core API.
 #import "../lib.typ": init
 
 #let sym = init()

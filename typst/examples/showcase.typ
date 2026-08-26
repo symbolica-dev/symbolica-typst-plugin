@@ -38,7 +38,6 @@ $ #to-typst(eliminant) = #to-typst(factor(eliminant)). $
 == Solve exactly
 
 #let solutions = solve(system, (x, y), domain: "real")
-#assert.eq(solutions.len(), 4)
 
 The `values` in each solution follow the requested variable order `(x, y)`.
 

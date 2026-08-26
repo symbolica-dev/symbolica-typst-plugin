@@ -1,3 +1,4 @@
+// Maintainer regression coverage for Parsely and semantic metadata.
 #import "@preview/parsely:0.1.0"
 #import "../lib.typ" as algebra
 

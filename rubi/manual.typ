@@ -79,13 +79,15 @@ tables.
 #let x = sym.math($x$)
 #let f = sym.math($x / (x + 1)$)
 #let explanation = integrate-with-steps(f, x)
-#let residual = sym.together(sym.sub(
-  sym.derivative(explanation.result, x),
-  f,
-))
-
-#assert(explanation.complete)
-#assert.eq(sym.canonical(residual), "0")
+#let step-notation = sym.notation(
+  calls: (
+    "symbolica_integrate::rubi_int": ctx => {
+      let (body, variable) = ctx.visual-arguments
+      $ integral #body dif #variable $
+    },
+  ),
+)
+#let show-step(expression) = sym.to-typst(expression, notation: step-notation)
 
 $ integral #sym.to-typst(f) dif x
   = #sym.to-typst(explanation.result) + C $
@@ -96,7 +98,7 @@ $ integral #sym.to-typst(f) dif x
   #if step.description != "" [: #step.description]
   #linebreak()
   #h(step.depth * 1.15em)
-  $#sym.to-typst(step.input) = #sym.to-typst(step.output)$
+  $#show-step(step.input) = #show-step(step.output)$
   #linebreak()
 ]
 

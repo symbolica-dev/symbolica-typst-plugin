@@ -72,10 +72,6 @@ advances both populations; it is ordinary Typst code rather than a new ODE API.
   rows
 }
 
-#let final = trajectory.last()
-#assert(calc.abs(final.at(1) - 0.48915) < 0.001)
-#assert(calc.abs(final.at(2) - 0.48440) < 0.001)
-
 #let prey = trajectory.map(row => (row.at(0), row.at(1)))
 #let predators = trajectory.map(row => (row.at(0), row.at(2)))
 #let phase = trajectory.map(row => (row.at(1), row.at(2)))
@@ -115,6 +111,7 @@ advances both populations; it is ordinary Typst code rather than a new ODE API.
       size: (12, 7),
       x-min: 0,
       y-min: 0,
+      y-max: 1.05,
       x-label: [prey $x$],
       y-label: [predators $y$],
       legend: "east",
