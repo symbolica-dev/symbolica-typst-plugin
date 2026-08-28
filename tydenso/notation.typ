@@ -350,7 +350,29 @@
   )
 }
 #let _qualified-port(rep, ctx, settings) = {
-  let port = math.upright("○")
+
+
+  let port = if rep.class == "inline-metric"{
+    sym.square.stroked.small
+  }else if rep.class == "self-dual"{
+    sym.circle.stroked.small
+  }else if rep.class == "dualizable"{
+    if rep.dual{
+      sym.triangle.r.small.stroked
+      // box(baseline:-0.1em,text(weight: 600,size: 0.6em,[#sym.bar.v#sym.chevron.r]))
+    }else{
+     sym.triangle.l.small.stroked 
+      // sym.triangle.l.small.stroked
+      // text(weight: 600,size: 0.8em,sym.chevron.l.closed)
+        // sym.chevron.l.dot
+      // .stroked.l.small
+    }
+  } else{
+    rep.class
+  }
+  // if rep.dual
+  // let port = sym.circle.stroked.tiny
+  // math.upright("○");
   if not settings.with-dim { return port }
   math.attach(
     port,
@@ -600,8 +622,8 @@
   "spenso::gamma": $gamma$,
   "spenso::gamma0": $gamma_0$,
   "spenso::gamma5": $gamma_5$,
-  "spenso::projp": $ℙ_p$,
-  "spenso::projm": $ℙ_m$,
+  "spenso::projp": $ℙ^+$,
+  "spenso::projm": $ℙ^-$,
 )
 
 /// Build Tydenso's document-side notation.

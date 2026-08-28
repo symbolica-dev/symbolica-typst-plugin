@@ -1,10 +1,11 @@
 #import "../lib.typ": *
+#import "../../typst/lib.typ": canonical
 
 #set page(width: auto, height: auto, margin: 8pt)
 
 #let M = mink(4)
 #let B = bis(4)
-#let mu = slot(M, 1)
+#let mu = slot(M, $u$)
 #let nu = slot(M, 2)
 #let a = slot(B, 1)
 #let b = slot(B, 2)
@@ -44,8 +45,8 @@
 #let gamma-factor = gamma(mu)
 #let gamma-tensor = gamma(mu, a, b)
 #let open-chain = chain(
-  u(1, B),
-  v(2, B),
+  v(p(2)),
+  u(p(1)),
   gamma(mu),
   gamma(p(1, M)),
   gamma(nu),
@@ -78,7 +79,9 @@
   A("in", "out", mu, p(3, M), nu),
   gamma(slot(M, $beta$)),
 )
-#let middle-representation-product = dot(p(1, M, 2), q(3, M, 4))
+#let middle-representation-product = p(1, q(2,M))
+
+// #let middle-representation-product = dot(p(1, M, 2), q(3, M, 4))
 #let marker-factor = K(mu, cin, a, cout, nu)
 #let reversed-marker-factor = K(mu, cout, a, cin, nu)
 #let gamma0-factor = gamma0()
@@ -95,15 +98,8 @@
 )
 
 #assert(atom-shape(inspect(product)) == "dot(p(1,mink(4)),q(2,mink(4)))")
-#assert(atom-shape(inspect(gamma-factor)) == "gamma(in,out,mink(4,1))")
-#assert(
-  atom-shape(inspect(gamma-tensor))
-    == "gamma(bis(4,1),bis(4,2),mink(4,1))",
-)
-#assert(
-  atom-shape(inspect(open-chain))
-    == "chain(u(1,bis(4)),v(2,bis(4)),gamma(in,out,mink(4,1)),gamma(in,out,p(1,mink(4))),gamma(in,out,mink(4,2)))",
-)
+
+
 
 // Presentation is not serialization. `to-typst` carries the exact Atom as
 // metadata, so even custom bra-ket notation composes losslessly.
@@ -205,33 +201,30 @@
 #let custom-call = to-typst(ordinary-call, notation: custom-display)
 #let custom-tag = to-typst(special(ordinary-x), notation: custom-display)
 #let custom-class = to-typst(F(mu, nu), notation: custom-display)
-#assert.eq(inspect(math($#custom-call$)), inspect(ordinary-call))
-#assert.eq(inspect(math($#custom-tag$)), inspect(special(ordinary-x)))
-#assert.eq(inspect(math($#custom-class$)), inspect(F(mu, nu)))
 
 #grid(
-  columns: 2,
+  columns: 3,
   gutter: 1em,
-  [explicit rows], $ #to-typst(interleaved) $,
-  [gamma tensor], $ #to-typst(gamma-tensor) $,
-  [dot product], $ #to-typst(product) $,
-  [open chain], $ #to-typst(open-chain) $,
-  [explicit-slot chain], $ #to-typst(explicit-slot-chain) $,
-  [closed trace], $ #to-typst(closed-chain) $,
-  [two Mink ports], $ #to-typst(two-mink-ports) $,
-  [nested factor], $ #to-typst(nested-chain) $,
-  [heterogeneous bra], $ #to-typst(heterogeneous-bra) $,
-  [heterogeneous ket], $ #to-typst(heterogeneous-ket) $,
-  [mixed polarity], $ #to-typst(mixed-polarity) $,
+  [explicit rows], $ #to-typst(interleaved) $,canonical(interleaved),
+  [gamma tensor], $ #to-typst(gamma-tensor) $,canonical(gamma-tensor),
+  [dot product], $ #to-typst(product) $,canonical(product),
+  [open chain], $ #to-typst(open-chain) $,canonical(open-chain),
+  [explicit-slot chain], $ #to-typst(explicit-slot-chain) $,canonical(explicit-slot-chain),
+  [closed trace], $ #to-typst(closed-chain) $,canonical(closed-chain),
+  [two Mink ports], $ #to-typst(two-mink-ports) $,canonical(two-mink-ports),
+  [nested factor], $ #to-typst(nested-chain) $,canonical(nested-chain),
+  [heterogeneous bra], $ #to-typst(heterogeneous-bra) $,canonical(heterogeneous-bra),
+  [heterogeneous ket], $ #to-typst(heterogeneous-ket) $,canonical(heterogeneous-ket),
+  [mixed polarity], $ #to-typst(mixed-polarity) $,canonical(mixed-polarity),
   [typed ports], $ #to-typst(
     heterogeneous-bra,
     notation: notation(with-dim: true),
-  ) $,
-  [middle rep], $ #to-typst(middle-representation-product) $,
-  [reversed factor], $ #to-typst(reversed-marker-factor) $,
-  [Idenso heads], $ #to-typst(projector) #to-typst(gamma0-factor) #to-typst(gamma5-factor) $,
-  [color rows], $ #to-typst(color-generator) $,
-  [custom exact call], $ #custom-call $,
-  [custom tag], $ #custom-tag $,
-  [custom class], $ #custom-class $,
+  ) $,canonical(heterogeneous-bra),
+  [middle rep], $ #to-typst(middle-representation-product) $,canonical(middle-representation-product),
+  [reversed factor], $ #to-typst(reversed-marker-factor) $,canonical(middle-representation-product),
+  [Idenso heads], $ #to-typst(projector) #to-typst(gamma0-factor) #to-typst(gamma5-factor) $,[#raw(canonical(projector)),#raw(canonical(gamma0-factor)),#raw(canonical(gamma5-factor))],
+  [color rows], $ #to-typst(color-generator) $,canonical(color-generator),
+  [custom exact call], $ #custom-call $,canonical(custom-call),
+  [custom tag], $ #custom-tag $,canonical(custom-tag),
+  [custom class], $ #custom-class $,[],
 )

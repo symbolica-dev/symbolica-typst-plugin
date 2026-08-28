@@ -7,7 +7,7 @@
 = Rubi as a separate integration engine
 
 #let x = sym.math($x$)
-#let integrand = sym.math($x / (x + 1)$)
+#let integrand = sym.math($x / (x - 2+y)$)
 #let primitive = integrate(integrand, x)
 #let explanation = integrate-with-steps(integrand, x)
 #let residual = sym.together(sym.sub(sym.derivative(primitive, x), integrand))
