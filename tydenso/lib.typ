@@ -1354,9 +1354,14 @@
 ///
 /// -> dictionary
 #let notation(
-  /// Compatibility base settings created by `print-settings`.
+  /// Reusable notation settings. Directly named options override this layer.
   /// -> dictionary
   settings: (:),
+  /// Tensor layout: `"ports"` keeps the bra/ket port notation,
+  /// `"schoonschip"` places bold compact vectors in aligned script columns,
+  /// and `"call"` groups top and bottom rows around a semicolon.
+  /// -> str | none
+  tensor-layout: none,
   /// Show each representation and dimension on its indices.
   /// -> bool | none
   with-dim: none,
@@ -1389,6 +1394,7 @@
   classes: (:),
 ) = tensor-notation.notation(
   settings: settings,
+  tensor-layout: tensor-layout,
   with-dim: with-dim,
   parens: parens,
   commas: commas,

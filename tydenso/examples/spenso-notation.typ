@@ -52,6 +52,12 @@
 #let two-mink-ports = A(mu, p(1, M), nu, q(2, M), slot(M, 3))
 #let heterogeneous-bra = H(mu, p(1, M), a, chi(2, B))
 #let L = lor(4)
+#let compact-layout = A(
+  slot(L, 1),
+  p(1, L),
+  slot(L, 2),
+  slot(L, 3, dual: true),
+)
 #let heterogeneous-ket = C(
   slot(M, "i"), r(1, L), slot(M, "j"), s(2, L),
 )
@@ -124,6 +130,14 @@
   [explicit-slot chain], $ #to-typst(explicit-slot-chain) $,
   [closed trace], $ #to-typst(closed-chain) $,
   [two Mink ports], $ #to-typst(two-mink-ports) $,
+  [Schoonschip scripts], $ #to-typst(
+    compact-layout,
+    notation: notation(tensor-layout: "schoonschip"),
+  ) $,
+  [row-grouped call], $ #to-typst(
+    compact-layout,
+    notation: notation(tensor-layout: "call"),
+  ) $,
   [nested factor], $ #to-typst(nested-chain) $,
   [heterogeneous bra], $ #to-typst(heterogeneous-bra) $,
   [heterogeneous ket], $ #to-typst(heterogeneous-ket) $,

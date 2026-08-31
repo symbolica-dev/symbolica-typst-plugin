@@ -14,9 +14,10 @@
 }
 
 #let _settings(value) = _merge((
+  tensor-layout: "ports",
   with-dim: false,
   parens: true,
-  commas: false,
+  commas: none,
   symbol-scripts: true,
   index-gap: 0.08em,
   factor-gap: 0.12em,
@@ -369,6 +370,15 @@
     t: math.attach(_head(ctx, rep.node), b: _visual(ctx, rep.dimension)),
   )
 }
+#let _qualified-compact-vector(compact, ctx, settings) = {
+  let source = math.bold(compact.label)
+  let rep = compact.representation
+  if not settings.with-dim { return source }
+  math.attach(
+    source,
+    t: math.attach(_head(ctx, rep.node), b: _visual(ctx, rep.dimension)),
+  )
+}
 
 #let _parentheses(body) = math.lr($ (#body) $)
 #let _brackets(body) = math.lr($ [#body] $)
@@ -380,6 +390,31 @@
     + (body,)
     + (if kets.len() > 0 { (_ket(kets.join[$,$]),) } else { () }),
 )
+#let _call-separator(settings) = if settings.commas {
+  _tight(($,$, h(settings.index-gap)))
+} else {
+  h(settings.index-gap)
+}
+#let _call-layout(base, columns, settings) = {
+  if columns.len() == 0 { return base }
+  let top = columns.filter(column => column.row == "top").map(column => column.source)
+  let bottom = columns.filter(column => column.row == "bottom").map(column => column.source)
+  let separator = _call-separator(settings)
+  let body = if bottom.len() == 0 {
+    top.join(separator)
+  } else if top.len() == 0 {
+    _tight(($;$, h(settings.index-gap), bottom.join(separator)))
+  } else {
+    _tight((
+      top.join(separator),
+      h(settings.index-gap),
+      $;$,
+      h(settings.index-gap),
+      bottom.join(separator),
+    ))
+  }
+  _tight((base, _parentheses(body)))
+}
 
 #let _compact-vector(node, ctx, settings) = {
   let node = _unwrap-display(node)
@@ -445,8 +480,15 @@
     let compact = _compact-vector(argument, ctx, settings)
     if compact != none {
       let rep = compact.representation
-      columns.push((source: _qualified-port(rep, ctx, settings), row: rep.row))
-      if rep.polarity == "ket" { kets.push(compact.label) } else { bras.push(compact.label) }
+      let source = if settings.tensor-layout == "ports" {
+        _qualified-port(rep, ctx, settings)
+      } else {
+        _qualified-compact-vector(compact, ctx, settings)
+      }
+      columns.push((source: source, row: rep.row))
+      if settings.tensor-layout == "ports" {
+        if rep.polarity == "ket" { kets.push(compact.label) } else { bras.push(compact.label) }
+      }
       continue
     }
     let source = _visual(ctx, argument)
@@ -462,11 +504,15 @@
     let separator = if settings.commas { $,$ } else { h(0.15em) }
     base = _tight((base, _parentheses(ordinary.join(separator))))
   }
-  base = _row-attachment(base, columns, settings)
+  base = if settings.tensor-layout == "call" {
+    _call-layout(base, columns, settings)
+  } else {
+    _row-attachment(base, columns, settings)
+  }
   if markers != none and markers.transposed {
     base = math.attach(base, t: math.upright("T"))
   }
-  _ports(base, bras, kets)
+  if settings.tensor-layout == "ports" { _ports(base, bras, kets) } else { base }
 }
 
 // A document tag or class attached to a tensor should see the same visual
@@ -480,7 +526,10 @@
       return _qualified-index(slot, _slot-index(slot, ctx), ctx, settings)
     }
     let compact = _compact-vector(argument, ctx, settings)
-    if compact != none { return compact.label }
+    if compact != none {
+      if settings.tensor-layout == "ports" { return compact.label }
+      return _qualified-compact-vector(compact, ctx, settings)
+    }
     _visual(ctx, argument)
   })
   let result = ctx
@@ -645,6 +694,7 @@
 /// $mu$ rather than the underlying representation call `mink(4, 1)`.
 #let notation(
   settings: (:),
+  tensor-layout: none,
   with-dim: none,
   parens: none,
   commas: none,
@@ -658,6 +708,7 @@
 ) = {
   let settings = _settings(settings)
   for (key, value) in (
+    tensor-layout: tensor-layout,
     with-dim: with-dim,
     parens: parens,
     commas: commas,
@@ -666,6 +717,12 @@
     factor-gap: factor-gap,
   ) {
     if value != none { settings.insert(key, value) }
+  }
+  if settings.tensor-layout not in ("ports", "schoonschip", "call") {
+    panic("tensor-layout must be \"ports\", \"schoonschip\", or \"call\"")
+  }
+  if settings.commas == none {
+    settings.insert("commas", settings.tensor-layout == "call")
   }
   let tensor = ctx => if ctx.kind == "function" {
     // The common dispatcher may encounter the broad package tensor tag before

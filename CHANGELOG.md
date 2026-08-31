@@ -44,6 +44,10 @@ local `0.1.0` package while its initial public surface is being prepared.
   delimiters, contraction dots, and nested chain factors retain compact
   mathematical spacing. Spenso's compact Rust printer remains available
   through `to-string`.
+- Added `tensor-layout` modes for nested compact vectors. The default `ports`
+  form remains unchanged; `schoonschip` places bold vector labels in their
+  aligned index columns, while `call` groups upper and lower entries around a
+  semicolon.
 - Render tensor and vector indices with Typst `attach`, including Physica-style
   hidden alignment columns. Built-in base orientations use the upper row except
   for bispinors; dualizable representations retain an explicit lower

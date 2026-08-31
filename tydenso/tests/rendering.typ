@@ -1,4 +1,5 @@
 #import "../lib.typ": *
+#import "../../typst/lib.typ" as algebra
 
 #set page(width: auto, height: auto, margin: 0pt)
 
@@ -92,6 +93,24 @@
   slot(dual-representation(Fund), 2),
 )
 
+// A dualizable representation supplies a genuine lower row for the two
+// alternate compact-vector layouts.
+#let layout-L = lor(4)
+#let layout-L-dual = dual-representation(layout-L)
+#let layout-x = symbol("x", namespace: "layout_test")
+#let layout-expression = A(
+  slot(layout-L, 1),
+  p(1, layout-L),
+  slot(layout-L, 2),
+  slot(layout-L, 3, dual: true),
+)
+#let lower-compact-expression = A(
+  slot(layout-L, 1),
+  q(2, layout-L-dual),
+  slot(layout-L-dual, 3),
+)
+#let lower-only-expression = A(slot(layout-L-dual, 3))
+
 #assert(atom-shape(inspect(product)) == "dot(p(1,mink(4)),q(2,mink(4)))")
 #assert(atom-shape(inspect(gamma-factor)) == "gamma(in,out,mink(4,1))")
 #assert(
@@ -161,6 +180,54 @@
 #for expression in rendered-cases {
   let shown = to-typst(expression)
   assert.eq(inspect(math($#shown$)), inspect(expression))
+}
+
+#for layout in ("schoonschip", "call") {
+  for expression in (
+    layout-expression,
+    lower-compact-expression,
+    lower-only-expression,
+  ) {
+    let shown = algebra.to-typst(
+      expression,
+      notation: notation(tensor-layout: layout),
+    )
+    assert.eq(inspect(math($#shown$)), inspect(expression))
+  }
+}
+
+#let call-without-commas = algebra.to-typst(
+  layout-expression,
+  notation: notation(tensor-layout: "call", commas: false),
+)
+#let qualified-schoonschip = algebra.to-typst(
+  layout-expression,
+  notation: notation(tensor-layout: "schoonschip", with-dim: true),
+)
+#let call-from-settings = algebra.to-typst(
+  layout-expression,
+  notation: notation(settings: (tensor-layout: "call")),
+)
+#assert.eq(inspect(math($#call-without-commas$)), inspect(layout-expression))
+#assert.eq(inspect(math($#qualified-schoonschip$)), inspect(layout-expression))
+#assert.eq(inspect(math($#call-from-settings$)), inspect(layout-expression))
+
+// Turning symbol scripts off keeps ordinary tensor arguments in their own
+// parentheses instead of assigning them an index row in call layout.
+#let layout-ordinary = A(layout-x, slot(layout-L, 1), slot(layout-L-dual, 3))
+#let call-with-ordinary = algebra.to-typst(
+  layout-ordinary,
+  notation: notation(tensor-layout: "call", symbol-scripts: false),
+)
+#assert.eq(inspect(math($#call-with-ordinary$)), inspect(layout-ordinary))
+
+// Specialized compact-vector uses remain dots, slashes, and chain endpoints
+// under both alternate generic tensor layouts.
+#for expression in (product, gamma(p(1, M)), open-chain) {
+  for layout in ("schoonschip", "call") {
+    let shown = algebra.to-typst(expression, notation: notation(tensor-layout: layout))
+    assert.eq(inspect(math($#shown$)), inspect(expression))
+  }
 }
 
 #let ordinary = function("ordinary", namespace: "render_test")

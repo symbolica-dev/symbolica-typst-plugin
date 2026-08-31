@@ -487,8 +487,42 @@ bottom row; the other built-in base orientations use the top row. A
 dualizable representation puts its dual orientation on the opposite row,
 while a self-dual representation does not flip.
 
-The most common layout switches live directly on `notation`: `with-dim`,
-`parens`, `commas`, `symbol-scripts`, `index-gap`, and `factor-gap`.
+Compact vectors nested inside another tensor have three layouts. The default
+`"ports"` layout keeps their bra or ket outside the tensor and marks the
+contracted argument position with a hollow port. `"schoonschip"` puts the bold
+vector label directly into that aligned column. `"call"` groups upper entries
+before a semicolon and lower entries after it.
+
+```worked
+#let L = lor(4)
+#let p = vector("p", namespace: "notation_layout")
+#let A = tensor("A", namespace: "notation_layout")
+#let expression = A(
+  slot(L, 1),
+  p(1, L),
+  slot(L, 2),
+  slot(L, 3, dual: true),
+)
+
+#let scripts = notation(tensor-layout: "schoonschip")
+#let call = notation(tensor-layout: "call")
+
+#grid(
+  columns: 2,
+  gutter: 0.8em,
+  [aligned scripts], $ #to-typst(expression, notation: scripts) $,
+  [row-grouped call], $ #to-typst(expression, notation: call) $,
+)
+```
+
+The script layout preserves every original argument column. The call layout
+preserves order within each row; the exact Atom annotation retains the complete
+original order. A call containing only lower entries starts with a semicolon,
+as in $A(; rho)$. Commas are on by default in this mode and can be disabled
+with `commas: false`.
+
+The most common layout switches live directly on `notation`: `tensor-layout`,
+`with-dim`, `parens`, `commas`, `symbol-scripts`, `index-gap`, and `factor-gap`.
 `print-settings` configures the separate compact string returned by
 `to-string`.
 
