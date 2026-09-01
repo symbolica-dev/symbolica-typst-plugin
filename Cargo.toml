@@ -16,31 +16,23 @@ default = []
 ahash = { version = "0.8", default-features = false, features = ["std", "compile-time-rng"] }
 ciborium = "0.2.2"
 getrandom = "0.3"
-symbolica = { path = "vendor/symbolica-wasm", features = ["wasm"] }
-tymbolica-atom-payload = { path = "crates/atom-payload" }
-tymbolica-typst-ast = { path = "crates/typst-ast" }
+symbolica = { version = "2.2", default-features = false, features = ["wasm"] }
+tymbolica-atom-payload = { path = "crates/atom-payload", default-features = false, features = ["wasm"] }
 wasm-minimal-protocol = "0.1"
 
 [patch.crates-io]
 # Temporary until astro-float publishes the merged wasm32 word-size fix.
 astro-float = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
 astro-float-num = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
-graphica = { git = "https://github.com/lcnbr/symbolica", rev = "d972f384ca87778fedd26d3ca2a752d75fffc38e" }
-numerica = { git = "https://github.com/lcnbr/symbolica", rev = "d972f384ca87778fedd26d3ca2a752d75fffc38e" }
-symbolica = { path = "vendor/symbolica-wasm" }
-
-[patch."file:///home/lcnbr/dev/gammaloop/crates/spenso"]
-spenso = { path = "vendor/gammaloop-spenso" }
+graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ec19eeb211685aa216dbd28a4df547cd4c6baca1" }
+numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ec19eeb211685aa216dbd28a4df547cd4c6baca1" }
+symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ec19eeb211685aa216dbd28a4df547cd4c6baca1" }
 
 [workspace]
 members = [
   "crates/atom-payload",
-  "crates/idenso-plugin",
   "crates/inflate-plugin",
   "crates/rubi-plugin",
-  "crates/symbol-registry",
-  "crates/typst-ast",
-  "vendor/gammaloop-spenso",
   "vendor/symbolica-integrate",
 ]
 resolver = "3"

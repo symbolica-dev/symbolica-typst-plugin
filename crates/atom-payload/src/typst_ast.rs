@@ -2,9 +2,9 @@
 
 use std::io::Cursor;
 
+use crate::{AttachmentSet, parse_payload};
 use ciborium::value::Value;
 use symbolica::prelude::{Atom, AtomCore, Symbol};
-use tymbolica_atom_payload::{AttachmentSet, parse_payload};
 
 /// A parsed Symbolica Atom together with every portable attachment carried by
 /// embedded Atom payloads in the source tree.
@@ -41,7 +41,7 @@ pub fn attached_atom_from_ast(
 }
 
 /// Inspect every Atom payload the supported AST grammar will consume, merge
-/// its attachments, and validate envelope revisions without importing an Atom.
+/// its attachments, and validate native export headers without importing an Atom.
 ///
 /// Consumers that must initialize attachment-defined registries before
 /// Symbolica import can call this first, perform registration, and only then
@@ -642,9 +642,7 @@ fn value_i64(value: &Value, label: &str) -> Result<i64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tymbolica_atom_payload::{
-        Attachment, AttachmentKey, SYMBOLICA_REVISION, encode_atom, encode_atom_from_set,
-    };
+    use crate::{Attachment, AttachmentKey, encode_atom, encode_atom_from_set};
 
     fn node(head: &str, args: Vec<Value>, slots: Vec<(Value, Value)>) -> Value {
         Value::Map(vec![
@@ -860,17 +858,12 @@ mod tests {
     }
 
     #[test]
-    fn preflight_rejects_revision_mismatches_without_importing() {
-        let x = symbol_atom("x", "embedded").unwrap();
-        let mut payload = encode_atom(&x).unwrap();
-        let revision = SYMBOLICA_REVISION.as_bytes();
-        let offset = payload
-            .windows(revision.len())
-            .position(|window| window == revision)
-            .unwrap();
-        payload[offset] = if payload[offset] == b'0' { b'1' } else { b'0' };
+    fn preflight_rejects_incompatible_atom_headers_without_importing() {
+        let atom_export = [0x67, 0x13, 0x87, 0x37, 0x05, 0x00];
+        let mut payload = super::super::encode_exported_atom(&atom_export, []).unwrap();
+        payload[super::super::FIXED_HEADER_BYTES] ^= 1;
 
         let error = attachments_from_value(&Value::Bytes(payload)).unwrap_err();
-        assert!(error.contains("uses Symbolica revision"));
+        assert!(error.contains("wrong Symbolica magic"));
     }
 }

@@ -32,7 +32,7 @@
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
             cargo build --release --target "$target" --package tymbolica-inflate-plugin --lib
-            for output in typst/tymbolica-inflate.wasm tydenso/tydenso-inflate.wasm rubi/tymbolica-inflate.wasm; do
+            for output in typst/tymbolica-inflate.wasm rubi/tymbolica-inflate.wasm; do
               wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
                 -o "$output" "target/$target/release/tymbolica_inflate_plugin.wasm"
               size="$(wc -c < "$output")"
@@ -60,23 +60,6 @@
               exit 1
             fi
             ls -lh typst/tymbolica.wasm.zlib
-          '';
-          tydensoBuildScript = ''
-            target=wasm32-unknown-unknown
-            unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package tydenso-plugin
-            tydenso_raw="target/$target/release/tydenso.raw.wasm"
-            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-              -o "$tydenso_raw" "target/$target/release/tydenso_plugin.wasm"
-
-            cargo run --release --package tymbolica-inflate-plugin --bin tymbolica-compress -- \
-              "$tydenso_raw" tydenso/tydenso.wasm.zlib
-            size="$(wc -c < tydenso/tydenso.wasm.zlib)"
-            if [ "$size" -gt 10485760 ]; then
-              echo "tydenso/tydenso.wasm.zlib is $size bytes; the compressed Tydenso engine must remain below 10 MiB" >&2
-              exit 1
-            fi
-            ls -lh tydenso/tydenso.wasm.zlib
           '';
           rubiBuildScript = ''
             target=wasm32-unknown-unknown
@@ -121,38 +104,29 @@
               fi
             }
 
-            for dependency in spenso idenso symbolica-integrate; do
-              assert_dependency_absent tymbolica-plugin "$dependency"
-              assert_dependency_absent tymbolica-typst-ast "$dependency"
-            done
             for dependency in spenso idenso; do
-              assert_dependency_absent tymbolica-rubi-plugin "$dependency"
+              for package in tymbolica-plugin tymbolica-atom-payload tymbolica-rubi-plugin; do
+                assert_dependency_absent "$package" "$dependency"
+              done
             done
+            assert_dependency_absent tymbolica-plugin symbolica-integrate
+            assert_dependency_absent tymbolica-atom-payload symbolica-integrate
           '';
-          rendererBoundaryScript = ''
-            if ! cmp -s typst/render.typ tydenso/render.typ; then
-              echo "tydenso/render.typ must be an exact copy of typst/render.typ" >&2
-              exit 1
-            fi
-          '';
-          buildScript = loaderBuildScript + engineBuildScript + tydensoBuildScript + rubiBuildScript;
+          buildScript = loaderBuildScript + engineBuildScript + rubiBuildScript;
         in rec {
           default = build;
           build = app "tymbolica-build" buildScript;
           build-engine = app "tymbolica-build-engine" (loaderBuildScript + engineBuildScript);
-          build-tydenso = app "tymbolica-build-tydenso" (loaderBuildScript + tydensoBuildScript);
           build-rubi = app "tymbolica-build-rubi" (loaderBuildScript + rubiBuildScript);
           manual = app "tymbolica-manual" (buildScript + ''
             tymbolica_out="''${TYMBOLICA_MANUAL_OUT:-typst/manual.pdf}"
-            tydenso_out="''${TYDENSO_MANUAL_OUT:-tydenso/manual.pdf}"
             rubi_out="''${TYMBOLICA_RUBI_MANUAL_OUT:-rubi/manual.pdf}"
-            mkdir -p "$(dirname "$tymbolica_out")" "$(dirname "$tydenso_out")" "$(dirname "$rubi_out")"
+            mkdir -p "$(dirname "$tymbolica_out")" "$(dirname "$rubi_out")"
             typst compile --creation-timestamp 0 --root . typst/manual.typ "$tymbolica_out"
-            typst compile --creation-timestamp 0 --root . tydenso/manual.typ "$tydenso_out"
             typst compile --creation-timestamp 0 --root . rubi/manual.typ "$rubi_out"
-            ls -lh "$tymbolica_out" "$tydenso_out" "$rubi_out"
+            ls -lh "$tymbolica_out" "$rubi_out"
           '');
-          check = app "tymbolica-check" (dependencyBoundaryScript + rendererBoundaryScript + buildScript + ''
+          check = app "tymbolica-check" (dependencyBoundaryScript + buildScript + ''
             check_dir="$(mktemp -d)"
             trap 'rm -rf "$check_dir"' EXIT
 
@@ -165,16 +139,6 @@
             typst compile --root . typst/tests/parsely-metadata.typ "$check_dir/parsely-metadata.pdf"
             typst compile --root . typst/tests/worked-examples.typ "$check_dir/worked-examples.pdf"
             typst compile --creation-timestamp 0 --root . typst/manual.typ "$check_dir/manual.pdf"
-            typst compile --root . tydenso/examples/basic.typ "$check_dir/tydenso-basic.pdf"
-            typst compile --root . tydenso/examples/symmetry.typ "$check_dir/tydenso-symmetry.pdf"
-            typst compile --root . tydenso/examples/interop.typ "$check_dir/tydenso-interop.pdf"
-            typst compile --root . tydenso/examples/spenso-notation.typ "$check_dir/tydenso-spenso-notation.pdf"
-            typst compile --root . tydenso/examples/index-palettes.typ "$check_dir/tydenso-index-palettes.pdf"
-            typst compile --root . tydenso/tests/api-surface.typ "$check_dir/tydenso-api-surface.pdf"
-            typst compile --root . tydenso/tests/interop.typ "$check_dir/tydenso-interop-tests.pdf"
-            typst compile --root . tydenso/tests/parsely-metadata.typ "$check_dir/tydenso-parsely-metadata.pdf"
-            typst compile --root . tydenso/tests/rendering.typ "$check_dir/tydenso-rendering.pdf"
-            typst compile --creation-timestamp 0 --root . tydenso/manual.typ "$check_dir/tydenso-manual.pdf"
             typst compile --root . rubi/examples/basic.typ "$check_dir/rubi-basic.pdf"
             typst compile --root . rubi/tests/integration.typ "$check_dir/rubi-integration-tests.pdf"
             typst compile --creation-timestamp 0 --root . rubi/manual.typ "$check_dir/rubi-manual.pdf"
@@ -185,12 +149,6 @@
             XDG_DATA_HOME="$check_dir/xdg" \
               typst compile --root . typst/examples/local-package.typ "$check_dir/local-package.pdf"
 
-            tydenso_package_dir="$check_dir/xdg/typst/packages/local/tydenso"
-            mkdir -p "$tydenso_package_dir"
-            ln -s "$PWD/tydenso" "$tydenso_package_dir/0.1.0"
-            XDG_DATA_HOME="$check_dir/xdg" \
-              typst compile --root . tydenso/examples/local-package.typ "$check_dir/tydenso-local-package.pdf"
-
             rubi_package_dir="$check_dir/xdg/typst/packages/local/tymbolica-rubi"
             mkdir -p "$rubi_package_dir"
             ln -s "$PWD/rubi" "$rubi_package_dir/0.1.0"
@@ -199,10 +157,6 @@
 
             if ! cmp -s typst/manual.pdf "$check_dir/manual.pdf"; then
               echo "typst/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
-              exit 1
-            fi
-            if ! cmp -s tydenso/manual.pdf "$check_dir/tydenso-manual.pdf"; then
-              echo "tydenso/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
               exit 1
             fi
             if ! cmp -s rubi/manual.pdf "$check_dir/rubi-manual.pdf"; then
@@ -223,16 +177,10 @@
             work="$TMPDIR/tymbolica"
             mkdir -p "$work"
             cp -R ${self}/typst "$work/typst"
-            cp -R ${self}/tydenso "$work/tydenso"
             cp -R ${self}/rubi "$work/rubi"
             cp ${self}/typst.toml "$work/typst.toml"
             chmod -R u+w "$work"
             mkdir -p "$out"
-
-            if ! cmp -s "$work/typst/render.typ" "$work/tydenso/render.typ"; then
-              echo "tydenso/render.typ must be an exact copy of typst/render.typ" >&2
-              exit 1
-            fi
 
             while IFS= read -r -d "" file; do
               size="$(wc -c < "$file")"
@@ -240,7 +188,7 @@
                 echo "$file is $size bytes; Typst web app files must not exceed 20 MiB" >&2
                 exit 1
               fi
-            done < <(find "$work/typst" "$work/tydenso" "$work/rubi" -type f -print0)
+            done < <(find "$work/typst" "$work/rubi" -type f -print0)
 
             while IFS= read -r -d "" file; do
               size="$(wc -c < "$file")"
@@ -248,7 +196,7 @@
                 echo "$file is $size bytes; compressed plugin assets must remain below 10 MiB" >&2
                 exit 1
               fi
-            done < <(find "$work/typst" "$work/tydenso" "$work/rubi" -type f -name '*.wasm.zlib' -print0)
+            done < <(find "$work/typst" "$work/rubi" -type f -name '*.wasm.zlib' -print0)
 
             typst compile --root "$work" "$work/typst/examples/basic.typ" "$out/basic.pdf"
             typst compile --root "$work" "$work/typst/examples/showcase.typ" "$out/showcase.pdf"
@@ -259,16 +207,6 @@
             typst compile --root "$work" "$work/typst/tests/parsely-metadata.typ" "$out/parsely-metadata.pdf"
             typst compile --root "$work" "$work/typst/tests/worked-examples.typ" "$out/worked-examples.pdf"
             typst compile --creation-timestamp 0 --root "$work" "$work/typst/manual.typ" "$out/manual.pdf"
-            typst compile --root "$work" "$work/tydenso/examples/basic.typ" "$out/tydenso-basic.pdf"
-            typst compile --root "$work" "$work/tydenso/examples/symmetry.typ" "$out/tydenso-symmetry.pdf"
-            typst compile --root "$work" "$work/tydenso/examples/interop.typ" "$out/tydenso-interop.pdf"
-            typst compile --root "$work" "$work/tydenso/examples/spenso-notation.typ" "$out/tydenso-spenso-notation.pdf"
-            typst compile --root "$work" "$work/tydenso/examples/index-palettes.typ" "$out/tydenso-index-palettes.pdf"
-            typst compile --root "$work" "$work/tydenso/tests/api-surface.typ" "$out/tydenso-api-surface.pdf"
-            typst compile --root "$work" "$work/tydenso/tests/interop.typ" "$out/tydenso-interop-tests.pdf"
-            typst compile --root "$work" "$work/tydenso/tests/parsely-metadata.typ" "$out/tydenso-parsely-metadata.pdf"
-            typst compile --root "$work" "$work/tydenso/tests/rendering.typ" "$out/tydenso-rendering.pdf"
-            typst compile --creation-timestamp 0 --root "$work" "$work/tydenso/manual.typ" "$out/tydenso-manual.pdf"
             typst compile --root "$work" "$work/rubi/examples/basic.typ" "$out/rubi-basic.pdf"
             typst compile --root "$work" "$work/rubi/tests/integration.typ" "$out/rubi-integration-tests.pdf"
             typst compile --creation-timestamp 0 --root "$work" "$work/rubi/manual.typ" "$out/rubi-manual.pdf"
@@ -279,12 +217,6 @@
             XDG_DATA_HOME="$TMPDIR/xdg" \
               typst compile --root "$work" "$work/typst/examples/local-package.typ" "$out/local-package.pdf"
 
-            tydenso_package_dir="$TMPDIR/xdg/typst/packages/local/tydenso"
-            mkdir -p "$tydenso_package_dir"
-            ln -s "$work/tydenso" "$tydenso_package_dir/0.1.0"
-            XDG_DATA_HOME="$TMPDIR/xdg" \
-              typst compile --root "$work" "$work/tydenso/examples/local-package.typ" "$out/tydenso-local-package.pdf"
-
             rubi_package_dir="$TMPDIR/xdg/typst/packages/local/tymbolica-rubi"
             mkdir -p "$rubi_package_dir"
             ln -s "$work/rubi" "$rubi_package_dir/0.1.0"
@@ -293,10 +225,6 @@
 
             if ! cmp -s "$work/typst/manual.pdf" "$out/manual.pdf"; then
               echo "typst/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
-              exit 1
-            fi
-            if ! cmp -s "$work/tydenso/manual.pdf" "$out/tydenso-manual.pdf"; then
-              echo "tydenso/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
               exit 1
             fi
             if ! cmp -s "$work/rubi/manual.pdf" "$out/rubi-manual.pdf"; then

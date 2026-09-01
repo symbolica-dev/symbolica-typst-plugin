@@ -53,7 +53,7 @@
 
 Tymbolica Rubi is a separate package and WebAssembly engine. It deliberately
 does not parse expressions, declare symbols, or print mathematics. Tymbolica
-and Tydenso create the versioned Atom payloads it consumes, and either package
+and compatible extensions create the versioned Atom payloads it consumes and
 can continue working with the result.
 
 Import the Rubi package explicitly alongside Tymbolica:

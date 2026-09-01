@@ -22,51 +22,16 @@ local `0.1.0` package while its initial public surface is being prepared.
   `integrate-with-steps`; the latter returns Rubi's genuine nested
   transformations, metadata, expressions, and completion status.
 - Preinitialize Rubi's immutable rule tables with Wizer at build time. The
-  lightweight Tymbolica core, focused Rubi extension, and Tydenso are stored as
+  lightweight Tymbolica core and focused Rubi extension are stored as
   independent DEFLATE-compressed assets below the Typst web app's 10 MiB limit.
-- Split Tydenso into its own Typst package with a separate manual and examples.
-  Its scope-free API constructs Spenso representations, slots, tensor names,
-  symmetry attributes, and annotated math calls; the structural constructors
-  remain available for generated expressions.
-- Added one shared Parsely-to-Atom Rust bridge to both plugins. Tydenso's
-  `math` accepts annotated tensor calls, and annotated values move between
-  Tydenso and Tymbolica through their exact native Atom payload.
-- Added portable attachments to the shared Atom payload. Tymbolica and Rubi
-  preserve them opaquely without linking Spenso or Idenso; Tydenso alone uses
-  them to restore custom representation classes and index palettes before
-  importing an expression in another plugin runtime.
-- Added one portable recursive Atom render tree shared by Tymbolica and
-  Tydenso. It exposes algebraic structure, exact namespaced symbol identities,
-  tags, attributes, and opaque Atom payloads without linking tensor code into
-  the core plugin.
-- Moved Tydenso's Spenso notation to Typst. Exact heads, complete calls, tags,
-  and attribute classes can now be restyled by the document while bra-ket
-  delimiters, contraction dots, and nested chain factors retain compact
-  mathematical spacing. Spenso's compact Rust printer remains available
-  through `to-string`.
-- Added `tensor-layout` modes for nested compact vectors. The default `ports`
-  form remains unchanged; `schoonschip` places bold vector labels in their
-  aligned index columns, while `call` groups upper and lower entries around a
-  semicolon.
-- Render tensor and vector indices with Typst `attach`, including Physica-style
-  hidden alignment columns. Built-in base orientations use the upper row except
-  for bispinors; dualizable representations retain an explicit lower
-  orientation. Built-in metrics use the same Typst-specific notation instead
-  of exposing their internal representation slots.
-- Give every built-in Spenso and Idenso representation a conventional cyclic
-  palette for integer slots. The palette is canonical representation metadata,
-  survives plugin round trips, and wraps with numbered subscripts; explicitly
-  named slots remain unchanged.
-- Preserve structured Typst math in tensor and vector arguments as one portable
-  display-defined symbol; wrapping the same content with `math` continues to
-  create real Symbolica algebra. Semantic string identifiers such as `"mu"`
-  use Symbolica's native quoted Typst output and remain visibly distinct from
-  notation such as `$mu$`.
-- Attach exact Atom metadata at structural boundaries: variables and ordinary
-  function heads remain editable, while a custom complete-call renderer gets
-  one authoritative call payload after it returns. Live Typst content can be
-  interpolated back into `math` without reverse-parsing custom tensor notation;
-  numbers remain ordinary editable math.
+- Consolidated the Parsely-to-Atom bridge, native Atom export, portable
+  attachments, and recursive render tree in the reusable
+  `tymbolica-atom-payload` crate. Tymbolica and Rubi preserve unknown attachment
+  schemas without linking their owners.
+- Moved Tydenso's plugin, Typst package, manual, examples, and tensor-specific
+  attachment codecs into GammaLoop, where Spenso, Idenso, and Spynso are
+  maintained. GammaLoop consumes the shared payload crate as a pinned Git
+  dependency; Tymbolica has no reverse dependency on GammaLoop.
 - Added recursive CBOR inspection of Symbolica Atom internals while retaining
   the native Atom export as the lossless cross-plugin payload.
 - Documented every public parameter, default, return shape, and current

@@ -1,8 +1,9 @@
-//! Versioned Symbolica Atom payloads exchanged by Tymbolica-compatible plugins.
+//! Symbolica Atom payloads exchanged by Tymbolica-compatible plugins.
 //!
-//! The envelope deliberately keeps the native Symbolica export opaque. Consumers
-//! can validate and inspect portable attachments before choosing to call
-//! [`Atom::import`] through [`ParsedPayload::import_atom`].
+//! The envelope validates the native Symbolica export's compatibility header,
+//! while keeping the rest of that export opaque. Consumers can inspect portable
+//! attachments before choosing to call [`Atom::import`] through
+//! [`ParsedPayload::import_atom`].
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
@@ -11,22 +12,18 @@ use std::{
     str,
 };
 
+pub mod typst_ast;
+
 use ciborium::value::Value;
 use symbolica::{
     atom::{Atom, AtomCore, AtomView, Symbol, SymbolAttribute},
     printer::PrintOptions,
 };
 
-/// Exact Symbolica revision shared by producers and consumers.
-///
-/// The build script derives this from the pinned `symbolica-upstream`
-/// dependency in `vendor/symbolica-wasm/Cargo.toml`.
-pub const SYMBOLICA_REVISION: &str = env!("TYMBOLICA_SYMBOLICA_REVISION");
-
 /// Magic prefix for the versioned envelope.
 pub const PAYLOAD_MAGIC: &[u8; 8] = b"TYMATOM\0";
 /// Current binary-envelope version.
-pub const PAYLOAD_VERSION: u16 = 1;
+pub const PAYLOAD_VERSION: u16 = 2;
 
 /// Protocol discriminator for the generic CBOR Atom render tree.
 pub const RENDER_TREE_PROTOCOL: &str = "tymbolica";
@@ -43,11 +40,13 @@ pub const MAX_ATTACHMENT_SCHEMA_BYTES: usize = 128;
 pub const MAX_ATTACHMENT_DATA_BYTES: usize = 256 * 1024;
 pub const MAX_TOTAL_ATTACHMENT_BYTES: usize = 1024 * 1024;
 
-const REVISION_BYTES: usize = 40;
+const SYMBOLICA_MAGIC: u32 = 0x3787_1367;
+const SYMBOLICA_EXPORT_FORMAT_VERSION: u16 = 5;
+const SYMBOLICA_HEADER_BYTES: usize = size_of::<u32>() + size_of::<u16>();
 // Permit redundant records to be merged without letting their wire count grow
 // without bound. MAX_ATTACHMENTS applies to unique keys.
 const MAX_ENCODED_ATTACHMENT_RECORDS: usize = 1024;
-const FIXED_HEADER_BYTES: usize = PAYLOAD_MAGIC.len() + 2 + 2 + 2 + 2 + 4;
+const FIXED_HEADER_BYTES: usize = PAYLOAD_MAGIC.len() + 2 + 2 + 2 + 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AttachmentKey {
@@ -294,7 +293,7 @@ impl<'a> AttachmentRef<'a> {
     }
 }
 
-/// A validated payload whose native Atom bytes have not yet been imported.
+/// A validated payload whose compatible native Atom bytes remain unimported.
 #[derive(Debug)]
 pub struct ParsedPayload<'a> {
     atom_bytes: &'a [u8],
@@ -369,7 +368,6 @@ pub enum PayloadError {
     InvalidEnvelope(&'static str),
     InvalidAttachment(&'static str),
     ConflictingAttachment(AttachmentKey),
-    RevisionMismatch(String),
     Cbor(String),
     Export(std::io::Error),
     Import(std::io::Error),
@@ -393,10 +391,6 @@ impl fmt::Display for PayloadError {
                 key.schema,
                 key.version,
                 key.identity.len()
-            ),
-            Self::RevisionMismatch(found) => write!(
-                formatter,
-                "Atom payload uses Symbolica revision {found}, expected {SYMBOLICA_REVISION}"
             ),
             Self::Cbor(error) => write!(formatter, "could not encode Atom render tree: {error}"),
             Self::Export(error) => write!(formatter, "could not export Atom: {error}"),
@@ -450,14 +444,22 @@ fn validate_attachment_data(data: &[u8]) -> Result<(), PayloadError> {
     Ok(())
 }
 
-fn validate_revision(revision: &str) -> Result<(), PayloadError> {
-    if revision.len() != REVISION_BYTES
-        || !revision
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    {
+fn preflight_raw_atom(input: &[u8]) -> Result<(), PayloadError> {
+    let header = input
+        .get(..SYMBOLICA_HEADER_BYTES)
+        .ok_or(PayloadError::InvalidEnvelope(
+            "Atom export is shorter than its Symbolica header",
+        ))?;
+    let magic = u32::from_le_bytes(header[..4].try_into().expect("four-byte slice"));
+    if magic != SYMBOLICA_MAGIC {
         return Err(PayloadError::InvalidEnvelope(
-            "Symbolica revision must be a 40-character lowercase hexadecimal Git ID",
+            "Atom export has the wrong Symbolica magic",
+        ));
+    }
+    let version = u16::from_le_bytes(header[4..].try_into().expect("two-byte slice"));
+    if version != SYMBOLICA_EXPORT_FORMAT_VERSION {
+        return Err(PayloadError::InvalidEnvelope(
+            "Atom export uses an unsupported Symbolica format version",
         ));
     }
     Ok(())
@@ -507,18 +509,14 @@ fn push_u32(output: &mut Vec<u8>, value: usize) -> Result<(), PayloadError> {
     Ok(())
 }
 
-fn encode_exported_atom_from_set_with_revision(
+fn encode_exported_atom_from_set(
     atom_bytes: &[u8],
-    revision: &str,
     attachments: &AttachmentSet,
 ) -> Result<Vec<u8>, PayloadError> {
-    if atom_bytes.is_empty() {
-        return Err(PayloadError::InvalidEnvelope("Atom export cannot be empty"));
-    }
     if atom_bytes.len() > MAX_ATOM_BYTES {
         return Err(PayloadError::LimitExceeded);
     }
-    validate_revision(revision)?;
+    preflight_raw_atom(atom_bytes)?;
 
     let attachment_bytes = attachments.total_attachment_bytes();
     if attachment_bytes > MAX_TOTAL_ATTACHMENT_BYTES {
@@ -530,8 +528,7 @@ fn encode_exported_atom_from_set_with_revision(
         .checked_mul(2 + 4 + 4 + 4)
         .ok_or(PayloadError::LimitExceeded)?;
     let total_size = FIXED_HEADER_BYTES
-        .checked_add(revision.len())
-        .and_then(|total| total.checked_add(atom_bytes.len()))
+        .checked_add(atom_bytes.len())
         .and_then(|total| total.checked_add(entry_headers))
         .and_then(|total| total.checked_add(attachment_bytes))
         .ok_or(PayloadError::LimitExceeded)?;
@@ -543,10 +540,8 @@ fn encode_exported_atom_from_set_with_revision(
     output.extend_from_slice(PAYLOAD_MAGIC);
     output.extend_from_slice(&PAYLOAD_VERSION.to_be_bytes());
     output.extend_from_slice(&0u16.to_be_bytes()); // reserved flags
-    push_u16(&mut output, revision.len())?;
     push_u16(&mut output, attachments.len())?;
     push_u32(&mut output, atom_bytes.len())?;
-    output.extend_from_slice(revision.as_bytes());
     output.extend_from_slice(atom_bytes);
 
     for (key, data) in &attachments.entries {
@@ -571,14 +566,6 @@ fn encode_exported_atom(
 ) -> Result<Vec<u8>, PayloadError> {
     let attachments = AttachmentSet::from_attachments(attachments)?;
     encode_exported_atom_from_set(atom_bytes, &attachments)
-}
-
-/// Wrap already-exported native Symbolica Atom bytes with a reusable set.
-fn encode_exported_atom_from_set(
-    atom_bytes: &[u8],
-    attachments: &AttachmentSet,
-) -> Result<Vec<u8>, PayloadError> {
-    encode_exported_atom_from_set_with_revision(atom_bytes, SYMBOLICA_REVISION, attachments)
 }
 
 /// Export an Atom and attach portable, schema-keyed data.
@@ -879,28 +866,13 @@ fn parse_envelope(input: &[u8]) -> Result<ParsedPayload<'_>, PayloadError> {
     if reader.u16()? != 0 {
         return Err(PayloadError::InvalidEnvelope("reserved flags must be zero"));
     }
-    let revision_length = usize::from(reader.u16()?);
     let entry_count = usize::from(reader.u16()?);
     let atom_length = usize::try_from(reader.u32()?).map_err(|_| PayloadError::LimitExceeded)?;
-    if revision_length != REVISION_BYTES {
-        return Err(PayloadError::InvalidEnvelope(
-            "Symbolica revision must be a 40-character lowercase hexadecimal Git ID",
-        ));
-    }
     if entry_count > MAX_ENCODED_ATTACHMENT_RECORDS || atom_length > MAX_ATOM_BYTES {
         return Err(PayloadError::LimitExceeded);
     }
-    if atom_length == 0 {
-        return Err(PayloadError::InvalidEnvelope("Atom export cannot be empty"));
-    }
-
-    let revision = str::from_utf8(reader.take(revision_length)?)
-        .map_err(|_| PayloadError::InvalidEnvelope("Symbolica revision is not UTF-8"))?;
-    validate_revision(revision)?;
-    if revision != SYMBOLICA_REVISION {
-        return Err(PayloadError::RevisionMismatch(revision.to_owned()));
-    }
     let atom_bytes = reader.take(atom_length)?;
+    preflight_raw_atom(atom_bytes)?;
 
     let mut total_attachment_bytes = 0usize;
     let mut merged = BTreeMap::<BorrowedAttachmentKey<'_>, &'_ [u8]>::new();
@@ -995,7 +967,11 @@ mod tests {
     use symbolica::prelude::{Coefficient, Complex, Float};
     use symbolica::{function, parse, symbol};
 
-    const OPAQUE_ATOM_EXPORT: &[u8] = b"opaque native Atom export";
+    const OPAQUE_ATOM_EXPORT: &[u8] = &[
+        0x67, 0x13, 0x87, 0x37, // Symbolica magic, little endian
+        0x05, 0x00, // Symbolica export format, little endian
+        b'o', b'p', b'a', b'q', b'u', b'e',
+    ];
 
     fn key(schema: &str, version: u32, identity: &[u8]) -> AttachmentKey {
         AttachmentKey::new(schema, version, identity.to_vec()).unwrap()
@@ -1006,27 +982,25 @@ mod tests {
     }
 
     fn duplicate_last_entry(mut payload: Vec<u8>, conflicting: bool) -> Vec<u8> {
-        let revision_length = usize::from(u16::from_be_bytes(payload[12..14].try_into().unwrap()));
         let atom_length =
-            usize::try_from(u32::from_be_bytes(payload[16..20].try_into().unwrap())).unwrap();
-        let entry_start = FIXED_HEADER_BYTES + revision_length + atom_length;
+            usize::try_from(u32::from_be_bytes(payload[14..18].try_into().unwrap())).unwrap();
+        let entry_start = FIXED_HEADER_BYTES + atom_length;
         let mut duplicate = payload[entry_start..].to_vec();
         if conflicting {
             *duplicate.last_mut().unwrap() ^= 1;
         }
-        payload[14..16].copy_from_slice(&2u16.to_be_bytes());
+        payload[12..14].copy_from_slice(&2u16.to_be_bytes());
         payload.extend_from_slice(&duplicate);
         payload
     }
 
     fn repeat_last_entry(mut payload: Vec<u8>, count: u16) -> Vec<u8> {
         assert!(count >= 1);
-        let revision_length = usize::from(u16::from_be_bytes(payload[12..14].try_into().unwrap()));
         let atom_length =
-            usize::try_from(u32::from_be_bytes(payload[16..20].try_into().unwrap())).unwrap();
-        let entry_start = FIXED_HEADER_BYTES + revision_length + atom_length;
+            usize::try_from(u32::from_be_bytes(payload[14..18].try_into().unwrap())).unwrap();
+        let entry_start = FIXED_HEADER_BYTES + atom_length;
         let entry = payload[entry_start..].to_vec();
-        payload[14..16].copy_from_slice(&count.to_be_bytes());
+        payload[12..14].copy_from_slice(&count.to_be_bytes());
         for _ in 1..count {
             payload.extend_from_slice(&entry);
         }
@@ -1253,21 +1227,36 @@ mod tests {
     }
 
     #[test]
-    fn mismatched_revision_is_rejected_during_parse() {
-        let mut payload = encode_exported_atom(
+    fn incompatible_symbolica_headers_are_rejected_during_parse() {
+        let payload = encode_exported_atom(
             OPAQUE_ATOM_EXPORT,
             [attachment("org.tymbolica.test", 1, b"id", b"data")],
         )
         .unwrap();
-        payload[FIXED_HEADER_BYTES] = if payload[FIXED_HEADER_BYTES] == b'0' {
-            b'1'
-        } else {
-            b'0'
-        };
 
+        let mut wrong_magic = payload.clone();
+        wrong_magic[FIXED_HEADER_BYTES] ^= 1;
+        let entry_start = FIXED_HEADER_BYTES + OPAQUE_ATOM_EXPORT.len();
+        wrong_magic[entry_start..entry_start + 2].copy_from_slice(
+            &u16::try_from(MAX_ATTACHMENT_SCHEMA_BYTES + 1)
+                .unwrap()
+                .to_be_bytes(),
+        );
         assert!(matches!(
-            parse_payload(&payload),
-            Err(PayloadError::RevisionMismatch(_))
+            parse_payload(&wrong_magic),
+            Err(PayloadError::InvalidEnvelope(
+                "Atom export has the wrong Symbolica magic"
+            ))
+        ));
+
+        let mut wrong_format = payload;
+        wrong_format[FIXED_HEADER_BYTES + 4..FIXED_HEADER_BYTES + 6]
+            .copy_from_slice(&4_u16.to_le_bytes());
+        assert!(matches!(
+            parse_payload(&wrong_format),
+            Err(PayloadError::InvalidEnvelope(
+                "Atom export uses an unsupported Symbolica format version"
+            ))
         ));
     }
 
@@ -1305,22 +1294,8 @@ mod tests {
             Err(PayloadError::InvalidEnvelope(_))
         ));
 
-        let mut wrong_revision_length = payload.clone();
-        wrong_revision_length[12..14].copy_from_slice(&39_u16.to_be_bytes());
-        assert!(matches!(
-            parse_payload(&wrong_revision_length),
-            Err(PayloadError::InvalidEnvelope(_))
-        ));
-
-        let mut malformed_revision = payload.clone();
-        malformed_revision[FIXED_HEADER_BYTES] = b'G';
-        assert!(matches!(
-            parse_payload(&malformed_revision),
-            Err(PayloadError::InvalidEnvelope(_))
-        ));
-
         let mut empty_atom = payload;
-        empty_atom[16..20].copy_from_slice(&0_u32.to_be_bytes());
+        empty_atom[14..18].copy_from_slice(&0_u32.to_be_bytes());
         assert!(matches!(
             parse_payload(&empty_atom),
             Err(PayloadError::InvalidEnvelope(_))
@@ -1332,19 +1307,13 @@ mod tests {
         ));
         let attachments = AttachmentSet::new();
         assert!(matches!(
-            encode_exported_atom_from_set_with_revision(
-                OPAQUE_ATOM_EXPORT,
-                &"0".repeat(39),
-                &attachments
-            ),
+            encode_exported_atom_from_set(&OPAQUE_ATOM_EXPORT[..5], &attachments),
             Err(PayloadError::InvalidEnvelope(_))
         ));
+        let mut wrong_magic = OPAQUE_ATOM_EXPORT.to_vec();
+        wrong_magic[0] ^= 1;
         assert!(matches!(
-            encode_exported_atom_from_set_with_revision(
-                OPAQUE_ATOM_EXPORT,
-                &"A".repeat(REVISION_BYTES),
-                &attachments
-            ),
+            encode_exported_atom_from_set(&wrong_magic, &attachments),
             Err(PayloadError::InvalidEnvelope(_))
         ));
     }
@@ -1371,7 +1340,7 @@ mod tests {
         ));
 
         let mut too_many_records = encode_exported_atom(OPAQUE_ATOM_EXPORT, []).unwrap();
-        too_many_records[14..16].copy_from_slice(
+        too_many_records[12..14].copy_from_slice(
             &u16::try_from(MAX_ENCODED_ATTACHMENT_RECORDS + 1)
                 .unwrap()
                 .to_be_bytes(),
@@ -1403,6 +1372,16 @@ mod tests {
             atom
         );
         assert_eq!(decode_atom(&payload).unwrap(), atom);
+
+        let mut trailing_atom_payload = encode_atom(&atom).unwrap();
+        let atom_length = u32::from_be_bytes(trailing_atom_payload[14..18].try_into().unwrap());
+        trailing_atom_payload[14..18].copy_from_slice(&(atom_length + 1).to_be_bytes());
+        trailing_atom_payload.push(0);
+        let parsed_trailing = parse_payload(&trailing_atom_payload).unwrap();
+        assert!(matches!(
+            parsed_trailing.import_atom(),
+            Err(PayloadError::TrailingBytes)
+        ));
 
         let rich = symbol!(
             "tymbolica_payload_test::g";

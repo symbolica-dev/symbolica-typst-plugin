@@ -42,7 +42,7 @@ The factorization and derivative are computed exactly while Typst compiles the
 document. Symbolica expressions are opaque values; render them with `to-typst`
 or inspect them with `canonical`.
 
-## Rubi integration and Tydenso
+## Rubi integration
 
 Symbolic integration is provided by the separate `tymbolica-rubi` package.
 It exposes only `integrate` and `integrate-with-steps`; expressions move between
@@ -62,33 +62,17 @@ compressed engine is independent of Tymbolica's smaller algebra engine.
 Both Rubi arguments are portable Atom payload bytes; `math($x$)` creates the
 single-symbol payload required for the integration variable.
 
-Tensor algebra is provided by the separate `tydenso` Typst package in this
-repository. Tydenso has its own manual, constructors, Typst-side Spenso
-notation, compact string printer, and compressed plugin. Representations and slots are inspectable Typst
-dictionaries. Symbols and tensor calls look like ordinary math and carry the
-same exact Symbolica Atom export understood by both plugins:
+The `tymbolica-atom-payload` crate is the reusable boundary for extensions. It
+combines Symbolica's exact native Atom export with schema-keyed portable
+attachments and a generic render tree. Tymbolica and Rubi preserve unknown
+attachments without interpreting them and do not depend on Spenso, Idenso, or
+GammaLoop.
 
-```typst
-#import "@local/tydenso:0.1.0": *
-
-#let V = mink(4)
-#let mu = slot(V, 1) // mu
-#let nu = slot(V, 2) // nu
-#let p = vector("p")
-#let expression = math($#metric(V, mu, nu) #p(nu)$)
-
-#to-typst(simplify-metrics(expression))
-```
-
-Built-in representations give integer slots conventional names and cycle with
-subscripts; explicitly named slots remain available when a calculation needs a
-different convention.
-
-Tymbolica and Tydenso share one Parsely-to-Atom bridge and one Atom payload.
-Namespaces and Symbolica attributes remain exact, while Tydenso carries the
-representation declarations it needs across plugin calls instead of rebuilding
-them from printed indices. Those declarations are opaque to Tymbolica and
-Rubi: neither engine links Spenso or Idenso; only Tydenso interprets them.
+Tensor algebra and the Tydenso Typst package are maintained with
+[GammaLoop](https://github.com/alphal00p/gammaloop). GammaLoop consumes the
+shared payload crate as a pinned Git dependency, so tensor-specific metadata
+and rendering can evolve beside Spenso and Spynso without coupling those
+projects back into Tymbolica.
 
 ## Install locally
 
@@ -101,9 +85,6 @@ cd tymbolica
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica"
 ln -s "$PWD" \
   "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica/0.1.0"
-mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tydenso"
-ln -s "$PWD/tydenso" \
-  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tydenso/0.1.0"
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica-rubi"
 ln -s "$PWD/rubi" \
   "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica-rubi/0.1.0"
@@ -117,18 +98,10 @@ Linux data directory. During repository development, examples instead import
 
 - [User manual](typst/manual.pdf) — quickstart, concepts, recipes, limitations,
   and complete API reference
-- [Tydenso manual](tydenso/manual.pdf) — tensor construction, Spenso printing,
-  CBOR inspection, Idenso transforms, and complete API reference
 - [Rubi manual](rubi/manual.pdf) — symbolic integration and nested Rubi steps
 - [Minimal example](typst/examples/basic.typ) — a compact first document
 - [Rubi integration](rubi/examples/basic.typ) — an antiderivative and
   its nested rule steps
-- [Tydenso tensor algebra](tydenso/examples/basic.typ) — structural tensor
-  construction and metric contraction
-- [Tydenso interoperability](tydenso/examples/interop.typ) — native Atom
-  exchange between the two independently packaged plugins
-- [Tydenso index palettes](tydenso/examples/index-palettes.typ) — automatic
-  names, wraparound, dual orientations, and manual labels
 - [Polynomial-system showcase](typst/examples/showcase.typ) — exact solving,
   factorization, substitution, and a Jacobian determinant in one case study
 - [Batched expression grid](typst/examples/expression-grid.typ) — evaluate four
@@ -153,16 +126,14 @@ Use the repository apps for the normal release workflow:
 nix run .#build        # rebuild all compressed engines and their loaders
 nix run .#build-engine # rebuild only the compressed Tymbolica core engine
 nix run .#build-rubi   # rebuild the Wizer-preinitialized Rubi engine
-nix run .#build-tydenso # rebuild only the compressed Tydenso engine
 nix run .#manual       # rebuild all engines and manuals
 nix run .#check       # rebuild, compile the public examples, and verify the PDF
 nix flake check       # validate the Typst distribution using tracked plugins
 ```
 
 Maintainer checks also compile the non-user-facing regression fixtures under
-[`typst/tests`](typst/tests), [`tydenso/tests`](tydenso/tests), and
-[`rubi/tests`](rubi/tests), and verify the [`@local` package
-import](typst/examples/local-package.typ).
+[`typst/tests`](typst/tests) and [`rubi/tests`](rubi/tests), and verify the
+[`@local` package import](typst/examples/local-package.typ).
 
 `nix run .#check` verifies all documented `@local` installation layouts and
 fails when any committed manual PDF is stale. Commit the source, bundles, and

@@ -34,9 +34,8 @@ use symbolica::prelude::{
 };
 use tymbolica_atom_payload::{
     AttachmentSet, encode_atom as encode_shared_atom, encode_atom_from_set,
-    encode_atom_render_tree, parse_payload,
+    encode_atom_render_tree, parse_payload, typst_ast::AttachedAtom,
 };
-use tymbolica_typst_ast::AttachedAtom;
 use wasm_minimal_protocol::*;
 
 initiate_protocol!();
@@ -343,7 +342,7 @@ fn attached_atom_from_ast(
     namespace: &str,
     label: &str,
 ) -> Result<AttachedAtom, String> {
-    tymbolica_typst_ast::attached_atom_from_ast(input, namespace, label)
+    tymbolica_atom_payload::typst_ast::attached_atom_from_ast(input, namespace, label)
 }
 
 fn symbol_atom(name: &str, namespace: &str) -> Result<Atom, String> {
@@ -3093,9 +3092,11 @@ mod tests {
         let exact_half = symbolica::parse!("1/2");
         let encoded_leaf = encode_cbor(Value::Text("0.5".to_owned())).unwrap();
         for half in [
-            tymbolica_typst_ast::atom_from_value(&Value::Float(0.5), "symbolica").unwrap(),
+            tymbolica_atom_payload::typst_ast::atom_from_value(&Value::Float(0.5), "symbolica")
+                .unwrap(),
             atom_from_cbor_value(&Value::Float(0.5), "half").unwrap(),
-            tymbolica_typst_ast::atom_from_ast(&encoded_leaf, "symbolica", "leaf").unwrap(),
+            tymbolica_atom_payload::typst_ast::atom_from_ast(&encoded_leaf, "symbolica", "leaf")
+                .unwrap(),
         ] {
             assert!(matches!(
                 half.as_view(),
