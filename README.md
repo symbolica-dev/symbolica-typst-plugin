@@ -21,6 +21,10 @@ Start with the [user manual](typst/manual.pdf), the
 the conceptual guide, task-oriented examples, limitations, and complete API
 reference.
 
+Known regression in the current Symbolica `main` build: some exact algebraic
+solves, including `x - sqrt(2) = 0`, can hang during Typst compilation. This
+upstream issue remains unfixed; see the [standalone reproducer](repros/algebraic-sqrt2).
+
 ## Quick start
 
 After installing the local package below, this is a complete Typst document:

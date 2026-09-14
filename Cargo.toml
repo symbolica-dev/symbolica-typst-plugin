@@ -24,9 +24,9 @@ wasm-minimal-protocol = "0.1"
 # Temporary until astro-float publishes the merged wasm32 word-size fix.
 astro-float = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
 astro-float-num = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
-graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ec19eeb211685aa216dbd28a4df547cd4c6baca1" }
-numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ec19eeb211685aa216dbd28a4df547cd4c6baca1" }
-symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ec19eeb211685aa216dbd28a4df547cd4c6baca1" }
+graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ba3737137c2a2ccd7bb39f0441837d38ec867e78" }
+numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ba3737137c2a2ccd7bb39f0441837d38ec867e78" }
+symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ba3737137c2a2ccd7bb39f0441837d38ec867e78" }
 
 [workspace]
 members = [

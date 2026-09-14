@@ -1,0 +1,20 @@
+[package]
+name = "symbolica-algebraic-sqrt2-mre"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+# Standalone: no Tymbolica, Typst, Rubi, or Wasm runtime is needed.
+[workspace]
+
+[dependencies]
+symbolica = { version = "2.2", default-features = false, features = ["wasm"] }
+
+[patch.crates-io]
+symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ba3737137c2a2ccd7bb39f0441837d38ec867e78" }
+numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ba3737137c2a2ccd7bb39f0441837d38ec867e78" }
+graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "ba3737137c2a2ccd7bb39f0441837d38ec867e78" }
+# Preserve Tymbolica's existing Astro-float dependency configuration.
+astro-float = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
+astro-float-num = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }

@@ -162,8 +162,55 @@
 #let wildcarded = replace-wildcards(parse($h("a_")$), ((wild("a"), parse($x + 1$)),))
 #let rhs-only = replace(parse($f(x)$), parse($f("a_")$), parse($g("a_", "fresh_")$), allow-new-wildcards-on-rhs: true)
 
-#let exact = solve((parse($2 x + y - 5$), parse($x - y - 1$)), (x, y)).first().values
+#let exact-set = solve((parse($2 x + y - 5$), parse($x - y - 1$)), (x, y))
+#let exact-branch = exact-set.branches.first()
+#let exact = exact-branch.values
+#assert.eq(exact-set.coverage, "complete")
+#assert.eq(exact-set.variables.map(canonical), ("x", "y"))
+#assert.eq(exact-set.parameters, ())
+#assert.eq(exact-set.dimension, 0)
+#assert.eq(exact.map(canonical), ("2", "1"))
+#assert.eq(exact-branch.dimension, 0)
+#assert.eq(exact-branch.codimension, 2)
+#assert(exact-branch.point and not exact-branch.conditional)
 #let nonlinear = solve((parse($x + y$), parse($y^2 - 2$)), (x, y), domain: "real")
+#assert.eq(nonlinear.coverage, "complete")
+#assert.eq(nonlinear.branches.len(), 2)
+
+// Free coordinates retain their position in values rather than disappearing.
+#let family = solve((parse($x + y - 1$),), (x, y))
+#let family-branch = family.branches.first()
+#assert.eq(family.dimension, 1)
+#assert.eq(family-branch.dimension, 1)
+#assert.eq(family-branch.codimension, 1)
+#assert.eq(family-branch.free-variables.map(canonical), ("y",))
+#assert.eq(canonical(family-branch.values.at(1)), "y")
+#assert.eq(canonical(add(family-branch.values.at(0), y)), "1")
+#assert(not family-branch.point)
+#let rational-family = solve((parse($x + y - 1$),), (x, y), domain: "rational")
+#assert.eq(rational-family.dimension, none)
+#assert.eq(rational-family.branches.first().dimension, none)
+#assert.eq(rational-family.branches.first().codimension, none)
+
+// The a=0 case is not covered: its whole x-axis must not disappear silently.
+#let generic = solve((parse($a x$),), (x,))
+#assert.eq(generic.coverage, "generic")
+#assert.eq(generic.parameters.map(canonical), ("a",))
+#assert.eq(generic.coverage-guard.map(canonical), ("a",))
+#assert.eq(generic.dimension, none)
+#assert.eq(generic.branches.first().values.map(canonical), ("0",))
+
+// An additional parameter equation survives as a branch condition.
+#let conditional = solve((parse($x - a$), parse($x - b$)), (x,))
+#assert.eq(conditional.coverage, "complete")
+#assert.eq(conditional.dimension, none)
+#assert(conditional.branches.first().conditional)
+#assert(not conditional.branches.first().point)
+#assert(conditional.branches.first().conditions.any(condition => condition.kind == "zero"))
+#let empty = solve((parse($x^2 + 1$),), (x,), domain: "real")
+#assert.eq(empty.coverage, "complete")
+#assert.eq(empty.branches, ())
+#assert.eq(empty.dimension, -1)
 #let root = nsolve(parse($x^2 - 2$), x, 1.0)
 #let roots = nsolve-system((parse($x^2 + y - 3$), parse($x - y$)), (x, y), (1.0, 1.0))
 
@@ -220,7 +267,7 @@ RHS-only wildcard: #to-typst(rhs-only)
 
 Exact solve: #exact.map(to-typst).join[, ]
 
-Nonlinear solve: #repr(nonlinear.map(solution => solution.values.map(to-typst)))
+Nonlinear solve: #repr(nonlinear.branches.map(solution => solution.values.map(to-typst)))
 
 Numeric solve: #repr(root), #repr(roots)
 

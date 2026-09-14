@@ -1576,22 +1576,39 @@
 /// machinery; coefficients may contain symbolic parameters when Symbolica can
 /// treat them rationally. `domain` may be `"complex"`, `"real"`, `"rational"`,
 /// or `"integer"`.
+/// The domain also supplies local assumptions for unrestricted external
+/// parameters: for example, `"real"` treats them as real while solving, without
+/// changing their global symbol properties.
 ///
-/// The result contains one dictionary per solution branch. Its `values` array
-/// follows the requested `variables` order. `free-variables` and `conditions`
-/// preserve parametric and conditional solutions instead of flattening them;
-/// `domain`, `rank`, `dimension`, `conditional`, `parametric`, and
-/// `indeterminate` describe the branch. An empty result means there are no
-/// solutions in the requested domain.
+/// The result is a dictionary with `branches`, the requested `variables`, inferred
+/// external `parameters`, and `domain`. `coverage` is `"complete"` or `"generic"`:
+/// generic results cover only parameter values where every expression in
+/// `coverage-guard` is nonzero. Other parameter values may have additional
+/// solutions. An empty `branches` array proves there are no solutions only when
+/// coverage is complete.
+///
+/// Each branch has a `values` array in the requested variable order. Free
+/// variables appear as themselves in that array and are also listed in
+/// `free-variables`. `conditions` retain restrictions: `"zero"`, `"nonzero"`, and
+/// `"positive"` carry an `expression`; `"domain-membership"` carries a `variable`,
+/// `value`, and `domain`. `conditional` reports whether these restrictions remain;
+/// `point` means there are neither free variables nor branch conditions. The
+/// result's coverage guard still applies even when a branch is a point.
+///
+/// Branches also provide `domain`, `dimension`, and `codimension` (the number of
+/// requested variables minus the dimension). The result's `dimension` is the
+/// largest branch dimension, or `-1` for the complete empty set. Dimensions are
+/// `none` when Symbolica cannot establish them; they are not inferred by counting
+/// free variables.
 ///
 /// ```example
 /// #let x = symbol("x")
 /// #let y = symbol("y")
 /// #let solutions = solve((math($x^2 - 1$), math($y - x$)), (x, y), domain: "real")
-/// #repr(solutions.map(solution => solution.values.map(canonical)))
+/// #repr(solutions.branches.map(solution => solution.values.map(canonical)))
 /// ```
 ///
-/// -> array
+/// -> dictionary
 #let solve(
   /// Expressions understood to equal zero.
   /// -> array | content | int | float | str

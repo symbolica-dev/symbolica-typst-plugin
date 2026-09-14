@@ -27,4 +27,5 @@
   phase-portrait.x-samples * phase-portrait.y-samples,
 )
 
-#assert.eq(showcase.solutions.len(), 4)
+#assert.eq(showcase.solutions.coverage, "complete")
+#assert.eq(showcase.solutions.branches.len(), 4)

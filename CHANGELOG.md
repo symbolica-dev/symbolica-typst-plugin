@@ -5,6 +5,15 @@ local `0.1.0` package while its initial public surface is being prepared.
 
 ## Unreleased
 
+- Updated core and Rubi to official Symbolica `main` at `ba373713`, with
+  Numerica and Graphica pinned to the same revision.
+- Known upstream regression: some exact algebraic solves, including
+  `x - sqrt(2) = 0`, can hang with the Wasm numeric backend. This release keeps
+  the upstream behavior; a standalone reproducer is in `repros/algebraic-sqrt2`.
+- Breaking: `solve` now returns a solution-set dictionary. Read solutions from
+  `.branches`; `coverage` and `coverage-guard` preserve the limits of results with
+  symbolic parameters. Branches expose `point` and optional `codimension` instead
+  of `rank`, `parametric`, and `indeterminate`; unknown dimensions remain `none`.
 - Replaced the `var` alias with `symbol` and added a distinct callable
   `function` constructor. Both use one versioned metadata envelope containing
   authoritative native Atom bytes plus inspectable namespace and tag data;

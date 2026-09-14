@@ -30,7 +30,8 @@ use symbolica::prelude::{
     Atom, AtomCore, AtomPrinter, AtomView, Coefficient, CoefficientView, Complex, DoubleFloat,
     ExpressionEvaluator, F64, Float, Indeterminate, IntegerRing, Matrix, PolyVariable,
     PrintOptions, PrintState, Q, RationalPolynomial, RationalPolynomialField, Real,
-    ReplaceSettings, Replacement, Ring, SeriesDepth, SolutionCondition, SolveDomain, Symbol, Z,
+    ReplaceSettings, Replacement, Ring, SeriesDepth, SolutionCondition, SolveCoverage, SolveDomain,
+    Symbol, Z,
 };
 use tymbolica_atom_payload::{
     AttachmentSet, encode_atom as encode_shared_atom, encode_atom_from_set,
@@ -609,7 +610,8 @@ fn build_replacement(
     }
 
     Ok(Replacement::new(pattern, rhs)
-        .level_range(level_range)
+        .min_level(level_range.0)
+        .max_level(level_range.1)
         .level_is_tree_depth(level_is_tree_depth)
         .partial(partial)
         .allow_new_wildcards_on_rhs(allow_new_wildcards_on_rhs)
@@ -2280,54 +2282,57 @@ fn solve_domain(value: Option<&Value>) -> Result<SolveDomain, String> {
     }
 }
 
-fn solve_domain_name(domain: SolveDomain) -> &'static str {
-    match domain {
+fn solve_domain_name(domain: SolveDomain) -> Result<&'static str, String> {
+    Ok(match domain {
         SolveDomain::Integers => "integer",
         SolveDomain::Rationals => "rational",
         SolveDomain::Reals => "real",
         SolveDomain::Complexes => "complex",
-    }
+        _ => return Err(format!("unsupported solution domain: {domain:?}")),
+    })
 }
 
 fn solution_condition_cbor(
     condition: &SolutionCondition,
     attachments: &AttachmentSet,
 ) -> Result<Value, String> {
-    let fields = match condition {
-        SolutionCondition::NonZero(expression) => vec![
-            (
-                Value::Text("kind".to_owned()),
-                Value::Text("nonzero".to_owned()),
-            ),
-            (
-                Value::Text("expression".to_owned()),
-                Value::Bytes(encode_attached_atom(expression, attachments)?),
-            ),
-        ],
+    let (kind, expression) = match condition {
+        SolutionCondition::Zero(expression) => ("zero", expression),
+        SolutionCondition::NonZero(expression) => ("nonzero", expression),
+        SolutionCondition::Positive(expression) => ("positive", expression),
         SolutionCondition::DomainMembership {
             variable,
             value,
             domain,
-        } => vec![
-            (
-                Value::Text("kind".to_owned()),
-                Value::Text("domain-membership".to_owned()),
-            ),
-            (
-                Value::Text("variable".to_owned()),
-                Value::Bytes(encode_attached_atom(&variable.to_atom(), attachments)?),
-            ),
-            (
-                Value::Text("value".to_owned()),
-                Value::Bytes(encode_attached_atom(value, attachments)?),
-            ),
-            (
-                Value::Text("domain".to_owned()),
-                Value::Text(solve_domain_name(*domain).to_owned()),
-            ),
-        ],
+        } => {
+            return Ok(Value::Map(vec![
+                (
+                    Value::Text("kind".to_owned()),
+                    Value::Text("domain-membership".to_owned()),
+                ),
+                (
+                    Value::Text("variable".to_owned()),
+                    Value::Bytes(encode_attached_atom(&variable.to_atom(), attachments)?),
+                ),
+                (
+                    Value::Text("value".to_owned()),
+                    Value::Bytes(encode_attached_atom(value, attachments)?),
+                ),
+                (
+                    Value::Text("domain".to_owned()),
+                    Value::Text(solve_domain_name(*domain)?.to_owned()),
+                ),
+            ]));
+        }
+        _ => return Err(format!("unsupported solution condition: {condition:?}")),
     };
-    Ok(Value::Map(fields))
+    Ok(Value::Map(vec![
+        (Value::Text("kind".to_owned()), Value::Text(kind.to_owned())),
+        (
+            Value::Text("expression".to_owned()),
+            Value::Bytes(encode_attached_atom(expression, attachments)?),
+        ),
+    ]))
 }
 
 #[wasm_func]
@@ -2340,28 +2345,19 @@ pub fn solve(request: &[u8]) -> Result<Vec<u8>, String> {
     let domain = solve_domain(map_get(&map, "domain"))?;
     let mut attachments = system.attachments;
     merge_attachments(&mut attachments, &variables.attachments, "variables")?;
-    let keys = variables
-        .atoms
-        .iter()
-        .map(|variable| {
-            PolyVariable::try_from(variable.clone())
-                .map_err(|err| format!("solve variable must be a variable: {err}"))
-        })
-        .collect::<Result<Vec<PolyVariable>, _>>()?;
     let solutions = Atom::solve(&system.atoms)
         .over(domain)
         .wrt(&variables.atoms)
         .map_err(|err| format!("could not solve system: {err}"))?;
     let branches = solutions
-        .into_iter()
+        .iter()
         .map(|solution| -> Result<Value, String> {
-            let values = keys
-                .iter()
-                .map(|key| {
-                    solution
-                        .get(key)
-                        .cloned()
-                        .ok_or_else(|| "solver omitted a requested variable".to_owned())
+            let values = solution
+                .coordinate_order()
+                .map(|key| match solution.get(key) {
+                    Some(value) => Ok(value.clone()),
+                    None if solution.free_variables().contains(key) => Ok(key.to_atom()),
+                    None => Err("solver omitted a requested variable".to_owned()),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let free_variables = solution
@@ -2389,32 +2385,71 @@ pub fn solve(request: &[u8]) -> Result<Vec<u8>, String> {
                 ),
                 (
                     Value::Text("domain".to_owned()),
-                    Value::Text(solve_domain_name(solution.domain()).to_owned()),
+                    Value::Text(solve_domain_name(solution.domain())?.to_owned()),
                 ),
                 (
-                    Value::Text("rank".to_owned()),
-                    Value::Integer((solution.rank() as i64).into()),
+                    Value::Text("codimension".to_owned()),
+                    solution
+                        .codimension()
+                        .map_or(Value::Null, |value| Value::Integer((value as u64).into())),
                 ),
                 (
                     Value::Text("dimension".to_owned()),
-                    Value::Integer((solution.dimension() as i64).into()),
+                    solution
+                        .dimension()
+                        .map_or(Value::Null, |value| Value::Integer((value as u64).into())),
                 ),
                 (
                     Value::Text("conditional".to_owned()),
                     Value::Bool(solution.is_conditional()),
                 ),
                 (
-                    Value::Text("parametric".to_owned()),
-                    Value::Bool(solution.is_parametric()),
-                ),
-                (
-                    Value::Text("indeterminate".to_owned()),
-                    Value::Bool(solution.is_indeterminate()),
+                    Value::Text("point".to_owned()),
+                    Value::Bool(solution.is_point()),
                 ),
             ]))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    encode_cbor(Value::Array(branches))
+    let coverage = match solutions.coverage() {
+        SolveCoverage::Complete => "complete",
+        SolveCoverage::Generic => "generic",
+        coverage => return Err(format!("unsupported solution coverage: {coverage:?}")),
+    };
+    encode_cbor(Value::Map(vec![
+        (Value::Text("branches".to_owned()), Value::Array(branches)),
+        (
+            Value::Text("variables".to_owned()),
+            atoms_cbor_value(
+                solutions.variables().iter().map(PolyVariable::to_atom),
+                &attachments,
+            )?,
+        ),
+        (
+            Value::Text("parameters".to_owned()),
+            atoms_cbor_value(
+                solutions.parameters().iter().map(PolyVariable::to_atom),
+                &attachments,
+            )?,
+        ),
+        (
+            Value::Text("domain".to_owned()),
+            Value::Text(solve_domain_name(solutions.domain())?.to_owned()),
+        ),
+        (
+            Value::Text("coverage".to_owned()),
+            Value::Text(coverage.to_owned()),
+        ),
+        (
+            Value::Text("coverage-guard".to_owned()),
+            atoms_cbor_value(solutions.coverage_guard().iter().cloned(), &attachments)?,
+        ),
+        (
+            Value::Text("dimension".to_owned()),
+            solutions
+                .dimension()
+                .map_or(Value::Null, |value| Value::Integer((value as i64).into())),
+        ),
+    ]))
 }
 
 #[wasm_func]
@@ -2886,13 +2921,23 @@ mod tests {
         );
     }
 
-    fn exact_solve_branches(system: &[Atom], variables: &[Atom], domain: &str) -> Vec<Value> {
+    fn exact_solve_result(
+        system: &[Atom],
+        variables: &[Atom],
+        domain: &str,
+    ) -> Vec<(Value, Value)> {
         let request = encode_cbor(exact_solve_request(system, variables, domain)).unwrap();
-        let Value::Array(branches) = decode_cbor(&solve(&request).unwrap(), "solutions").unwrap()
+        let Value::Map(result) = decode_cbor(&solve(&request).unwrap(), "solutions").unwrap()
         else {
-            panic!("solutions must be an array");
+            panic!("solutions must be a dictionary");
         };
-        branches
+        result
+    }
+
+    fn exact_solve_branches(system: &[Atom], variables: &[Atom], domain: &str) -> Vec<Value> {
+        map_array(&exact_solve_result(system, variables, domain), "branches")
+            .unwrap()
+            .to_vec()
     }
 
     #[test]
@@ -2923,14 +2968,19 @@ mod tests {
             map_get(branch, "domain"),
             Some(&Value::Text("complex".to_owned()))
         );
-        assert_eq!(map_get(branch, "rank"), Some(&Value::Integer(2.into())));
+        assert_eq!(
+            map_get(branch, "codimension"),
+            Some(&Value::Integer(2.into()))
+        );
         assert_eq!(
             map_get(branch, "dimension"),
             Some(&Value::Integer(0.into()))
         );
         assert_eq!(map_get(branch, "conditional"), Some(&Value::Bool(false)));
-        assert_eq!(map_get(branch, "parametric"), Some(&Value::Bool(false)));
-        assert_eq!(map_get(branch, "indeterminate"), Some(&Value::Bool(false)));
+        assert_eq!(map_get(branch, "point"), Some(&Value::Bool(true)));
+        for removed in ["rank", "parametric", "indeterminate"] {
+            assert!(map_get(branch, removed).is_none());
+        }
 
         assert!(
             exact_solve_branches(&[symbolica::parse!("x^2+1")], &[x.clone()], "real").is_empty()
@@ -2945,8 +2995,11 @@ mod tests {
     fn exact_solve_bridge_preserves_free_variables_and_conditions() {
         let x = symbolica::parse!("x");
         let y = symbolica::parse!("y");
-        let branches =
-            exact_solve_branches(&[symbolica::parse!("x+y-1")], &[x.clone(), y], "complex");
+        let branches = exact_solve_branches(
+            &[symbolica::parse!("x+y-1")],
+            &[x.clone(), y.clone()],
+            "complex",
+        );
         let Value::Map(branch) = &branches[0] else {
             panic!("solution branch must be a dictionary");
         };
@@ -2954,31 +3007,50 @@ mod tests {
             panic!("free variables must be an array");
         };
         assert_eq!(free_variables.len(), 1);
-        assert_eq!(map_get(branch, "rank"), Some(&Value::Integer(1.into())));
+        assert_eq!(
+            map_get(branch, "codimension"),
+            Some(&Value::Integer(1.into()))
+        );
         assert_eq!(
             map_get(branch, "dimension"),
             Some(&Value::Integer(1.into()))
         );
-        assert_eq!(map_get(branch, "parametric"), Some(&Value::Bool(true)));
-        assert_eq!(map_get(branch, "indeterminate"), Some(&Value::Bool(true)));
+        assert_eq!(map_get(branch, "point"), Some(&Value::Bool(false)));
+        let values = map_array(branch, "values").unwrap();
+        assert_eq!(
+            decode_atom(
+                value_atom_bytes(&values[1], "free coordinate").unwrap(),
+                "free coordinate"
+            )
+            .unwrap(),
+            y,
+        );
 
         let a = symbolica::parse!("a");
-        let branches = exact_solve_branches(&[symbolica::parse!("a*x-1")], &[x.clone()], "complex");
+        let result = exact_solve_result(&[symbolica::parse!("a*x-1")], &[x.clone()], "complex");
+        assert_eq!(
+            map_get(&result, "coverage"),
+            Some(&Value::Text("generic".to_owned()))
+        );
+        assert!(map_array(&result, "coverage-guard").unwrap().iter().any(|guard| {
+            matches!(guard, Value::Bytes(bytes) if decode_atom(bytes, "coverage guard").unwrap() == a)
+        }));
+        assert_eq!(map_get(&result, "dimension"), Some(&Value::Null));
+
+        let branches = exact_solve_branches(&[symbolica::parse!("x-a")], &[x], "real");
         let Value::Map(branch) = &branches[0] else {
             panic!("solution branch must be a dictionary");
         };
-        let Some(Value::Array(conditions)) = map_get(branch, "conditions") else {
-            panic!("conditions must be an array");
-        };
-        assert!(conditions.iter().any(|condition| {
-            let Value::Map(condition) = condition else {
-                return false;
-            };
-            map_get(condition, "kind") == Some(&Value::Text("nonzero".to_owned()))
-                && matches!(map_get(condition, "expression"), Some(Value::Bytes(bytes)) if decode_atom(bytes, "condition").unwrap() == a)
-        }));
+        // A real solve supplies a local real context for unrestricted parameters;
+        // it does not add a restriction or mutate the symbol's global attributes.
+        assert!(map_array(branch, "conditions").unwrap().is_empty());
+        assert_eq!(map_get(branch, "point"), Some(&Value::Bool(true)));
+        assert!(a.is_real().is_inconclusive());
 
-        let branches = exact_solve_branches(&[symbolica::parse!("x-a")], &[x], "real");
+        // An explicitly real unknown still needs a domain condition when the
+        // surrounding solve (and its external parameter) is complex.
+        let real_unknown = Atom::var(symbolica::symbol!("tymbolica_solver_real_unknown"; Real));
+        let branches = exact_solve_branches(&[&real_unknown - &a], &[real_unknown], "complex");
         let Value::Map(branch) = &branches[0] else {
             panic!("solution branch must be a dictionary");
         };
@@ -2992,6 +3064,52 @@ mod tests {
             map_get(condition, "kind") == Some(&Value::Text("domain-membership".to_owned()))
                 && map_get(condition, "domain") == Some(&Value::Text("real".to_owned()))
         }));
+    }
+
+    #[test]
+    fn exact_solve_bridge_preserves_unknown_and_empty_dimensions() {
+        let x = symbolica::parse!("x");
+        let y = symbolica::parse!("y");
+        let result = exact_solve_result(&[symbolica::parse!("x+y-1")], &[x.clone(), y], "rational");
+        assert_eq!(map_get(&result, "dimension"), Some(&Value::Null));
+        let Value::Map(branch) = &map_array(&result, "branches").unwrap()[0] else {
+            panic!("solution branch must be a dictionary");
+        };
+        assert_eq!(map_get(branch, "dimension"), Some(&Value::Null));
+        assert_eq!(map_get(branch, "codimension"), Some(&Value::Null));
+
+        let empty = exact_solve_result(&[symbolica::parse!("x^2+1")], &[x], "real");
+        assert!(map_array(&empty, "branches").unwrap().is_empty());
+        assert_eq!(
+            map_get(&empty, "coverage"),
+            Some(&Value::Text("complete".to_owned()))
+        );
+        assert_eq!(
+            map_get(&empty, "dimension"),
+            Some(&Value::Integer((-1).into()))
+        );
+    }
+
+    #[test]
+    fn scalar_solution_conditions_preserve_their_kind_and_attachments() {
+        let expression = symbolica::parse!("a");
+        let key = test_attachment_key(b"condition");
+        let payload = attached_test_atom(&expression, &key, b"condition declaration");
+        let attachments = parse_payload(&payload).unwrap().attachment_set();
+        for (kind, condition) in [
+            ("zero", SolutionCondition::Zero(expression.clone())),
+            ("nonzero", SolutionCondition::NonZero(expression.clone())),
+            ("positive", SolutionCondition::Positive(expression.clone())),
+        ] {
+            let Value::Map(value) = solution_condition_cbor(&condition, &attachments).unwrap()
+            else {
+                panic!("condition must be a dictionary");
+            };
+            assert_eq!(map_get(&value, "kind"), Some(&Value::Text(kind.to_owned())));
+            let encoded = map_bytes(&value, "expression").unwrap();
+            assert_eq!(decode_atom(encoded, "condition").unwrap(), expression);
+            assert_payload_attachment(encoded, &key, b"condition declaration");
+        }
     }
 
     #[test]

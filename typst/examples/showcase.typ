@@ -47,7 +47,7 @@ The `values` in each solution follow the requested variable order `(x, y)`.
   inset: 7pt,
   stroke: 0.5pt + luma(75%),
   table.header([*Solution*], [$x$], [$y$]),
-  ..solutions.enumerate().map(pair => {
+  ..solutions.branches.enumerate().map(pair => {
     let index = pair.at(0)
     let solution = pair.at(1)
     (
@@ -82,7 +82,7 @@ anything to floating point.
   inset: 7pt,
   stroke: 0.5pt + luma(75%),
   table.header([*Point*], [$det J$]),
-  ..solutions.enumerate().map(pair => {
+  ..solutions.branches.enumerate().map(pair => {
     let index = pair.at(0)
     let solution = pair.at(1)
     (
