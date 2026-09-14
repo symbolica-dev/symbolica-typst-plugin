@@ -690,10 +690,6 @@ few boundaries are worth knowing before you choose an approach:
   Numerical solving depends on a starting point and gives an approximate
   answer rather than a derivation of convergence.
 
-- The current upstream Symbolica build has a known regression: some exact
-  algebraic solves, including $x - sqrt(2) = 0$, can hang during compilation.
-  This release does not fix that regression.
-
 - Decimal literals remain floating-point values. A current upstream Wasm bug
   can mis-evaluate them inside analytic functions. Write exact fractions for
   those inputs—for example, `cos(1/2)`—and apply `to-float` to the result.
@@ -736,9 +732,6 @@ deeper polynomial algorithms, use Symbolica directly.
   [An exact solver errors],
   [An equation was not rearranged to zero, or the system is outside the supported polynomial scope.],
   [Move every term to the left; try `nsolve-system` for a numerical branch.],
-  [Compilation hangs in an exact algebraic solve],
-  [The current upstream regression can affect even $x - sqrt(2) = 0$.],
-  [Cancel compilation. This case needs an upstream fix; see the repository's `repros/algebraic-sqrt2`.],
   [A numerical solver errors or finds an unwanted root],
   [The starting point leads to a different root or no root.],
   [Try another physically meaningful initial guess and check residuals.],

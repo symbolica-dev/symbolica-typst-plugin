@@ -5,11 +5,12 @@ local `0.1.0` package while its initial public surface is being prepared.
 
 ## Unreleased
 
-- Updated core and Rubi to official Symbolica `main` at `ba373713`, with
+- Updated core and Rubi to official Symbolica `main` at `4f132318`, with
   Numerica and Graphica pinned to the same revision.
-- Known upstream regression: some exact algebraic solves, including
-  `x - sqrt(2) = 0`, can hang with the Wasm numeric backend. This release keeps
-  the upstream behavior; a standalone reproducer is in `repros/algebraic-sqrt2`.
+- Includes the upstream fix for the exact algebraic solver hang present in
+  `ba373713`, including `x - sqrt(2) = 0` with the Wasm numeric backend. The
+  standalone regression check and historical diagnosis remain in
+  `repros/algebraic-sqrt2`.
 - Breaking: `solve` now returns a solution-set dictionary. Read solutions from
   `.branches`; `coverage` and `coverage-guard` preserve the limits of results with
   symbolic parameters. Branches expose `point` and optional `codimension` instead
