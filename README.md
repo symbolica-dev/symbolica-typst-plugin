@@ -37,13 +37,20 @@ After installing the local package below, this is a complete Typst document:
 
 $
   f(x) &= #to-typst(f) \
-       &= #to-typst(factor(f)) quad "factored" \
+       &= #to-typst(factor(f)) \
   f'(x) &= #to-typst(derivative(f, x))
 $
 ```
 
-The polynomial factors as `(x - 2)(x - 1)(x + 1)(x + 2)`, and its derivative is
-`4x³ - 10x`. Both are computed exactly while Typst compiles the document.
+$$
+\begin{aligned}
+f(x) &= x^4 - 5x^2 + 4 \\
+     &= (x - 2)(x - 1)(x + 1)(x + 2) \\
+f'(x) &= 4x^3 - 10x
+\end{aligned}
+$$
+
+The factorization and derivative are computed exactly while Typst compiles the document.
 Symbolica expressions are opaque values; render them with `to-typst` or inspect
 them with `canonical`.
 
@@ -60,7 +67,11 @@ Evaluate `π² + sin(π/4)` using Symbolica's built-in value of π:
 $ pi^2 + sin(pi / 4) approx #calc.round(value.re, digits: 8) $
 ```
 
-The result is approximately **10.57671118**. `evaluate` returns a dictionary
+$$
+\pi^2 + \sin\left(\frac{\pi}{4}\right) \approx 10.57671118
+$$
+
+`evaluate` returns a dictionary
 with real and imaginary parts, `re` and `im`; here `im` is zero.
 
 ### Solve a system with parameters
@@ -80,16 +91,12 @@ Solve `x + y = a` and `x - y = b` for `x` and `y`, keeping `a` and `b` symbolic:
 $ x = #x, quad y = #y $
 ```
 
-Each input expression is understood to equal zero. Only `x` and `y` are listed
-as unknowns, so `a` and `b` become parameters. This system has the exact solution
-`x = (a + b)/2`, `y = (a - b)/2` for all real `a` and `b`.
-For more general systems, inspect `coverage`, `coverage-guard`, and each
-branch's `conditions` for restrictions on parameter values.
+$$
+x = \frac{a + b}{2}, \qquad y = \frac{a - b}{2}
+$$
 
-## Rubi integration
 
-The joint `symbolica` package includes `integrate` and `integrate-with-steps`
-alongside all algebra, solving, and matrix functions:
+### Symbolic integration
 
 ```typst
 #import "@local/symbolica:0.1.0" as sym
@@ -99,26 +106,23 @@ alongside all algebra, solving, and matrix functions:
 #sym.to-typst(sym.integrate(f, x))
 ```
 
+$$
+x - \log(x + 1)
+$$
+
 The first call to `integrate` or `integrate-with-steps` compiles and initializes
 the integration rule sets, which may take about 10 seconds. Both functions share
-the cached rules, so later calls and ordinary edits reuse them. Restarting the
-compiler or clearing its cache repeats this setup.
-The package loads one `symbolica.wasm` directly. Integration accepts the same
-expressions and symbol handles as the core API; the variable must represent
-one symbol. Algebra-only use does not prepare the integration rules.
+the cached rules, so later calls and ordinary edits reuse them.
+
+
+## Symbolic payloads
 
 The `symbolica-typst-atom-payload` crate is the reusable boundary for extensions. It
 combines Symbolica's exact native Atom export with schema-keyed portable
-attachments and a generic render tree. Symbolica and Rubi preserve unknown
-attachments without interpreting them and do not depend on Spenso, Idenso, or
-GammaLoop.
+attachments and a generic render tree.
 
-Tensor algebra and the Tydenso Typst package are maintained with
-[GammaLoop](https://github.com/alphal00p/gammaloop). GammaLoop consumes the
-shared payload crate as a pinned Git dependency, so tensor-specific metadata
-and rendering can evolve beside Spenso and Spynso without coupling those
-projects back into Symbolica.
-
+Several Typst packages are in development than make use of the symbolic payload, for example
+the tensor algebra package [spenso](https://github.com/alphal00p/gammaloop).
 ## Install locally
 
 To use this repository checkout, clone it and expose its root as a local
@@ -222,7 +226,7 @@ and the tradeoffs between compressed, direct, and preinitialized engines.
 
 ## Attribution and licensing
 
-The official `symbolica` plugin is
+The official `symbolica` Typst plugin is
 free to use for any use within Typst, including academic and commercial work.
 No Symbolica license or license key is needed for use within Typst.
 
