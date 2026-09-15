@@ -141,8 +141,9 @@ published layout and documentation would determine the actual package total.
 This is a useful reduction for users needing integration. Core-only users
 would instead download 8.13 MiB of runtime assets instead of 2.97 MiB. The
 combined compressed engine fits the repository's 10 MiB asset check, but its
-raw engine is still 37.48 MiB, so merging does **not** remove the need for the
-current compression stage. Its code section is 23,459,266 bytes and its data
+raw engine is still 37.48 MiB. This exceeds our current build check; it does
+not establish that Typst requires the custom compression stage (see the
+archive experiment below). Its code section is 23,459,266 bytes and its data
 section after Wizer is 15,772,486 bytes. Integration's rule implementation and
 initialized heap remain the dominant costs.
 
@@ -196,6 +197,46 @@ fixtures pass, including the core API surface, metadata, worked examples,
 both local package imports, integration rule explanations, and differentiating
 the primitive back to the integrand. Production packages and binaries are
 unchanged by this experiment.
+
+### Removing the custom compression wrapper
+
+Universe already creates `.tar.gz` downloads using `flate2::GzEncoder` with
+default compression in its [package bundler](https://github.com/typst/packages/blob/main/bundler/src/main.rs).
+The [Typst CLI package loader](https://github.com/typst/typst/blob/v0.15.1/crates/typst-kit/src/packages.rs)
+extracts those archives into the package cache. Archive compression reduces
+download size; it does not leave the installed files compressed.
+
+A second scratch package replaces the compressed engine and inflater with
+the raw combined Wasm, removes `_decompress-bundled`, and directly calls
+`plugin("symbolica.wasm")`. Both variants below include the manifest, Typst
+runtime sources, README, LICENSE, and THIRD_PARTY notice; manuals, examples,
+and tests are omitted from the archives.
+
+| Combined package | Installed file bytes | Gzipped tar bytes |
+| --- | ---: | ---: |
+| With custom compression and inflater | 8,628,891 (8.23 MiB) | 8,501,396 (8.11 MiB) |
+| Raw Wasm, direct loading | 39,403,503 (37.58 MiB) | 8,636,778 (8.24 MiB) |
+
+These are measured local archives, using deterministic GNU tar headers and
+flate2 1.1.4's default Rust backend and compression level, matching Universe's
+compression approach. Exact published bytes can vary with archive metadata,
+file selection, and compressor version. The previous minimal-runtime figures
+omit the three informational files included here.
+
+Removing the custom layer increases the download by only **135,382 bytes
+(132.21 KiB, 1.59%)**. All 12 non-manual Typst fixtures pass with direct loading,
+including both integration endpoints. No Rust engine rebuild was necessary:
+the decompression helper is a separate module. The upstream compressed rule
+metadata feature remains enabled; this experiment removes the outer bundle
+compression only.
+
+The earlier conclusion that the large raw engine requires custom compression
+was too strong. Direct loading is viable in the tested CLI, with almost the
+same compressed download size and a larger installed footprint. Our 10 MiB
+asset check is a repository build constraint, not a demonstrated Typst runtime
+limit. Universe's acceptance of the larger individual file is a separate
+publication question; its [package-size policy discussion](https://github.com/typst/packages/issues/4175)
+does not establish a universal 10 MiB limit. Production loading is unchanged.
 
 ## Validation and reproduction
 
