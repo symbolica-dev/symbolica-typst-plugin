@@ -112,6 +112,91 @@ case. A no-steps build is a separate, unmeasured capability tradeoff.
    and Binaryen optimization are already enabled. Further compiler tuning is
    secondary to removing reachable code and compacting the rule representation.
 
+## Combined core and integration package
+
+A follow-up experiment at `7cf8569` links the complete core API and integration
+bridge into **one Wasm module**, loaded by one Typst package. It retains all
+60 core endpoints, both integration endpoints, rule explanations, and Wizer
+preinitialization. Merely putting the existing two binaries in one package
+would not achieve this saving.
+
+| Distribution | Optimized raw engine bytes | Compressed engine bytes | Engines plus inflater(s) |
+| --- | ---: | ---: | ---: |
+| Current core | 8,178,996 | 3,080,353 | 3,109,597 (2.97 MiB) |
+| Current integration | 38,038,007 | 8,065,811 | 8,095,055 (7.72 MiB) |
+| Current pair, total | 46,217,003 | 11,146,164 | 11,204,652 (10.69 MiB) |
+| Combined, preinitialized | 39,300,520 | 8,496,528 | 8,525,772 (8.13 MiB) |
+
+The combined runtime assets save **2,678,880 bytes (23.91%)** versus shipping
+both packages. Each inflater is 29,244 bytes. Adding all core endpoints to the
+integration engine costs only **430,717 compressed bytes (420.62 KiB)**,
+consistent with substantial overlap in their reachable implementations.
+
+Including `lib.typ`, `render.typ`, and the package manifest gives a minimal
+combined runtime package of **8,618,769 bytes (8.22 MiB)**. The scratch tree with
+both existing manuals, examples, and test fixtures is **9,853,046 bytes
+(9.40 MiB)**. These are sums of file sizes, not tarball sizes; the final
+published layout and documentation would determine the actual package total.
+
+This is a useful reduction for users needing integration. Core-only users
+would instead download 8.13 MiB of runtime assets instead of 2.97 MiB. The
+combined compressed engine fits the repository's 10 MiB asset check, but its
+raw engine is still 37.48 MiB, so merging does **not** remove the need for the
+current compression stage. Its code section is 23,459,266 bytes and its data
+section after Wizer is 15,772,486 bytes. Integration's rule implementation and
+initialized heap remain the dominant costs.
+
+Three alternating runs in fresh Typst processes, with compressed loading in
+both variants, gave these document-compilation times:
+
+| Document | Current split: runs / median | Combined: runs / median |
+| --- | --- | --- |
+| Core basic example | 1.002, 0.982, 0.984 s / **0.984 s** | 2.718, 2.715, 2.827 s / **2.718 s** |
+| Integration example, both endpoints | 5.484, 5.439, 5.521 s / **5.484 s** | 5.012, 4.780, 4.944 s / **4.944 s** |
+
+The combined integration example is about 10% faster in this small local
+sample, while the core-only example is about 2.8 times slower. These are
+whole-document timings, including loading, decompression, and execution;
+they do not isolate algebra or integration throughput. A single full-featured
+package is attractive when integration is part of the default offering, with
+a clear download and startup cost for core-only use.
+
+### Prototype method
+
+The experiment uses Rust 1.98.1 and the same dependency versions and release
+profile as the repository: LTO, `opt-level = "z"`, panic abort, stripping,
+and Cargo's default **16 codegen units**. The comparison above is against the
+currently committed bundles, not a rebuild of the old one-unit core baseline.
+
+1. Create a standalone scratch Cargo workspace with the root crate's
+   dependencies plus `symbolica-integrate` 2.0.1 and its `steps` feature.
+   Copy the lockfile and use the repository's `.cargo/config.toml` settings.
+2. Copy `src/lib.rs` as the scratch crate root and add the integration bridge
+   from `crates/rubi-plugin/src/lib.rs` as a submodule. Remove its duplicate
+   custom random backend. Replace its `initiate_protocol!()` with imports of
+   the root's `__BytesOrResultBytes`, `__send_result_to_host`, and
+   `__write_args_to_buffer` helpers.
+3. Keep the integration crate's `compressed-step-metadata` and
+   `wizer-preinitialize` feature definitions, then build the combined cdylib
+   with `--release --target wasm32-unknown-unknown --no-default-features
+   --features wizer-preinitialize`.
+4. Apply the core build's exact export-pruning and Binaryen options. Keep
+   `simplify_expr`: the integration-only `simplify*` removal would incorrectly
+   delete this core endpoint. Run Wizer with `--init-func wizer.initialize`,
+   then `symbolica-typst-compress` on its output.
+5. In a scratch copy of the Typst package, append the integration wrappers to
+   `symbolica/lib.typ`, have both call `_bundled_plugin()`, and replace the
+   core bundle with the combined output. Remove the second engine and loader.
+   Adapt integration fixtures to use the same library and `@local/symbolica`
+   package import.
+
+The final Wasm export set exactly matches the union of the two sources:
+62 endpoint functions plus memory. All 12 non-manual Typst distribution
+fixtures pass, including the core API surface, metadata, worked examples,
+both local package imports, integration rule explanations, and differentiating
+the primitive back to the integrand. Production packages and binaries are
+unchanged by this experiment.
+
 ## Validation and reproduction
 
 - Five Rust integration bridge tests pass after the initialization-order fix.
