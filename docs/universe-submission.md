@@ -54,8 +54,10 @@ when equations or parameters change.
 
 This submission requests review of two exceptions: the custom Symbolica Typst
 permission and the approximately 23.36 MiB Wasm. The permission grants runtime
-use, redistribution through Universe and mirrors, and rebuilding with modified
-dependencies. It preserves third-party license rights. The accompanying
+use, redistribution through Universe and mirrors, and rebuilding with a modified
+Typst interface or separately licensed dependencies. It grants no additional
+right to modify Symbolica's own source or distribute such modifications, and
+preserves third-party license rights. The accompanying
 source release supplies the application and dependency source needed to
 rebuild and relink the engine. The compressed runtime download remains much
 smaller than the raw Wasm.

@@ -7,6 +7,12 @@ rebuild the plugin with your changes. The accompanying Symbolica Typst
 permission allows the application-side source and relinking needed for this
 purpose; see `LICENSE-SYMBOLICA-TYPST.md`.
 
+The Typst interface and adapter code is MIT-licensed. The Symbolica library
+itself remains under `LICENSE-SYMBOLICA.md`: the Typst permission allows
+rebuilding its unmodified source with modified, separately licensed components,
+but grants no additional right to modify Symbolica's own source or distribute
+versions containing such modifications.
+
 ## Source availability
 
 The plugin's application source, exact dependency versions in `Cargo.lock`,
@@ -38,9 +44,10 @@ CARGO_NET_OFFLINE=true bash scripts/build-engine.sh
 The result is `symbolica/symbolica.wasm`. The release profile uses Cargo's
 default 16 codegen units. There is no Wizer preinitialization stage.
 
-To replace a library, copy the relevant directory out of `vendor/`, modify it,
-and add a Cargo `[patch.crates-io]` path override. This avoids changing files
-covered by Cargo's vendor checksums. For example:
+To replace a separately licensed dependency such as Malachite, copy the
+relevant directory out of `vendor/`, modify it under its license, and add a
+Cargo `[patch.crates-io]` path override. This avoids changing files covered by
+Cargo's vendor checksums. For example:
 
 ```toml
 [patch.crates-io]
