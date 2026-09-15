@@ -25,6 +25,8 @@ reference.
 
 ## Quick start
 
+### Exact factorization and differentiation
+
 After installing the local package below, this is a complete Typst document:
 
 ```typst
@@ -40,9 +42,58 @@ $
 $
 ```
 
-The factorization and derivative are computed exactly while Typst compiles the
-document. Symbolica expressions are opaque values; render them with `to-typst`
-or inspect them with `canonical`.
+The polynomial factors as `(x - 2)(x - 1)(x + 1)(x + 2)`, and its derivative is
+`4x³ - 10x`. Both are computed exactly while Typst compiles the document.
+Symbolica expressions are opaque values; render them with `to-typst` or inspect
+them with `canonical`.
+
+### Numerical evaluation with π
+
+Evaluate `π² + sin(π/4)` numerically. The math parser treats `pi` as a symbol,
+so supply its numerical value explicitly using Typst's `calc.pi`:
+
+```typst
+#import "@local/symbolica:0.1.0" as sym
+
+#let expression = sym.math($pi^2 + sin(pi / 4)$)
+#let value = sym.evaluate(
+  expression,
+  values: ((sym.math($pi$), calc.pi),),
+)
+
+$ pi^2 + sin(pi / 4) approx #calc.round(value.re, digits: 8) $
+```
+
+The result is approximately **10.57671118**. `evaluate` returns a dictionary
+with real and imaginary parts, `re` and `im`; here `im` is zero. Use the same
+`values` argument to substitute numerical values for other symbols.
+
+### Solve a system with parameters
+
+Solve `x + y = a` and `x - y = b` for `x` and `y`, keeping `a` and `b` symbolic:
+
+```typst
+#import "@local/symbolica:0.1.0" as sym
+
+#let x = sym.symbol("x")
+#let y = sym.symbol("y")
+#let solutions = sym.solve(
+  (sym.math($x + y - a$), sym.math($x - y - b$)),
+  (x, y),
+  domain: "real",
+)
+
+#for branch in solutions.branches {
+  $ x = #sym.to-typst(branch.values.at(0)),
+    quad y = #sym.to-typst(branch.values.at(1)) $
+}
+```
+
+Each input expression is understood to equal zero. Only `x` and `y` are listed
+as unknowns, so `a` and `b` become parameters. This system has the exact solution
+`x = (a + b)/2`, `y = (a - b)/2` for all real `a` and `b`.
+For more general systems, inspect `coverage`, `coverage-guard`, and each
+branch's `conditions` for restrictions on parameter values.
 
 ## Rubi integration
 
