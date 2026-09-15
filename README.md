@@ -6,7 +6,14 @@ and commercial work. No license or license key is needed.
 
 Symbolica lets the formulas on a Typst page take part in the calculation. Write
 an expression as ordinary Typst mathematics, work with it symbolically, and
-place the result back into the same document. You can currently:
+place the result back into the same document.
+
+Compute symbolic results and numerical values directly in your paper, without
+precomputing them in another tool and copying them back by hand. This avoids
+error-prone copy-pasting and keeps the displayed results in sync when you
+change an equation or parameter.
+
+You can currently:
 
 - expand, factor, collect, differentiate, and inspect expressions;
 - combine, cancel, or decompose rational functions;

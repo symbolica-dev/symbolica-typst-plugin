@@ -47,6 +47,11 @@ algebra, symbolic integration with steps, numerical evaluation, and system
 solving in one Wasm module. All uses of this plugin within Typst are free and
 require no Symbolica subscription, registration, activation, or license key.
 
+Authors can compute symbolic results and numerical values directly in their
+papers, without precomputing them in another tool and copying them back by
+hand. This avoids error-prone copy-pasting and keeps displayed results in sync
+when equations or parameters change.
+
 This submission requests review of two exceptions: the custom Symbolica Typst
 permission and the approximately 23.36 MiB Wasm. The permission grants runtime
 use, redistribution through Universe and mirrors, and rebuilding with modified
