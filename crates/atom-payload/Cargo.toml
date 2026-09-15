@@ -12,4 +12,4 @@ wasm = ["symbolica/wasm"]
 
 [dependencies]
 ciborium = "0.2.2"
-symbolica = { version = "2.2", default-features = false }
+symbolica = { version = "3.0.0", default-features = false }

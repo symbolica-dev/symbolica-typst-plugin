@@ -25,8 +25,7 @@ returns successfully, prints `OK`, and exits with status 0.
 
 ## Pinned dependencies
 
-- Symbolica, Numerica, and Graphica: official Symbolica `main` at
-  `4f1323185fe5e0c0f8c864ab89edd1905e7adef1`.
+- Symbolica, Numerica, and Graphica: version `3.0.0` from crates.io.
 - Symbolica: `default-features = false`, `features = ["wasm"]`.
 - Astro-float: Tymbolica's existing patch at
   `f92380e025deb8e1743ed93c6d5bf0783ac28717` (`astro-float` 0.9.5,

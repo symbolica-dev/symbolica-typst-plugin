@@ -7,7 +7,6 @@ The Rust source has one compatibility adjustment for Symbolica's replacement
 API: the top-level-only matcher uses `min_level(0).max_level(0)` instead of
 `level_range((0, Some(0)))`. Its matching behavior is unchanged.
 
-In `Cargo.toml`, the Symbolica dependency uses the `2.2` package requirement with
-default features disabled so Tymbolica's workspace patch can select the pinned
-upstream Symbolica revision and its Wasm consumer can enable only
+In `Cargo.toml`, the Symbolica dependency uses version `3.0.0` from crates.io
+with default features disabled so its Wasm consumer can enable only
 `symbolica/wasm`. Package profiles are defined at the workspace root.

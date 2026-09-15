@@ -16,7 +16,7 @@ default = []
 ahash = { version = "0.8", default-features = false, features = ["std", "compile-time-rng"] }
 ciborium = "0.2.2"
 getrandom = "0.3"
-symbolica = { version = "2.2", default-features = false, features = ["wasm"] }
+symbolica = { version = "3.0.0", default-features = false, features = ["wasm"] }
 tymbolica-atom-payload = { path = "crates/atom-payload", default-features = false, features = ["wasm"] }
 wasm-minimal-protocol = "0.1"
 
@@ -24,9 +24,6 @@ wasm-minimal-protocol = "0.1"
 # Temporary until astro-float publishes the merged wasm32 word-size fix.
 astro-float = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
 astro-float-num = { git = "https://github.com/stencillogic/astro-float", rev = "f92380e025deb8e1743ed93c6d5bf0783ac28717" }
-graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "4f1323185fe5e0c0f8c864ab89edd1905e7adef1" }
-numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "4f1323185fe5e0c0f8c864ab89edd1905e7adef1" }
-symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "4f1323185fe5e0c0f8c864ab89edd1905e7adef1" }
 
 [workspace]
 members = [
