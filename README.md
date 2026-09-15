@@ -140,6 +140,9 @@ Maintainer checks also compile the non-user-facing regression fixtures under
 fails when any committed manual PDF is stale. Commit the source, bundles, and
 regenerated manuals together.
 
+See the [Wasm size investigation](docs/wasm-size.md) for measured size reductions
+and the tradeoffs between compressed, direct, and preinitialized engines.
+
 ## Attribution and licensing
 
 The official `symbolica` plugin and its `symbolica-integrate` companion are

@@ -6,6 +6,11 @@ prepared.
 
 ## Unreleased
 
+- Remove unused Symbolica C API exports from the core Wasm before optimization,
+  reducing the compressed core bundle by about 26% while keeping all 60 Typst
+  endpoints. Record size measurements and further options in `docs/wasm-size.md`.
+- Initialize Symbolica's registry before Rubi's function catalog so integration
+  also works in builds without Wizer preinitialization.
 - Use the published `symbolica-integrate` 2.0.1 crate and remove the vendored
   source and standalone repros. Package sources now live in `symbolica/` and
   `symbolica-integrate/`.

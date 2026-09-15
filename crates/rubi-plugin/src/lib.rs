@@ -18,6 +18,10 @@ fn initialize_rubi() {
         .initialize_tracing
         .store(false, std::sync::atomic::Ordering::Relaxed);
 
+    // Finish Symbolica's registry before entering Rubi's LazyLocks: its
+    // initialization callback also registers Rubi's function catalog.
+    let _ = symbolica::state::State::is_builtin("x");
+
     INITIALIZE_RUBI.call_once(|| {
         // Register Rubi's function catalog without constructing its rule set.
         let _ = Atom::Zero.fresnel_s();
@@ -190,9 +194,6 @@ fn encode_integration_explanation(
 #[cfg(feature = "wizer-preinitialize")]
 #[unsafe(export_name = "wizer.initialize")]
 pub extern "C" fn wizer_initialize() {
-    // Symbolica must finish its registered state initialization before Rubi's
-    // LazyLocks are entered, otherwise the registry callback re-enters them.
-    let _ = symbolica::state::State::is_builtin("x");
     initialize_rubi();
     // The published crate initializes its rule tables lazily. Warm them
     // through the public API so Wizer includes them in the delivered module.
