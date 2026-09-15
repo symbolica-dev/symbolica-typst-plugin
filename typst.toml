@@ -1,7 +1,7 @@
 [package]
 name = "symbolica"
 version = "0.1.0"
-entrypoint = "typst/lib.typ"
+entrypoint = "symbolica/lib.typ"
 authors = ["lcnbr <https://github.com/lcnbr>"]
 license = "MIT"
 description = "The official Symbolica 3.0 plugin. Free for any use within Typst; no license needed."

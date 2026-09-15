@@ -194,7 +194,12 @@ pub extern "C" fn wizer_initialize() {
     // LazyLocks are entered, otherwise the registry callback re-enters them.
     let _ = symbolica::state::State::is_builtin("x");
     initialize_rubi();
-    symbolica_integrate::preinitialize();
+    // The published crate initializes its rule tables lazily. Warm them
+    // through the public API so Wizer includes them in the delivered module.
+    let x = symbolica::symbol!("symbolica_typst_integrate::warmup_x");
+    let atom = Atom::var(x);
+    let result = (&atom / (&atom + 1)).integrate(x);
+    assert!(result.is_ok(), "Rubi warm-up must integrate");
 }
 
 #[cfg(test)]

@@ -19,6 +19,6 @@ wizer-preinitialize = ["compressed-step-metadata"]
 ciborium = "0.2.2"
 getrandom = "0.3"
 symbolica = { version = "3.0.0", default-features = false, features = ["wasm"] }
-symbolica-integrate = { path = "../../vendor/symbolica-integrate", default-features = false, features = ["steps"] }
+symbolica-integrate = { version = "2.0.1", default-features = false, features = ["steps"] }
 symbolica-typst-atom-payload = { path = "../atom-payload", default-features = false, features = ["wasm"] }
 wasm-minimal-protocol = "0.1"

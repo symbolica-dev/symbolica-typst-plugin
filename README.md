@@ -16,9 +16,9 @@ place the result back into the same document. You can currently:
 - evaluate formulas over points or grids; and
 - solve exact matrix problems.
 
-Start with the [user manual](typst/manual.pdf), the
-[minimal example](typst/examples/basic.typ), or the
-[polynomial-system showcase](typst/examples/showcase.typ). The manual contains
+Start with the [user manual](symbolica/manual.pdf), the
+[minimal example](symbolica/examples/basic.typ), or the
+[polynomial-system showcase](symbolica/examples/showcase.typ). The manual contains
 the conceptual guide, task-oriented examples, limitations, and complete API
 reference.
 
@@ -87,7 +87,7 @@ mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica"
 ln -s "$PWD" \
   "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica/0.1.0"
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica-integrate"
-ln -s "$PWD/rubi" \
+ln -s "$PWD/symbolica-integrate" \
   "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica-integrate/0.1.0"
 ```
 
@@ -97,19 +97,19 @@ Linux data directory. During repository development, examples instead import
 
 ## Documentation and examples
 
-- [User manual](typst/manual.pdf) — quickstart, concepts, recipes, limitations,
+- [User manual](symbolica/manual.pdf) — quickstart, concepts, recipes, limitations,
   and complete API reference
-- [Rubi manual](rubi/manual.pdf) — symbolic integration and nested Rubi steps
-- [Minimal example](typst/examples/basic.typ) — a compact first document
-- [Rubi integration](rubi/examples/basic.typ) — an antiderivative and
+- [Rubi manual](symbolica-integrate/manual.pdf) — symbolic integration and nested Rubi steps
+- [Minimal example](symbolica/examples/basic.typ) — a compact first document
+- [Rubi integration](symbolica-integrate/examples/basic.typ) — an antiderivative and
   its nested rule steps
-- [Polynomial-system showcase](typst/examples/showcase.typ) — exact solving,
+- [Polynomial-system showcase](symbolica/examples/showcase.typ) — exact solving,
   factorization, substitution, and a Jacobian determinant in one case study
-- [Batched expression grid](typst/examples/expression-grid.typ) — evaluate four
+- [Batched expression grid](symbolica/examples/expression-grid.typ) — evaluate four
   formulas together over a two-dimensional parameter grid
-- [Lotka–Volterra trajectory](typst/examples/lotka-volterra.typ) — evaluate
+- [Lotka–Volterra trajectory](symbolica/examples/lotka-volterra.typ) — evaluate
   both right-hand sides together inside a local Runge–Kutta loop
-- [Complex phase portrait](typst/examples/phase-portrait.typ) — evaluate a
+- [Complex phase portrait](symbolica/examples/phase-portrait.typ) — evaluate a
   rational function over thousands of complex points in one batch
 - [Changelog](CHANGELOG.md) — user-visible changes and compatibility notes
 
@@ -133,8 +133,8 @@ nix flake check       # validate the Typst distribution using tracked plugins
 ```
 
 Maintainer checks also compile the non-user-facing regression fixtures under
-[`typst/tests`](typst/tests) and [`rubi/tests`](rubi/tests), and verify the
-[`@local` package import](typst/examples/local-package.typ).
+[`symbolica/tests`](symbolica/tests) and [`symbolica-integrate/tests`](symbolica-integrate/tests), and verify the
+[`@local` package import](symbolica/examples/local-package.typ).
 
 `nix run .#check` verifies all documented `@local` installation layouts and
 fails when any committed manual PDF is stale. Commit the source, bundles, and

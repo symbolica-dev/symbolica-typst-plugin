@@ -6,6 +6,10 @@ prepared.
 
 ## Unreleased
 
+- Use the published `symbolica-integrate` 2.0.1 crate and remove the vendored
+  source and standalone repros. Package sources now live in `symbolica/` and
+  `symbolica-integrate/`.
+
 - Updated core and integration to the Symbolica 3.0.0 release from crates.io.
 - Renamed the official Typst packages to `symbolica` and `symbolica-integrate`,
   and the Rust crates to `symbolica-typst-plugin`,
@@ -17,8 +21,7 @@ prepared.
   academic and commercial work. No Symbolica license or license key is needed.
 - Includes the upstream fix for the exact algebraic solver hang present in
   `ba373713`, including `x - sqrt(2) = 0` with the Wasm numeric backend. The
-  standalone regression check and historical diagnosis remain in
-  `repros/algebraic-sqrt2`.
+  regression remains covered by the core plugin tests.
 - Breaking: `solve` now returns a solution-set dictionary. Read solutions from
   `.branches`; `coverage` and `coverage-guard` preserve the limits of results with
   symbolic parameters. Branches expose `point` and optional `codimension` instead

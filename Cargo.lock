@@ -824,7 +824,9 @@ dependencies = [
 
 [[package]]
 name = "symbolica-integrate"
-version = "1.0.0"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47297a53bc31fa4251d562f658915930332bd97d6a273e97f70286a2249a12ba"
 dependencies = [
  "brotli",
  "proc-macro2",
