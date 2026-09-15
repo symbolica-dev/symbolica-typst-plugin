@@ -199,8 +199,10 @@ namespace or parser grammar:
 #let result = sym.factor(parse($x^2 - 1$))
 ```
 
-Use `integrate` or `integrate-with-steps` from the same import. Rubi rules are
-prepared on first integration use and cached across later calls and edits.
+Use `integrate` or `integrate-with-steps` from the same import. The first call
+compiles and initializes the integration rule sets, which may take about
+10 seconds. Both functions share the cached rules across later calls and
+ordinary edits. Restarting the compiler or clearing its cache repeats this setup.
 See the integration guide for a complete worked rule trace.
 
 == Where to begin

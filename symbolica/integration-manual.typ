@@ -72,10 +72,10 @@ Import Symbolica once to use algebra and integration together:
 $ integral #sym.to-typst(f) dif x = #sym.to-typst(primitive) + C $
 ```
 
-The first integration call prepares Rubi's rules through Typst's cached plugin
-transition. Later calls and ordinary edits reuse the prepared module. Additional
-instances receive its initialized memory snapshot. Restarting the compiler or
-losing its cache requires preparation again.
+The first call to `integrate` or `integrate-with-steps` compiles and initializes
+the integration rule sets, which may take about 10 seconds. Both functions share
+the cached rules, so later calls and ordinary edits reuse them. Restarting the
+compiler or clearing its cache repeats this setup.
 
 == A worked rule trace
 

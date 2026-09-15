@@ -57,9 +57,10 @@ alongside all algebra, solving, and matrix functions:
 #sym.to-typst(sym.integrate(f, x))
 ```
 
-Rubi's rule tables are prepared on first use through Typst's cached plugin
-transition. Subsequent calls and ordinary edits reuse the initialized module;
-restarting the compiler or losing its cache requires initialization again.
+The first call to `integrate` or `integrate-with-steps` compiles and initializes
+the integration rule sets, which may take about 10 seconds. Both functions share
+the cached rules, so later calls and ordinary edits reuse them. Restarting the
+compiler or clearing its cache repeats this setup.
 The package loads one `symbolica.wasm` directly. Integration accepts the same
 expressions and symbol handles as the core API; the variable must represent
 one symbol. Algebra-only use does not prepare the integration rules.

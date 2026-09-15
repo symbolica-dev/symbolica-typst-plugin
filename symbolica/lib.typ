@@ -2198,8 +2198,11 @@
 ///
 /// The variable must represent one symbol. Returns a best-effort antiderivative
 /// without an integration constant; unsupported parts remain unevaluated.
-/// Rules are prepared on first integration use and cached by Typst for later
-/// calls and edits. Core algebra does not prepare these rules.
+///
+/// The first call to `integrate` or `integrate-with-steps` compiles and
+/// initializes the integration rule sets, which may take about 10 seconds.
+/// Both functions share the cached rules, so later calls and ordinary edits
+/// reuse them. Restarting the compiler or clearing its cache repeats this setup.
 ///
 /// ```example
 /// #to-typst(integrate(math($x^2$), symbol("x")))
@@ -2221,6 +2224,11 @@
 /// `steps` (array). Each step contains `rule`, `depth`, `description`,
 /// `references`, `source`, `input`, and `output`. Render the input and output
 /// Atom payloads with `to-typst`. No integration constant is added.
+///
+/// The first call to `integrate` or `integrate-with-steps` compiles and
+/// initializes the integration rule sets, which may take about 10 seconds.
+/// Both functions share the cached rules, so later calls and ordinary edits
+/// reuse them. Restarting the compiler or clearing its cache repeats this setup.
 ///
 /// -> dictionary
 #let integrate-with-steps(
