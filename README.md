@@ -94,6 +94,43 @@ On macOS, use `~/Library/Application Support/typst/packages` in place of the
 Linux data directory. During repository development, examples instead import
 `../lib.typ` directly.
 
+## Use in the Typst web app
+
+Before publication on Universe, upload the library files into your project
+and import `"symbolica/lib.typ"`. A local installation on your computer is
+not available to the web app.
+
+If the 23.36 MiB Wasm exceeds the web app's per-file upload limit, split it
+into smaller parts. For this build, the following GNU `split` command creates
+three files of at most 8 MiB:
+
+```sh
+split -b 8M -d -a 1 symbolica/symbolica.wasm symbolica/symbolica.wasm.part
+```
+
+In the **uploaded copy** of `symbolica/lib.typ`, replace `_bundled_plugin`
+with:
+
+```typst
+#let _bundled_plugin() = plugin(
+  read("symbolica.wasm.part0", encoding: none) +
+  read("symbolica.wasm.part1", encoding: none) +
+  read("symbolica.wasm.part2", encoding: none)
+)
+```
+
+Upload that `lib.typ`, `render.typ`, and the three parts into a `symbolica`
+folder in the project. Omit the original large `symbolica.wasm`. Your document
+can then use the usual `#import "symbolica/lib.typ" as sym` and `sym.integrate`
+API. [Typst accepts raw bytes as a plugin source](https://typst.app/docs/reference/foundations/plugin/).
+This joins the exact original engine in memory, without decompression. It
+reduces individual upload sizes, but not total project storage or runtime memory.
+The split loader was verified with the CLI; web upload acceptance depends on
+the account's file and project limits.
+
+Once published on Universe, use `#import "@preview/symbolica:0.1.0" as sym`
+instead; the package is fetched without manually uploading its Wasm.
+
 ## Documentation and examples
 
 - [User manual](symbolica/manual.pdf) — quickstart, concepts, recipes, limitations,
@@ -131,7 +168,7 @@ nix flake check       # validate the Typst distribution using tracked plugins
 ```
 
 Maintainer checks also compile the non-user-facing regression fixtures under
-[`symbolica/tests`](symbolica/tests), compile [`test.typ`](test.typ), and verify the
+[`symbolica/tests`](symbolica/tests) and verify the
 [`@local` package import](symbolica/examples/local-package.typ).
 
 `nix run .#check` verifies all documented `@local` installation layouts and

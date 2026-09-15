@@ -12,7 +12,7 @@ prepared.
   cached Typst transition, with compressed step metadata enabled.
 - Load the joint Wasm directly and use package archive compression for downloads.
   Remove the separate integration package and custom decompression plugins.
-  `test.typ` demonstrates the joint API from one import.
+  `symbolica/examples/integration.typ` demonstrates the joint API from one import.
 
 - Remove unused Symbolica C API exports from the core Wasm before optimization,
   reducing the compressed core bundle by about 26% while keeping all 60 Typst

@@ -17,7 +17,6 @@
         for fixture in api-surface parsely-metadata worked-examples integration; do
           typst compile --root . "symbolica/tests/$fixture.typ" "$check_dir/test-$fixture.pdf"
         done
-        typst compile --root . test.typ "$check_dir/root-test.pdf"
         for manual in manual integration-manual; do
           typst compile --creation-timestamp 0 --root . "symbolica/$manual.typ" "$check_dir/$manual.pdf"
           if ! cmp -s "symbolica/$manual.pdf" "$check_dir/$manual.pdf"; then
@@ -124,7 +123,7 @@
           work="$TMPDIR/symbolica"
           mkdir -p "$work"
           cp -R ${self}/symbolica "$work/symbolica"
-          for file in typst.toml test.typ README.md LICENSE THIRD_PARTY.md; do
+          for file in typst.toml README.md LICENSE THIRD_PARTY.md; do
             cp "${self}/$file" "$work/$file"
           done
           chmod -R u+w "$work"

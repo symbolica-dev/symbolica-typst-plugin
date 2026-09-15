@@ -382,7 +382,8 @@ rendered and visually checked on all three pages.
 
 `nix run .#build` now builds the joint engine and applies C export pruning.
 `nix run .#package` creates the compressed download, and `nix run .#check`
-validates the distribution, examples, root `test.typ`, and manual freshness.
+validates the distribution, examples, and manual freshness. The root `test.typ`
+is an ignored local scratch document and is not required by the checks.
 The shared shell snippets in `flake.nix` define the exact commands. This
 environment could parse Nix with a dummy store but could not use `/nix/store`,
 so build and validation commands were executed directly.
