@@ -6,6 +6,8 @@ prepared.
 
 ## Unreleased
 
+- Recognize Typst's π as Symbolica's built-in constant, so numerical evaluation
+  does not require an explicit substitution for pi.
 - Combine algebra and integration in one `symbolica` package and Wasm module.
   Both top-level functions and `init()` engines expose `integrate` and
   `integrate-with-steps`. Integration rules initialize on first use through a

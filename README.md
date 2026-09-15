@@ -49,24 +49,19 @@ them with `canonical`.
 
 ### Numerical evaluation with π
 
-Evaluate `π² + sin(π/4)` numerically. The math parser treats `pi` as a symbol,
-so supply its numerical value explicitly using Typst's `calc.pi`:
+Evaluate `π² + sin(π/4)` using Symbolica's built-in value of π:
 
 ```typst
 #import "@local/symbolica:0.1.0" as sym
 
 #let expression = sym.math($pi^2 + sin(pi / 4)$)
-#let value = sym.evaluate(
-  expression,
-  values: ((sym.math($pi$), calc.pi),),
-)
+#let value = sym.evaluate(expression)
 
 $ pi^2 + sin(pi / 4) approx #calc.round(value.re, digits: 8) $
 ```
 
 The result is approximately **10.57671118**. `evaluate` returns a dictionary
-with real and imaginary parts, `re` and `im`; here `im` is zero. Use the same
-`values` argument to substitute numerical values for other symbols.
+with real and imaginary parts, `re` and `im`; here `im` is zero.
 
 ### Solve a system with parameters
 
@@ -75,18 +70,14 @@ Solve `x + y = a` and `x - y = b` for `x` and `y`, keeping `a` and `b` symbolic:
 ```typst
 #import "@local/symbolica:0.1.0" as sym
 
-#let x = sym.symbol("x")
-#let y = sym.symbol("y")
 #let solutions = sym.solve(
-  (sym.math($x + y - a$), sym.math($x - y - b$)),
-  (x, y),
+  ($x + y - a$, $x - y - b$).map(sym.math),
+  ($x$, $y$).map(sym.math),
   domain: "real",
 )
 
-#for branch in solutions.branches {
-  $ x = #sym.to-typst(branch.values.at(0)),
-    quad y = #sym.to-typst(branch.values.at(1)) $
-}
+#let (x, y) = solutions.branches.first().values.map(sym.to-typst)
+$ x = #x, quad y = #y $
 ```
 
 Each input expression is understood to equal zero. Only `x` and `y` are listed

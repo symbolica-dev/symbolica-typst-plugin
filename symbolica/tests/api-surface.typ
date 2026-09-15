@@ -33,6 +33,9 @@
 #let replace-wildcards = sym.replace-wildcards
 #let series = sym.series
 #let evaluate = sym.evaluate
+#let pi-value = evaluate((sym.math)($pi^2 + sin(pi / 4)$))
+#assert(calc.abs(pi-value.re - (calc.pi * calc.pi + calc.sin(calc.pi / 4))) < 1e-12)
+#assert.eq(pi-value.im, 0.0)
 #let domain = sym.domain
 #let evaluate-many = sym.evaluate-many
 #let evaluate-grid = sym.evaluate-grid

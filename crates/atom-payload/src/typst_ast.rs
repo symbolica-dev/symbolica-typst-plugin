@@ -337,6 +337,12 @@ fn atom_from_leaf(text: &str, namespace: &str) -> Result<Atom, String> {
         return Err("empty math leaf".to_owned());
     }
 
+    // Typst renders `pi` as a Unicode math leaf; Symbolica's built-in uses
+    // the ASCII name. Preserve the constant instead of creating a variable.
+    if text == "π" {
+        return Ok(Atom::var(Symbol::PI));
+    }
+
     if let Ok(number) = text.parse::<i64>() {
         return Ok(Atom::num(number));
     }
@@ -643,6 +649,18 @@ fn value_i64(value: &Value, label: &str) -> Result<i64, String> {
 mod tests {
     use super::*;
     use crate::{Attachment, AttachmentKey, encode_atom, encode_atom_from_set};
+
+    #[test]
+    fn typst_pi_is_the_builtin_constant_in_any_default_namespace() {
+        for namespace in ["typst", "custom"] {
+            let pi = atom_from_value(&Value::Text("π".to_owned()), namespace).unwrap();
+            assert_eq!(pi, Atom::var(Symbol::PI));
+            assert_eq!(
+                pi,
+                atom_from_value(&Value::Text("pi".to_owned()), namespace).unwrap()
+            );
+        }
+    }
 
     fn node(head: &str, args: Vec<Value>, slots: Vec<(Value, Value)>) -> Value {
         Value::Map(vec![
