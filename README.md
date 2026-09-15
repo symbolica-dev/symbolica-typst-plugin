@@ -2,15 +2,9 @@
 
 The official [Symbolica](https://symbolica.io/) plugin for Typst, powered by
 Symbolica 3.0. It is free to use for any use within Typst, including academic
-and commercial work. No license or license key is needed.
+and commercial work.
 
-Symbolica lets the formulas on a Typst page take part in the calculation. Write
-an expression as ordinary Typst mathematics, work with it symbolically, and
-place the result back into the same document.
-
-Compute symbolic results and numerical values directly in your paper, without
-precomputing them in another tool and copying them back by hand. This avoids
-error-prone copy-pasting and keeps the displayed results in sync when you
+Symbolica lets you do symbolic computations and numerical evaluations directly in your Typst document. This avoids error-prone copy-pasting and keeps the displayed results in sync when you
 change an equation or parameter.
 
 You can currently:
@@ -18,7 +12,7 @@ You can currently:
 - expand, factor, collect, differentiate, and inspect expressions;
 - combine, cancel, or decompose rational functions;
 - calculate derivatives and series;
-- integrate expressions and inspect nested Rubi rule steps;
+- integrate expressions and see the integration steps;
 - replace recurring patterns with wildcards;
 - solve systems exactly or numerically;
 - evaluate formulas over points or grids; and
