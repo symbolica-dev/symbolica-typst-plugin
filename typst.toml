@@ -10,3 +10,8 @@ keywords = ["computer-algebra", "symbolic-computation", "symbolica"]
 categories = ["integration", "scripting"]
 disciplines = ["mathematics"]
 compiler = "0.14.0"
+exclude = [
+  "src", "crates", "docs", "target", "dist", "test.typ", "CHANGELOG.md",
+  "Cargo.toml", "Cargo.lock", "flake.nix", "flake.lock",
+  "symbolica/examples", "symbolica/tests", "symbolica/*.pdf", "symbolica/*manual.typ",
+]

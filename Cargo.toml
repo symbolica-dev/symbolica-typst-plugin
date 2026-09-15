@@ -18,14 +18,13 @@ ahash = { version = "0.8", default-features = false, features = ["std", "compile
 ciborium = "0.2.2"
 getrandom = "0.3"
 symbolica = { version = "3.0.0", default-features = false, features = ["wasm"] }
+symbolica-integrate = { version = "2.0.1", default-features = false, features = ["compressed-step-metadata"] }
 symbolica-typst-atom-payload = { path = "crates/atom-payload", default-features = false, features = ["wasm"] }
 wasm-minimal-protocol = "0.1"
 
 [workspace]
 members = [
   "crates/atom-payload",
-  "crates/inflate-plugin",
-  "crates/rubi-plugin",
 ]
 resolver = "3"
 

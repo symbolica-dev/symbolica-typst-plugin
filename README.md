@@ -11,6 +11,7 @@ place the result back into the same document. You can currently:
 - expand, factor, collect, differentiate, and inspect expressions;
 - combine, cancel, or decompose rational functions;
 - calculate derivatives and series;
+- integrate expressions and inspect nested Rubi rule steps;
 - replace recurring patterns with wildcards;
 - solve systems exactly or numerically;
 - evaluate formulas over points or grids; and
@@ -45,25 +46,23 @@ or inspect them with `canonical`.
 
 ## Rubi integration
 
-Symbolic integration is provided by the separate `symbolica-integrate` package.
-It exposes only `integrate` and `integrate-with-steps`; expressions move between
-it and Symbolica through the shared Atom payload:
+The joint `symbolica` package includes `integrate` and `integrate-with-steps`
+alongside all algebra, solving, and matrix functions:
 
 ```typst
 #import "@local/symbolica:0.1.0" as sym
-#import "@local/symbolica-integrate:0.1.0": integrate
 
 #let x = sym.math($x$)
 #let f = sym.math($x / (x + 1)$)
-#sym.to-typst(integrate(f, x))
+#sym.to-typst(sym.integrate(f, x))
 ```
 
 Rubi's rule tables are prepared on first use through Typst's cached plugin
 transition. Subsequent calls and ordinary edits reuse the initialized module;
 restarting the compiler or losing its cache requires initialization again.
-Its compressed engine is independent of Symbolica's smaller algebra engine.
-Both Rubi arguments are portable Atom payload bytes; `math($x$)` creates the
-single-symbol payload required for the integration variable.
+The package loads one `symbolica.wasm` directly. Integration accepts the same
+expressions and symbol handles as the core API; the variable must represent
+one symbol. Algebra-only use does not prepare the integration rules.
 
 The `symbolica-typst-atom-payload` crate is the reusable boundary for extensions. It
 combines Symbolica's exact native Atom export with schema-keyed portable
@@ -88,9 +87,6 @@ cd symbolica-typst-plugin
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica"
 ln -s "$PWD" \
   "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica/0.1.0"
-mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica-integrate"
-ln -s "$PWD/symbolica-integrate" \
-  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica-integrate/0.1.0"
 ```
 
 On macOS, use `~/Library/Application Support/typst/packages` in place of the
@@ -101,9 +97,9 @@ Linux data directory. During repository development, examples instead import
 
 - [User manual](symbolica/manual.pdf) — quickstart, concepts, recipes, limitations,
   and complete API reference
-- [Rubi manual](symbolica-integrate/manual.pdf) — symbolic integration and nested Rubi steps
+- [Rubi manual](symbolica/integration-manual.pdf) — symbolic integration and nested Rubi steps
 - [Minimal example](symbolica/examples/basic.typ) — a compact first document
-- [Rubi integration](symbolica-integrate/examples/basic.typ) — an antiderivative and
+- [Rubi integration](symbolica/examples/integration.typ) — an antiderivative and
   its nested rule steps
 - [Polynomial-system showcase](symbolica/examples/showcase.typ) — exact solving,
   factorization, substitution, and a Jacobian determinant in one case study
@@ -126,16 +122,15 @@ nix develop
 Use the repository apps for the normal release workflow:
 
 ```sh
-nix run .#build        # rebuild all compressed engines and their loaders
-nix run .#build-engine # rebuild only the compressed Symbolica core engine
-nix run .#build-rubi   # rebuild the Rubi engine with cached runtime initialization
-nix run .#manual       # rebuild all engines and manuals
+nix run .#build       # rebuild the joint Symbolica Wasm engine
+nix run .#package     # build dist/symbolica-0.1.0.tar.gz
+nix run .#manual      # rebuild the engine and both manuals
 nix run .#check       # rebuild, compile the public examples, and verify the PDF
 nix flake check       # validate the Typst distribution using tracked plugins
 ```
 
 Maintainer checks also compile the non-user-facing regression fixtures under
-[`symbolica/tests`](symbolica/tests) and [`symbolica-integrate/tests`](symbolica-integrate/tests), and verify the
+[`symbolica/tests`](symbolica/tests), compile [`test.typ`](test.typ), and verify the
 [`@local` package import](symbolica/examples/local-package.typ).
 
 `nix run .#check` verifies all documented `@local` installation layouts and
@@ -147,12 +142,12 @@ and the tradeoffs between compressed, direct, and preinitialized engines.
 
 ## Attribution and licensing
 
-The official `symbolica` plugin and its `symbolica-integrate` companion are
+The official `symbolica` plugin is
 free to use for any use within Typst, including academic and commercial work.
 No Symbolica license or license key is needed for use within Typst.
 
 This repository's original plugin source code is available under the
-[MIT License](LICENSE). The bundled WebAssembly engines are included with
+[MIT License](LICENSE). The bundled WebAssembly engine is included with
 redistribution permission. The MIT License covers the plugin source, while
 the [Symbolica license](https://symbolica.io/license/) governs the underlying
 computer algebra system outside this Typst usage permission.

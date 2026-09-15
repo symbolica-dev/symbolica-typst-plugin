@@ -6,6 +6,14 @@ prepared.
 
 ## Unreleased
 
+- Combine algebra and integration in one `symbolica` package and Wasm module.
+  Both top-level functions and `init()` engines expose `integrate` and
+  `integrate-with-steps`. Integration rules initialize on first use through a
+  cached Typst transition, with compressed step metadata enabled.
+- Load the joint Wasm directly and use package archive compression for downloads.
+  Remove the separate integration package and custom decompression plugins.
+  `test.typ` demonstrates the joint API from one import.
+
 - Remove unused Symbolica C API exports from the core Wasm before optimization,
   reducing the compressed core bundle by about 26% while keeping all 60 Typst
   endpoints. Record size measurements and further options in `docs/wasm-size.md`.

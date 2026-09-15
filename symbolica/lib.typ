@@ -361,6 +361,18 @@
   )))
 }
 #let _derivative(engine, expr, var) = engine.plugin.derivative(_expr_bytes(engine, expr), _expr_bytes(engine, var))
+#let _integrate(engine, expr, var, steps: false) = {
+  let expression = _expr_bytes(engine, expr)
+  let variable = _expr_bytes(engine, var)
+  // Only integration prepares the rule tables. Typst caches the transition
+  // and restores its memory snapshot for additional execution instances.
+  let prepared = plugin.transition(engine.plugin.initialize)
+  if steps {
+    cbor(prepared.integrate_with_steps(expression, variable))
+  } else {
+    prepared.integrate(expression, variable)
+  }
+}
 #let _series(engine, expr, var, expansion-point, depth, depth-denom: 1, depth-is-absolute: true) = {
   engine.plugin.series(cbor.encode((
     expr: _expr_bytes(engine, expr),
@@ -606,15 +618,12 @@
 #let _div(engine, lhs, rhs) = engine.plugin.div(_expr_bytes(engine, lhs), _expr_bytes(engine, rhs))
 #let _pow(engine, base, exp) = engine.plugin.power(_expr_bytes(engine, base), _expr_bytes(engine, exp))
 
-#let _decompress-bundled(path) = plugin("symbolica-inflate.wasm").decompress(
-  read(path, encoding: none),
-)
-#let _bundled_plugin() = plugin(_decompress-bundled("symbolica.wasm.zlib"))
+#let _bundled_plugin() = plugin("symbolica.wasm")
 
 /// Create an independent set of Symbolica functions.
 ///
 /// The returned dictionary exposes Symbolica's parsing, algebra, evaluation,
-/// solving, and matrix operations. Use `init` when you want to select a symbol
+/// solving, integration, and matrix operations. Use `init` when you want to select a symbol
 /// namespace, plugin location, or parser grammar; ordinary calculations can
 /// use the imported top-level functions directly.
 ///
@@ -685,6 +694,8 @@
     to-float: (expr, decimal-prec: 16) => _to_float(engine, expr, decimal-prec: decimal-prec),
     factor: (expr, complex: false, square-free: false) => _factor(engine, expr, complex: complex, square-free: square-free),
     derivative: (expr, var) => _derivative(engine, expr, var),
+    integrate: (expr, var) => _integrate(engine, expr, var),
+    integrate-with-steps: (expr, var) => _integrate(engine, expr, var, steps: true),
     series: (expr, var, expansion-point, depth, depth-denom: 1, depth-is-absolute: true) => _series(engine, expr, var, expansion-point, depth, depth-denom: depth-denom, depth-is-absolute: depth-is-absolute),
     rule: (pattern, rhs, non-greedy-wildcards: (), min-level: 0, max-level: none, level-range: none, level-is-tree-depth: false, partial: true, allow-new-wildcards-on-rhs: false, rhs-cache-size: 100) => _rule(engine, pattern, rhs, non-greedy-wildcards: non-greedy-wildcards, min-level: min-level, max-level: max-level, level-range: level-range, level-is-tree-depth: level-is-tree-depth, partial: partial, allow-new-wildcards-on-rhs: allow-new-wildcards-on-rhs, rhs-cache-size: rhs-cache-size),
     replace: (expr, pattern, rhs, repeat: false, once: false, bottom-up: false, nested: false, non-greedy-wildcards: (), min-level: 0, max-level: none, level-range: none, level-is-tree-depth: false, partial: true, allow-new-wildcards-on-rhs: false, rhs-cache-size: 100) => _replace(engine, expr, pattern, rhs, repeat: repeat, once: once, bottom-up: bottom-up, nested: nested, non-greedy-wildcards: non-greedy-wildcards, min-level: min-level, max-level: max-level, level-range: level-range, level-is-tree-depth: level-is-tree-depth, partial: partial, allow-new-wildcards-on-rhs: allow-new-wildcards-on-rhs, rhs-cache-size: rhs-cache-size),
@@ -2182,3 +2193,41 @@
   /// -> bytes | content | int | float | str
   exp,
 ) = (_default_engine().pow)(base, exp)
+
+/// Integrate an expression using the Rubi rules.
+///
+/// The variable must represent one symbol. Returns a best-effort antiderivative
+/// without an integration constant; unsupported parts remain unevaluated.
+/// Rules are prepared on first integration use and cached by Typst for later
+/// calls and edits. Core algebra does not prepare these rules.
+///
+/// ```example
+/// #to-typst(integrate(math($x^2$), symbol("x")))
+/// ```
+///
+/// -> bytes
+#let integrate(
+  /// Integrand as an Atom payload or supported expression.
+  /// -> bytes | content | int | float | str
+  expression,
+  /// Integration variable as a symbol or Atom payload.
+  /// -> bytes | content | str
+  variable,
+) = (_default_engine().integrate)(expression, variable)
+
+/// Integrate an expression and return the nested Rubi rule trace.
+///
+/// The result contains `result` (Atom payload), `complete` (boolean), and
+/// `steps` (array). Each step contains `rule`, `depth`, `description`,
+/// `references`, `source`, `input`, and `output`. Render the input and output
+/// Atom payloads with `to-typst`. No integration constant is added.
+///
+/// -> dictionary
+#let integrate-with-steps(
+  /// Integrand as an Atom payload or supported expression.
+  /// -> bytes | content | int | float | str
+  expression,
+  /// Integration variable as a symbol or Atom payload.
+  /// -> bytes | content | str
+  variable,
+) = (_default_engine().integrate-with-steps)(expression, variable)

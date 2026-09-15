@@ -8,6 +8,60 @@ New Rust builds use Cargo's default release codegen-unit count, not one unit.
 The tables below record successive experiments; the current runtime
 initialization design supersedes the initial recommendation to retain Wizer.
 
+## Current distribution: one joint package
+
+The adopted distribution is now the joint `symbolica` package. One
+`symbolica/symbolica.wasm` contains the core and integration bridges, with
+`compressed-step-metadata` enabled and no Wizer stage or custom inflater.
+Both the top-level API and `init()` engines expose `integrate` and
+`integrate-with-steps`; the rule snapshot is prepared only on first integration
+use. The integration Rust bridge lives in `src/integration.rs`.
+
+The final release build (16 codegen units) measures:
+
+| Artifact | Bytes | MiB |
+| --- | ---: | ---: |
+| Joint Wasm | 24,494,910 | 23.36 |
+| Installed runtime files | 24,598,325 | 23.46 |
+| `dist/symbolica-0.1.0.tar.gz` | 6,438,265 | 6.14 |
+
+`nix run .#package` builds this archive. It contains the manifest, README,
+license and third-party notices, Typst library and renderer, and one Wasm.
+Documentation and test files remain in the repository and are excluded from
+package downloads. This repository's 10 MiB download budget applies to the
+archive, not individual uncompressed files; it is not a Typst Universe limit.
+
+### Typst Universe size policy
+
+Checked on 2026-09-15: the [submission guidelines](https://github.com/typst/packages/blob/main/docs/README.md)
+judge large packages case by case and require a well-motivated exception;
+they do not specify a numerical cap. The current [file checker](https://github.com/typst/package-check/blob/main/src/check/files.rs)
+exempts Wasm from its large-file warnings. Maintainer review still matters:
+[matryoshka was rejected over size in 2024](https://github.com/typst/packages/pull/780),
+while [auto-jrubby 0.3.4 was accepted in February 2026](https://github.com/typst/packages/pull/4030)
+with a 45,862,534-byte (43.74 MiB) Wasm file. An [open policy issue](https://github.com/typst/packages/issues/4175)
+asks for clarification of these differing precedents.
+
+The joint package is therefore a plausible submission, but its acceptance
+cannot be inferred from the 6.14 MiB archive alone. Reviewers also receive the
+23.36 MiB raw Wasm in the package repository. A submission should explain the
+shared algebra/integration engine, compressed step metadata, removed unused
+exports, and avoided preinitialization snapshot. Archive compression reduces
+download size; it does not reduce the raw file submitted for review.
+
+The final export list matches all 62 user endpoints plus `initialize`.
+Validation of the final joint package: 38 Rust tests, 15 Typst distribution
+compilations, both manual freshness comparisons, and an import from the
+extracted runtime archive pass. Both manuals were rendered and visually
+reviewed. In a persistent compiler session, the working root example took
+10.709 seconds initially; ten text edits took 0.126–0.126 seconds each,
+and three changed integrands took 2.057, 2.057, 2.007 seconds. The live-edit
+check used a separate copy to preserve concurrent edits in the working file.
+
+The Atom payload crate remains independent of integration. The rest of this
+report records the preceding experiments, including the former split layout;
+its older file paths and build flags refer to those revisions.
+
 ## Measured results
 
 | Engine / experiment | Raw Wasm bytes | Compressed bytes | Result |
@@ -241,7 +295,7 @@ limit. Universe's acceptance of the larger individual file is a separate
 publication question; its [package-size policy discussion](https://github.com/typst/packages/issues/4175)
 does not establish a universal 10 MiB limit. Production loading is unchanged.
 
-## Adopted: cached runtime initialization
+## Runtime initialization before joining the packages
 
 The integration dependency now enables `compressed-step-metadata` directly,
 including when Wizer is absent. Rechecking the earlier Wizer prototype with
@@ -292,9 +346,9 @@ archive method as the preceding experiment:
 | With custom compression and inflater | 6,509,123 (6.21 MiB) | 6,386,054 (6.09 MiB) |
 | Raw Wasm, direct loading | 24,591,854 (23.45 MiB) | 6,436,801 (6.14 MiB) |
 
-The combined engine remains a scratch experiment; the distributed packages
-remain separate. The production integration package now uses the same runtime
-transition approach. Release builds use 16 codegen units.
+At this stage the combined engine was a scratch experiment, and the distributed
+packages remained separate. The subsequent joint distribution above adopts
+the same runtime transition approach. Release builds use 16 codegen units.
 
 Live editing was tested in one persistent `typst watch` process per variant:
 ten successive text edits followed by three different integrands. The latter
@@ -326,17 +380,12 @@ rendered and visually checked on all three pages.
 - The runtime-initialization prototype passes the integration example and the
   regression that differentiates its result back to the original integrand.
 
-`nix run .#build-engine` applies the adopted core export pruning. The
-`engineBuildScript` and `rubiBuildScript` in `flake.nix` contain the exact
-Binaryen options used by the normal builds. This environment could not use
-`/nix/store`, so the same shell steps were executed directly.
-
-The integration build now uses `--release --target wasm32-unknown-unknown
---no-default-features`, applies export pruning, and compresses the output
-without Wizer. Its upstream dependency enables `compressed-step-metadata`
-unconditionally, which also enables `steps`. The Typst wrapper calls
-`plugin.transition(module.initialize)` before using either integration
-endpoint.
+`nix run .#build` now builds the joint engine and applies C export pruning.
+`nix run .#package` creates the compressed download, and `nix run .#check`
+validates the distribution, examples, root `test.typ`, and manual freshness.
+The shared shell snippets in `flake.nix` define the exact commands. This
+environment could parse Nix with a dummy store but could not use `/nix/store`,
+so build and validation commands were executed directly.
 
 General background: [Rust/Wasm code-size guidance](https://rustwasm.github.io/book/reference/code-size.html)
 and [LLVM Wasm linker garbage collection](https://lld.llvm.org/WebAssembly.html#garbage-collection).

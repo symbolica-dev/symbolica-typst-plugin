@@ -156,7 +156,7 @@ Linux, place or symlink the repository root at:
 
 Use the corresponding Typst data directory on macOS or Windows. The package
 root must contain `typst.toml`; its `symbolica` directory contains `lib.typ` and
-the bundled compressed engine and its loader.
+the joint `symbolica.wasm` engine.
 Then import:
 
 #raw(
@@ -186,9 +186,8 @@ included in the checkout.
 
 == Create an engine
 
-The Symbolica 3.0 engine provides algebra, solving, evaluation, and
-matrices. It is stored as a compressed asset and expanded transparently by a
-small loader. Most operations are available directly from the imported
+The Symbolica 3.0 engine provides algebra, solving, evaluation, integration,
+and matrices in one WebAssembly module. Most operations are available directly from the imported
 top-level API. Create an engine with `init()` when you need a custom symbol
 namespace or parser grammar:
 
@@ -200,8 +199,9 @@ namespace or parser grammar:
 #let result = sym.factor(parse($x^2 - 1$))
 ```
 
-Symbolic integration and its rule steps live in the companion
-`symbolica-integrate` package, whose manual starts from Symbolica Atom payloads.
+Use `integrate` or `integrate-with-steps` from the same import. Rubi rules are
+prepared on first integration use and cached across later calls and edits.
+See the integration guide for a complete worked rule trace.
 
 == Where to begin
 
@@ -220,7 +220,7 @@ Symbolic integration and its rule steps live in the companion
   [Factor, expand, differentiate, or take a series],
   [`expand`, `factor`, `derivative`, `series`],
   [Integrate and inspect Rubi's rule path],
-  [Use the companion `symbolica-integrate` package],
+  [`integrate`, `integrate-with-steps`],
   [Replace a recurring symbolic pattern],
   [`wild`, `rule`, `replace`],
   [Evaluate a formula at many points],
@@ -684,9 +684,9 @@ The Typst plugin exposes a subset of the Symbolica engine's features. The
 parts covered in this manual work well for exact algebra in documents, but a
 few boundaries are worth knowing before you choose an approach:
 
-- Symbolic integration is intentionally a separate concern. The companion
-  `symbolica-integrate` package accepts and returns the same portable Atom payloads.
-  Matrix payloads remain separate from Atom payloads.
+- Integration returns a best-effort antiderivative without an integration
+  constant. Unsupported parts remain unevaluated; inspect `complete` in
+  `integrate-with-steps` to check whether the entire expression was integrated.
 
 - Exact system solving is intended for linear and polynomial equations.
   Numerical solving depends on a starting point and gives an approximate
@@ -706,8 +706,7 @@ few boundaries are worth knowing before you choose an approach:
 - Some unusual Typst math structures may not parse. `array-tree` can help show
   what the parser received.
 
-For symbolic integration, use `symbolica-integrate`. For arbitrary precision or
-deeper polynomial algorithms, use Symbolica directly.
+For arbitrary precision or deeper polynomial algorithms, use Symbolica directly.
 
 == When something looks wrong
 
@@ -761,7 +760,7 @@ things up. The generated groups below cover the complete top-level API.
       "simplify", "expand", "factor", "together", "cancel", "apart",
       "collect", "coefficient", "coefficient-list", "terms",
       "indeterminates", "contains", "is-constant",
-      "derivative", "series",
+      "derivative", "series", "integrate", "integrate-with-steps",
     ),
   ),
   (
@@ -833,13 +832,13 @@ things up. The generated groups below cover the complete top-level API.
 This manual describes the official Symbolica Typst plugin #package-version,
 powered by Symbolica 3.0. The package is tested with Typst 0.14 or newer.
 
-The official `symbolica` plugin and its `symbolica-integrate` companion are
+The official `symbolica` plugin is
 free to use for any use within Typst, including academic and commercial work.
 No Symbolica license or license key is needed for use within Typst.
 
 The original plugin source code is released under the
 #link(repository + "/blob/main/LICENSE")[MIT License]. The bundled WebAssembly
-engines are included with redistribution permission. The underlying Symbolica
+engine is included with redistribution permission. The underlying Symbolica
 computer algebra system is governed by its own
 #link("https://symbolica.io/license/")[license terms] outside this Typst usage
 permission.

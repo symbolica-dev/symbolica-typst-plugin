@@ -2,8 +2,8 @@
 #import "../lib.typ": init
 
 #let sym = init()
-#assert("integrate" not in sym)
-#assert("integrate-with-steps" not in sym)
+#assert("integrate" in sym)
+#assert("integrate-with-steps" in sym)
 #assert("symbol" in sym)
 #assert("function" in sym)
 #assert("var" not in sym)

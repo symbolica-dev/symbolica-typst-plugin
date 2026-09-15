@@ -3501,3 +3501,5 @@ mod tests {
         assert_payload_attachment(&entry, &y_key, b"y declaration");
     }
 }
+
+mod integration;

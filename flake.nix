@@ -1,6 +1,5 @@
 {
-  description = "Symbolica computer algebra for Typst";
-
+  description = "Symbolica computer algebra and integration for Typst";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs = { self, nixpkgs, ... }:
@@ -8,47 +7,67 @@
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       eachSystem = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
       typstWithPackages = pkgs: pkgs.typst.withPackages (packages: [
-        packages.cetz_0_5_2
-        packages.cetz-plot_0_1_4
-        packages.parsely_0_1_0
-        packages.tidy_0_4_3
+        packages.cetz_0_5_2 packages.cetz-plot_0_1_4
+        packages.parsely_0_1_0 packages.tidy_0_4_3
       ]);
+      typstCheckScript = ''
+        for example in basic showcase expression-grid lotka-volterra phase-portrait integration; do
+          typst compile --root . "symbolica/examples/$example.typ" "$check_dir/$example.pdf"
+        done
+        for fixture in api-surface parsely-metadata worked-examples integration; do
+          typst compile --root . "symbolica/tests/$fixture.typ" "$check_dir/test-$fixture.pdf"
+        done
+        typst compile --root . test.typ "$check_dir/root-test.pdf"
+        for manual in manual integration-manual; do
+          typst compile --creation-timestamp 0 --root . "symbolica/$manual.typ" "$check_dir/$manual.pdf"
+          if ! cmp -s "symbolica/$manual.pdf" "$check_dir/$manual.pdf"; then
+            echo "symbolica/$manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
+            exit 1
+          fi
+        done
+        package_dir="$check_dir/packages/local/symbolica"
+        mkdir -p "$package_dir"
+        ln -s "$PWD" "$package_dir/0.1.0"
+        for example in local-package integration-local-package; do
+          typst compile --package-path "$check_dir/packages" --root . \
+            "symbolica/examples/$example.typ" "$check_dir/$example.pdf"
+        done
+        rm -rf "$check_dir/packages"
+      '';
+      packageScript = ''
+        mkdir -p dist
+        # Match the runtime files kept by typst.toml's exclude list.
+        tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -czf dist/symbolica-0.1.0.tar.gz \
+          typst.toml README.md LICENSE THIRD_PARTY.md \
+          symbolica/lib.typ symbolica/render.typ symbolica/symbolica.wasm
+        size="$(wc -c < dist/symbolica-0.1.0.tar.gz)"
+        if [ "$size" -gt 10485760 ]; then
+          echo "Package archive is $size bytes; our download budget is 10 MiB" >&2
+          exit 1
+        fi
+        ls -lh symbolica/symbolica.wasm dist/symbolica-0.1.0.tar.gz
+      '';
     in {
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
           packages = [ pkgs.binaryen pkgs.cargo pkgs.lld pkgs.rustc pkgs.rustfmt pkgs.stdenv.cc (typstWithPackages pkgs) ];
         };
       });
-
       apps = eachSystem (pkgs:
         let
-          path = [ pkgs.binaryen pkgs.cargo pkgs.coreutils pkgs.diffutils pkgs.lld pkgs.rustc pkgs.stdenv.cc (typstWithPackages pkgs) ];
+          path = [ pkgs.binaryen pkgs.cargo pkgs.coreutils pkgs.diffutils pkgs.gnutar pkgs.gzip pkgs.lld pkgs.rustc pkgs.stdenv.cc (typstWithPackages pkgs) ];
           app = name: text: {
             type = "app";
             program = "${pkgs.writeShellApplication { inherit name; runtimeInputs = path; inherit text; }}/bin/${name}";
             meta.description = "Run ${name}";
           };
-          loaderBuildScript = ''
-            target=wasm32-unknown-unknown
-            unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package symbolica-typst-inflate-plugin --lib
-            for output in symbolica/symbolica-inflate.wasm symbolica-integrate/symbolica-inflate.wasm; do
-              wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-                -o "$output" "target/$target/release/symbolica_typst_inflate_plugin.wasm"
-              size="$(wc -c < "$output")"
-              if [ "$size" -gt 10485760 ]; then
-                echo "$output is $size bytes; the loader must remain below 10 MiB" >&2
-                exit 1
-              fi
-              ls -lh "$output"
-            done
-          '';
           engineBuildScript = ''
+
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
             cargo build --release --target "$target" --package symbolica-typst-plugin --no-default-features
 
-            engine_raw="target/$target/release/symbolica.raw.wasm"
+            engine_raw="symbolica/symbolica.wasm"
             # Symbolica's C API exports keep unrelated code alive in the linker.
             # Keep simplify_expr, which belongs to this plugin's Typst API.
             wasm-opt --remove-exports --pass-arg='remove-exports@__getrandom*' \
@@ -65,184 +84,54 @@
               --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
               -o "$engine_raw" "target/$target/release/symbolica_typst_plugin.wasm"
 
-            cargo run --release --package symbolica-typst-inflate-plugin --bin symbolica-typst-compress -- \
-              "$engine_raw" symbolica/symbolica.wasm.zlib
-            size="$(wc -c < symbolica/symbolica.wasm.zlib)"
-            if [ "$size" -gt 10485760 ]; then
-              echo "symbolica/symbolica.wasm.zlib is $size bytes; the compressed engine must remain below 10 MiB" >&2
-              exit 1
-            fi
-            ls -lh symbolica/symbolica.wasm.zlib
-          '';
-          rubiBuildScript = ''
-            target=wasm32-unknown-unknown
-            unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package symbolica-typst-integrate-plugin \
-              --no-default-features
-
-            rubi_raw="target/$target/release/symbolica-integrate.raw.wasm"
-            wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd \
-              --remove-exports --pass-arg='remove-exports@__getrandom*' \
-              --remove-exports --pass-arg='remove-exports@drop' \
-              --remove-exports --pass-arg='remove-exports@get_license_key' \
-              --remove-exports --pass-arg='remove-exports@init' \
-              --remove-exports --pass-arg='remove-exports@is_licensed' \
-              --remove-exports --pass-arg='remove-exports@request_*' \
-              --remove-exports --pass-arg='remove-exports@set_*' \
-              --remove-exports --pass-arg='remove-exports@simplify*' \
-              --remove-exports --pass-arg='remove-exports@use_hu_*' \
-              --remove-unused-module-elements --strip-debug --strip-producers \
-              -o "$rubi_raw" "target/$target/release/symbolica_typst_integrate_plugin.wasm"
-
-            cargo run --release --package symbolica-typst-inflate-plugin --bin symbolica-typst-compress -- \
-              "$rubi_raw" symbolica-integrate/symbolica-integrate.wasm.zlib
-            size="$(wc -c < symbolica-integrate/symbolica-integrate.wasm.zlib)"
-            if [ "$size" -gt 10485760 ]; then
-              echo "symbolica-integrate/symbolica-integrate.wasm.zlib is $size bytes; the compressed Rubi engine must remain below 10 MiB" >&2
-              exit 1
-            fi
-            ls -lh symbolica-integrate/symbolica-integrate.wasm.zlib
           '';
           dependencyBoundaryScript = ''
-            assert_dependency_absent() {
-              local package="$1"
-              local dependency="$2"
-              local tree
+            for package in symbolica-typst-plugin symbolica-typst-atom-payload; do
               tree="$(cargo tree --edges normal --prefix none --format '{p}' --package "$package")"
-              if [[ "$tree" == "$dependency v"* || "$tree" == *$'\n'"$dependency v"* ]]; then
-                echo "$package must not depend on $dependency" >&2
-                exit 1
-              fi
-            }
-
-            for dependency in spenso idenso; do
-              for package in symbolica-typst-plugin symbolica-typst-atom-payload symbolica-typst-integrate-plugin; do
-                assert_dependency_absent "$package" "$dependency"
+              for dependency in spenso idenso; do
+                if [[ "$tree" == "$dependency v"* || "$tree" == *$'\n'"$dependency v"* ]]; then
+                  echo "$package must not depend on $dependency" >&2
+                  exit 1
+                fi
               done
             done
-            assert_dependency_absent symbolica-typst-plugin symbolica-integrate
-            assert_dependency_absent symbolica-typst-atom-payload symbolica-integrate
+            tree="$(cargo tree --edges normal --prefix none --format '{p}' --package symbolica-typst-atom-payload)"
+            if [[ "$tree" == *"symbolica-integrate v"* ]]; then
+              echo "The shared Atom payload crate must not depend on integration" >&2
+              exit 1
+            fi
           '';
-          buildScript = loaderBuildScript + engineBuildScript + rubiBuildScript;
         in rec {
           default = build;
-          build = app "symbolica-build" buildScript;
-          build-engine = app "symbolica-build-engine" (loaderBuildScript + engineBuildScript);
-          build-rubi = app "symbolica-build-rubi" (loaderBuildScript + rubiBuildScript);
-          manual = app "symbolica-manual" (buildScript + ''
-            symbolica_out="''${SYMBOLICA_MANUAL_OUT:-symbolica/manual.pdf}"
-            rubi_out="''${SYMBOLICA_RUBI_MANUAL_OUT:-symbolica-integrate/manual.pdf}"
-            mkdir -p "$(dirname "$symbolica_out")" "$(dirname "$rubi_out")"
-            typst compile --creation-timestamp 0 --root . symbolica/manual.typ "$symbolica_out"
-            typst compile --creation-timestamp 0 --root . symbolica-integrate/manual.typ "$rubi_out"
-            ls -lh "$symbolica_out" "$rubi_out"
+          build = app "symbolica-build" engineBuildScript;
+          build-engine = build;
+          package = app "symbolica-package" (engineBuildScript + packageScript);
+          manual = app "symbolica-manual" (engineBuildScript + ''
+            for manual in manual integration-manual; do
+              typst compile --creation-timestamp 0 --root . "symbolica/$manual.typ" "symbolica/$manual.pdf"
+            done
           '');
-          check = app "symbolica-check" (dependencyBoundaryScript + buildScript + ''
+          check = app "symbolica-check" (dependencyBoundaryScript + engineBuildScript + packageScript + ''
             check_dir="$(mktemp -d)"
             trap 'rm -rf "$check_dir"' EXIT
-
-            typst compile --root . symbolica/examples/basic.typ "$check_dir/basic.pdf"
-            typst compile --root . symbolica/examples/showcase.typ "$check_dir/showcase.pdf"
-            typst compile --root . symbolica/examples/expression-grid.typ "$check_dir/expression-grid.pdf"
-            typst compile --root . symbolica/examples/lotka-volterra.typ "$check_dir/lotka-volterra.pdf"
-            typst compile --root . symbolica/examples/phase-portrait.typ "$check_dir/phase-portrait.pdf"
-            typst compile --root . symbolica/tests/api-surface.typ "$check_dir/api-surface.pdf"
-            typst compile --root . symbolica/tests/parsely-metadata.typ "$check_dir/parsely-metadata.pdf"
-            typst compile --root . symbolica/tests/worked-examples.typ "$check_dir/worked-examples.pdf"
-            typst compile --creation-timestamp 0 --root . symbolica/manual.typ "$check_dir/manual.pdf"
-            typst compile --root . symbolica-integrate/examples/basic.typ "$check_dir/rubi-basic.pdf"
-            typst compile --root . symbolica-integrate/tests/integration.typ "$check_dir/rubi-integration-tests.pdf"
-            typst compile --creation-timestamp 0 --root . symbolica-integrate/manual.typ "$check_dir/rubi-manual.pdf"
-
-            package_dir="$check_dir/xdg/typst/packages/local/symbolica"
-            mkdir -p "$package_dir"
-            ln -s "$PWD" "$package_dir/0.1.0"
-            XDG_DATA_HOME="$check_dir/xdg" \
-              typst compile --root . symbolica/examples/local-package.typ "$check_dir/local-package.pdf"
-
-            rubi_package_dir="$check_dir/xdg/typst/packages/local/symbolica-integrate"
-            mkdir -p "$rubi_package_dir"
-            ln -s "$PWD/symbolica-integrate" "$rubi_package_dir/0.1.0"
-            XDG_DATA_HOME="$check_dir/xdg" \
-              typst compile --root . symbolica-integrate/examples/local-package.typ "$check_dir/rubi-local-package.pdf"
-
-            if ! cmp -s symbolica/manual.pdf "$check_dir/manual.pdf"; then
-              echo "symbolica/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
-              exit 1
-            fi
-            if ! cmp -s symbolica-integrate/manual.pdf "$check_dir/rubi-manual.pdf"; then
-              echo "symbolica-integrate/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
-              exit 1
-            fi
-          '');
+          '' + typstCheckScript);
           typst = app "symbolica-typst" ''exec typst "$@"'';
         });
-
-      checks = eachSystem (pkgs:
-        let
-          typst = typstWithPackages pkgs;
-        in {
-          default = pkgs.runCommand "symbolica-typst-check" {
-            nativeBuildInputs = [ pkgs.coreutils pkgs.diffutils pkgs.findutils typst ];
-          } ''
-            work="$TMPDIR/symbolica"
-            mkdir -p "$work"
-            cp -R ${self}/symbolica "$work/symbolica"
-            cp -R ${self}/symbolica-integrate "$work/symbolica-integrate"
-            cp ${self}/typst.toml "$work/typst.toml"
-            chmod -R u+w "$work"
-            mkdir -p "$out"
-
-            while IFS= read -r -d "" file; do
-              size="$(wc -c < "$file")"
-              if [ "$size" -gt 20971520 ]; then
-                echo "$file is $size bytes; Typst web app files must not exceed 20 MiB" >&2
-                exit 1
-              fi
-            done < <(find "$work/symbolica" "$work/symbolica-integrate" -type f -print0)
-
-            while IFS= read -r -d "" file; do
-              size="$(wc -c < "$file")"
-              if [ "$size" -gt 10485760 ]; then
-                echo "$file is $size bytes; compressed plugin assets must remain below 10 MiB" >&2
-                exit 1
-              fi
-            done < <(find "$work/symbolica" "$work/symbolica-integrate" -type f -name '*.wasm.zlib' -print0)
-
-            typst compile --root "$work" "$work/symbolica/examples/basic.typ" "$out/basic.pdf"
-            typst compile --root "$work" "$work/symbolica/examples/showcase.typ" "$out/showcase.pdf"
-            typst compile --root "$work" "$work/symbolica/examples/expression-grid.typ" "$out/expression-grid.pdf"
-            typst compile --root "$work" "$work/symbolica/examples/lotka-volterra.typ" "$out/lotka-volterra.pdf"
-            typst compile --root "$work" "$work/symbolica/examples/phase-portrait.typ" "$out/phase-portrait.pdf"
-            typst compile --root "$work" "$work/symbolica/tests/api-surface.typ" "$out/api-surface.pdf"
-            typst compile --root "$work" "$work/symbolica/tests/parsely-metadata.typ" "$out/parsely-metadata.pdf"
-            typst compile --root "$work" "$work/symbolica/tests/worked-examples.typ" "$out/worked-examples.pdf"
-            typst compile --creation-timestamp 0 --root "$work" "$work/symbolica/manual.typ" "$out/manual.pdf"
-            typst compile --root "$work" "$work/symbolica-integrate/examples/basic.typ" "$out/rubi-basic.pdf"
-            typst compile --root "$work" "$work/symbolica-integrate/tests/integration.typ" "$out/rubi-integration-tests.pdf"
-            typst compile --creation-timestamp 0 --root "$work" "$work/symbolica-integrate/manual.typ" "$out/rubi-manual.pdf"
-
-            package_dir="$TMPDIR/xdg/typst/packages/local/symbolica"
-            mkdir -p "$package_dir"
-            ln -s "$work" "$package_dir/0.1.0"
-            XDG_DATA_HOME="$TMPDIR/xdg" \
-              typst compile --root "$work" "$work/symbolica/examples/local-package.typ" "$out/local-package.pdf"
-
-            rubi_package_dir="$TMPDIR/xdg/typst/packages/local/symbolica-integrate"
-            mkdir -p "$rubi_package_dir"
-            ln -s "$work/symbolica-integrate" "$rubi_package_dir/0.1.0"
-            XDG_DATA_HOME="$TMPDIR/xdg" \
-              typst compile --root "$work" "$work/symbolica-integrate/examples/local-package.typ" "$out/rubi-local-package.pdf"
-
-            if ! cmp -s "$work/symbolica/manual.pdf" "$out/manual.pdf"; then
-              echo "symbolica/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
-              exit 1
-            fi
-            if ! cmp -s "$work/symbolica-integrate/manual.pdf" "$out/rubi-manual.pdf"; then
-              echo "symbolica-integrate/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
-              exit 1
-            fi
-          '';
-        });
+      checks = eachSystem (pkgs: {
+        default = pkgs.runCommand "symbolica-typst-check" {
+          nativeBuildInputs = [ pkgs.coreutils pkgs.diffutils pkgs.gnutar pkgs.gzip (typstWithPackages pkgs) ];
+        } (''
+          work="$TMPDIR/symbolica"
+          mkdir -p "$work"
+          cp -R ${self}/symbolica "$work/symbolica"
+          for file in typst.toml test.typ README.md LICENSE THIRD_PARTY.md; do
+            cp "${self}/$file" "$work/$file"
+          done
+          chmod -R u+w "$work"
+          cd "$work"
+          mkdir -p "$out"
+          check_dir="$out"
+        '' + packageScript + typstCheckScript);
+      });
     };
 }
