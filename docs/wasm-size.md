@@ -5,6 +5,8 @@ Measurements from 2026-09-15, starting at commit `c7d6848`, with Symbolica
 0.15.1. MiB means 1,048,576 bytes. Compressed sizes use this repository's
 `symbolica-typst-compress` tool (miniz_oxide, level 10), not an estimated ratio.
 New Rust builds use Cargo's default release codegen-unit count, not one unit.
+The tables below record successive experiments; the current runtime
+initialization design supersedes the initial recommendation to retain Wizer.
 
 ## Measured results
 
@@ -15,7 +17,7 @@ New Rust builds use Cargo's default release codegen-unit count, not one unit.
 | Integration, original preinitialized bundle | 37,851,832 | 8,193,846 | Baseline; two public function exports |
 | Integration, optimize again after Wizer | 37,504,691 | 8,498,836 | Rejected: compressed size increases |
 | Same post-Wizer module, remove `integrate_with_steps` export | 37,489,576 | 8,493,931 | Only 15,115 raw bytes / 4,905 compressed bytes saved |
-| Integration, refreshed default-16-unit preinitialized build | 38,038,007 | 8,065,811 | Current distributed bundle |
+| Integration, refreshed default-16-unit preinitialized build | 38,038,007 | 8,065,811 | Previous distributed bundle |
 | Integration, runtime initialization prototype | 23,230,463 | 5,940,748 | Works after fixing initialization order; slower startup |
 
 The first four optimization experiments operate on existing binaries to avoid
@@ -38,8 +40,9 @@ units. Three alternating runs gave these document-compilation times:
 Runtime initialization saves 26.35% of the current compressed integration
 bundle, but this small document compiles about 2.4 times slower. These are
 local measurements, not a general performance guarantee. The cold regression
-fixture also passed (11.31 seconds in a separate run). Keep preinitialization
-as the default.
+fixture also passed (11.31 seconds in a separate run). This initially favored
+Wizer for startup speed; the later live-edit experiment supports moving this
+cost to cached runtime initialization instead.
 
 ## Core: compression is now optional for fitting under the limit
 
@@ -97,10 +100,10 @@ case. A no-steps build is a separate, unmeasured capability tradeoff.
    function catalog was entered before Symbolica finished the registry
    callback that also initializes that catalog. Initializing Symbolica first
    fixes this, and the integration example and derivative regression pass.
-   An explicit [Typst plugin transition](https://typst.app/docs/reference/foundations/plugin/#definitions-transition)
-   could provide a deterministic runtime preparation step. This still pays
-   initialization during document compilation and requires further testing;
-   it does not make the current 22.15 MiB raw module small enough by itself.
+   The [Typst plugin transition](https://typst.app/docs/reference/foundations/plugin/#definitions-transition)
+   API now provides the runtime preparation step. It still pays initialization
+   on first use, but the initialized snapshot is reused during live editing
+   and supplied to additional plugin instances.
 3. **Compile-time optional rule families.** An explicitly limited algebraic or
    elementary integration variant could exclude whole families of rules and
    their helpers. This reduces mathematical coverage and should be opt-in.
@@ -238,6 +241,81 @@ limit. Universe's acceptance of the larger individual file is a separate
 publication question; its [package-size policy discussion](https://github.com/typst/packages/issues/4175)
 does not establish a universal 10 MiB limit. Production loading is unchanged.
 
+## Adopted: cached runtime initialization
+
+The integration dependency now enables `compressed-step-metadata` directly,
+including when Wizer is absent. Rechecking the earlier Wizer prototype with
+this direct declaration produced byte-for-byte identical raw and compressed
+binaries: that feature was already enabled through `wizer-preinitialize`.
+
+Wizer has now been removed from the integration build and development tools.
+A new `initialize` Wasm endpoint warms the rules through the upstream public
+integration API. The Typst wrapper invokes it through
+`plugin.transition(module.initialize)`. Typst caches the resulting module and
+keeps a memory snapshot, which it copies into additional plugin instances.
+This avoids independently constructing all rules for each execution worker.
+The public Typst API remains `integrate` and `integrate-with-steps`.
+
+The distributed integration engine is now **23,232,072 raw bytes** and
+**5,940,523 compressed bytes (5.67 MiB)**, a **26.35%** compressed reduction
+from the previous 8,065,811-byte Wizer bundle. Its only function exports are
+`initialize`, `integrate`, and `integrate_with_steps`.
+
+The [Typst 0.15.1 implementation](https://github.com/typst/typst/blob/v0.15.1/crates/typst-library/src/foundations/plugin.rs)
+memoizes module loading, transitions, and function calls, and maintains a pool
+of reusable instances. Rules are prepared on first integration use while the
+cached module is alive. Ordinary edits reuse it. Restarting the compiler,
+changing the Wasm, or evicting the module cache requires preparation again;
+this is not persistent installation-time initialization. The transition API
+also exists in the declared minimum Typst version, 0.14.0.
+
+Typst's transition currently snapshots linear memory, not Wasm globals.
+The optimized combined module has one mutable global, its stack pointer,
+which returns to its initial value on a successful initializer return.
+The rule heap and Rust initialization flags reside in the snapshotted memory.
+
+The combined scratch library defers its transition until integration is used:
+core calls use the base module, while integration calls use the cached derived
+module. Core-only use therefore does not construct the Rubi rule tables.
+
+| Combined engine | Raw Wasm bytes | Custom-compressed bytes |
+| --- | ---: | ---: |
+| Earlier Wizer build | 39,300,520 | 8,496,528 |
+| Runtime transition | 24,488,612 | 6,376,501 |
+
+The combined compressed engine shrinks **24.95%**. All 62 user endpoints remain,
+plus the initialization endpoint. Using the same runtime file selection and
+archive method as the preceding experiment:
+
+| Combined runtime package | Installed file bytes | Gzipped tar bytes |
+| --- | ---: | ---: |
+| With custom compression and inflater | 6,509,123 (6.21 MiB) | 6,386,054 (6.09 MiB) |
+| Raw Wasm, direct loading | 24,591,854 (23.45 MiB) | 6,436,801 (6.14 MiB) |
+
+The combined engine remains a scratch experiment; the distributed packages
+remain separate. The production integration package now uses the same runtime
+transition approach. Release builds use 16 codegen units.
+
+Live editing was tested in one persistent `typst watch` process per variant:
+ten successive text edits followed by three different integrands. The latter
+changed `x/(x+1)` to `x/(x+2)`, `x/(x+3)`, and `x/(x+4)`.
+
+| Runtime initialization variant | First compilation | Ten text edits | Three integrand edits |
+| --- | ---: | ---: | ---: |
+| Distributed integration package | 13.351 s | 0.125–0.126 s each | 2.133, 2.108, 2.108 s |
+| Combined engine, direct Wasm loading | 11.121 s | 0.126 s each | 2.133, 2.158, 2.233 s |
+
+These are single-session wall-clock observations, including file watching,
+compilation, and PDF export. They confirm that the initial preparation delay
+does not recur on ordinary saves or changes to the integrand in these tests.
+They are not isolated integration throughput benchmarks.
+
+Validation of this change: five Rust integration tests, all 14 production
+Typst distribution compilations and both manual freshness checks, all 12
+non-manual combined-prototype fixtures, and direct-loading core API and
+integration regression fixtures pass. The updated integration manual was
+rendered and visually checked on all three pages.
+
 ## Validation and reproduction
 
 - Five Rust integration bridge tests pass after the initialization-order fix.
@@ -253,11 +331,12 @@ does not establish a universal 10 MiB limit. Production loading is unchanged.
 Binaryen options used by the normal builds. This environment could not use
 `/nix/store`, so the same shell steps were executed directly.
 
-To investigate runtime initialization, build `symbolica-typst-integrate-plugin`
-with `--release --target wasm32-unknown-unknown --no-default-features --features
-compressed-step-metadata`, apply the integration build's export pruning, and
-compress that output without running Wizer. Run tests in a separate package
-copy. This prototype is not the default distributed integration bundle.
+The integration build now uses `--release --target wasm32-unknown-unknown
+--no-default-features`, applies export pruning, and compresses the output
+without Wizer. Its upstream dependency enables `compressed-step-metadata`
+unconditionally, which also enables `steps`. The Typst wrapper calls
+`plugin.transition(module.initialize)` before using either integration
+endpoint.
 
 General background: [Rust/Wasm code-size guidance](https://rustwasm.github.io/book/reference/code-size.html)
 and [LLVM Wasm linker garbage collection](https://lld.llvm.org/WebAssembly.html#garbage-collection).

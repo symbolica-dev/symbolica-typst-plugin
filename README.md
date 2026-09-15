@@ -58,8 +58,10 @@ it and Symbolica through the shared Atom payload:
 #sym.to-typst(integrate(f, x))
 ```
 
-Rubi's rule tables are prepared with Wizer when the plugin is built. Its
-compressed engine is independent of Symbolica's smaller algebra engine.
+Rubi's rule tables are prepared on first use through Typst's cached plugin
+transition. Subsequent calls and ordinary edits reuse the initialized module;
+restarting the compiler or losing its cache requires initialization again.
+Its compressed engine is independent of Symbolica's smaller algebra engine.
 Both Rubi arguments are portable Atom payload bytes; `math($x$)` creates the
 single-symbol payload required for the integration variable.
 
@@ -126,7 +128,7 @@ Use the repository apps for the normal release workflow:
 ```sh
 nix run .#build        # rebuild all compressed engines and their loaders
 nix run .#build-engine # rebuild only the compressed Symbolica core engine
-nix run .#build-rubi   # rebuild the Wizer-preinitialized Rubi engine
+nix run .#build-rubi   # rebuild the Rubi engine with cached runtime initialization
 nix run .#manual       # rebuild all engines and manuals
 nix run .#check       # rebuild, compile the public examples, and verify the PDF
 nix flake check       # validate the Typst distribution using tracked plugins

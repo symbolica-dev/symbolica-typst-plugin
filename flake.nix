@@ -16,13 +16,13 @@
     in {
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.binaryen pkgs.cargo pkgs.lld pkgs.rustc pkgs.rustfmt pkgs.stdenv.cc pkgs.wizer (typstWithPackages pkgs) ];
+          packages = [ pkgs.binaryen pkgs.cargo pkgs.lld pkgs.rustc pkgs.rustfmt pkgs.stdenv.cc (typstWithPackages pkgs) ];
         };
       });
 
       apps = eachSystem (pkgs:
         let
-          path = [ pkgs.binaryen pkgs.cargo pkgs.coreutils pkgs.diffutils pkgs.lld pkgs.rustc pkgs.stdenv.cc pkgs.wizer (typstWithPackages pkgs) ];
+          path = [ pkgs.binaryen pkgs.cargo pkgs.coreutils pkgs.diffutils pkgs.lld pkgs.rustc pkgs.stdenv.cc (typstWithPackages pkgs) ];
           app = name: text: {
             type = "app";
             program = "${pkgs.writeShellApplication { inherit name; runtimeInputs = path; inherit text; }}/bin/${name}";
@@ -78,10 +78,9 @@
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
             cargo build --release --target "$target" --package symbolica-typst-integrate-plugin \
-              --no-default-features --features wizer-preinitialize
+              --no-default-features
 
-            rubi_preinitialized_input="target/$target/release/symbolica-integrate.preinitialize.wasm"
-            rubi_wizened="target/$target/release/symbolica-integrate.wizened.wasm"
+            rubi_raw="target/$target/release/symbolica-integrate.raw.wasm"
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd \
               --remove-exports --pass-arg='remove-exports@__getrandom*' \
               --remove-exports --pass-arg='remove-exports@drop' \
@@ -93,11 +92,10 @@
               --remove-exports --pass-arg='remove-exports@simplify*' \
               --remove-exports --pass-arg='remove-exports@use_hu_*' \
               --remove-unused-module-elements --strip-debug --strip-producers \
-              -o "$rubi_preinitialized_input" "target/$target/release/symbolica_typst_integrate_plugin.wasm"
-            wizer --init-func wizer.initialize "$rubi_preinitialized_input" -o "$rubi_wizened"
+              -o "$rubi_raw" "target/$target/release/symbolica_typst_integrate_plugin.wasm"
 
             cargo run --release --package symbolica-typst-inflate-plugin --bin symbolica-typst-compress -- \
-              "$rubi_wizened" symbolica-integrate/symbolica-integrate.wasm.zlib
+              "$rubi_raw" symbolica-integrate/symbolica-integrate.wasm.zlib
             size="$(wc -c < symbolica-integrate/symbolica-integrate.wasm.zlib)"
             if [ "$size" -gt 10485760 ]; then
               echo "symbolica-integrate/symbolica-integrate.wasm.zlib is $size bytes; the compressed Rubi engine must remain below 10 MiB" >&2

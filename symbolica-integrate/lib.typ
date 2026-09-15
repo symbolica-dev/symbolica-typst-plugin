@@ -6,15 +6,14 @@
 }
 
 // Keep module construction inside a pure, zero-argument function. Importing
-// this package does not evaluate either asset. Typst is free to cache calls,
-// but correctness does not depend on reuse: Wizer gives every instance the
-// same preinitialized Rubi tables.
+// this package does not evaluate either asset. Typst caches the transition;
+// the derived module's snapshot supplies initialized rules to every instance.
 #let _rubi-plugin() = {
   let inflater = plugin("symbolica-inflate.wasm")
   let module = inflater.decompress(
     read("symbolica-integrate.wasm.zlib", encoding: none),
   )
-  plugin(module)
+  plugin.transition(plugin(module).initialize)
 }
 
 /// Integrate a portable Symbolica Atom payload with Rubi.

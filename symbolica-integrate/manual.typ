@@ -75,10 +75,10 @@ Import the Rubi package explicitly alongside Symbolica:
 $ integral #sym.to-typst(f) dif x = #sym.to-typst(primitive) + C $
 ```
 
-Evaluating either integration function constructs the fixed bundled module
-through a pure zero-argument function. There is no loaded flag or call-order
-dependence: every new instance starts from the same Wizer-preinitialized Rubi
-tables.
+The first integration call prepares Rubi's rules through Typst's cached plugin
+transition. Later calls and ordinary edits reuse the prepared module. Additional
+instances receive its initialized memory snapshot. Restarting the compiler or
+losing its cache requires preparation again.
 
 == A worked rule trace
 
@@ -161,9 +161,9 @@ ln -s /path/to/symbolica-typst-plugin/symbolica-integrate \
   ~/.local/share/typst/packages/local/symbolica-integrate/0.1.0
 ```
 
-The integration directory contains its own compressed Wizer-preinitialized engine and
-its own inflater. Documents that use only Symbolica do not construct this
-engine.
+The integration directory contains its own compressed engine and inflater.
+The rule tables are constructed at runtime instead of being stored in the
+download. Documents that use only Symbolica do not construct this engine.
 
 Symbolica Integrate uses Symbolica's integration interface and the Rubi ruleset.
 Thanks to the Symbolica and Rubi contributors for making the engine possible.

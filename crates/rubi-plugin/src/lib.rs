@@ -189,18 +189,18 @@ fn encode_integration_explanation(
     ]))
 }
 
-/// Materialize the immutable Symbolica and Rubi tables in Wizer's build-time
-/// instance. Wizer removes this export from the delivered module.
-#[cfg(feature = "wizer-preinitialize")]
-#[unsafe(export_name = "wizer.initialize")]
-pub extern "C" fn wizer_initialize() {
+/// Prepare the rule tables through Typst's plugin.transition API. The derived
+/// module retains a memory snapshot for every instance in its execution pool.
+#[wasm_func]
+pub fn initialize() -> Result<Vec<u8>, String> {
     initialize_rubi();
     // The published crate initializes its rule tables lazily. Warm them
-    // through the public API so Wizer includes them in the delivered module.
+    // through the public API before Typst snapshots the module's memory.
     let x = symbolica::symbol!("symbolica_typst_integrate::warmup_x");
     let atom = Atom::var(x);
     let result = (&atom / (&atom + 1)).integrate(x);
-    assert!(result.is_ok(), "Rubi warm-up must integrate");
+    let _ = result.map_err(|_| "Rubi warm-up failed to integrate".to_owned())?;
+    Ok(Vec::new())
 }
 
 #[cfg(test)]
