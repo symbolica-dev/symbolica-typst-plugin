@@ -102,8 +102,8 @@
     radius: 5pt,
     fill: pale-accent,
   )[
-    Parse Typst mathematics, transform it with Symbolica's exact algebra
-    engine, and place the result directly back into a document.
+    Parse Typst mathematics, compute algebra and integrals with Symbolica,
+    inspect integration steps, and place results directly into a document.
 
     Powered by Symbolica 3.0. Free for any use within Typst.
     No license or license key needed.
@@ -136,7 +136,7 @@ and display the result with `to-typst`.
 #let quickstart-source = (
   "<<<#import \"@preview/symbolica:" + package-version + "\": *\n\n"
   + "#let p = math($(x + y)^3 - (x^3 + y^3)$)\n"
-  + "#to-typst(factor(expand(p)))"
+  + "$ #to-typst(factor(expand(p))) $"
 )
 #worked-example(raw(quickstart-source, lang: "worked", block: true))
 
@@ -159,6 +159,17 @@ package directory and use `@local` in place of `@preview`. A document inside
 the source checkout can also import `symbolica/lib.typ` by relative path.
 The repository checks register the checkout under both namespaces.
 
+On Linux, expose the repository root as a local package:
+
+```shell
+mkdir -p ~/.local/share/typst/packages/local/symbolica
+ln -s /path/to/symbolica-typst-plugin \
+  ~/.local/share/typst/packages/local/symbolica/0.1.0
+```
+
+The package contains one uncompressed `symbolica.wasm`, loaded directly by
+Typst. Package downloads use archive compression.
+
 == Create an engine
 
 The Symbolica 3.0 engine provides algebra, solving, evaluation, integration,
@@ -178,7 +189,8 @@ Use `integrate` or `integrate-with-steps` from the same import. The first call
 compiles and initializes the integration rule sets, which may take about
 10 seconds. Both functions share the cached rules across later calls and
 ordinary edits. Restarting the compiler or clearing its cache repeats this setup.
-See the integration guide for a complete worked rule trace.
+See @integration-guide for a complete worked rule trace. Algebra-only
+documents do not initialize the integration rules.
 
 == Where to begin
 
@@ -655,6 +667,94 @@ points uphill everywhere else. `evaluate-grid` pairs each point with one value
 for every requested expression; use `evaluate-many` when your sample points do
 not form a Cartesian product.
 
+#pagebreak()
+
+= Symbolic integration <integration-guide>
+
+Symbolica includes Rubi integration alongside algebra, differentiation, and
+rendering in the same package and WebAssembly engine. The integration
+functions accept the same expression values and symbol handles as the rest
+of the API.
+
+== Compute an antiderivative
+
+Use `integrate(expression, variable)` to compute a best-effort antiderivative.
+For example, integrate $x / (x + 1)$:
+
+```worked
+#let x = math($x$)
+#let f = math($x / (x + 1)$)
+#let primitive = integrate(f, x)
+
+$ integral #to-typst(f) dif x = #to-typst(primitive) + C $
+```
+
+The variable must represent one symbol. Both `math($x$)` and `symbol("x")`
+are accepted directly. Use `init(namespace: "model")` when integration and
+other algebra operations need a shared custom namespace.
+
+#callout(
+  [First integration call],
+  [
+    The first call to `integrate` or `integrate-with-steps` compiles and
+    initializes the rule sets, which may take about 10 seconds. Both functions
+    share the cached rules, so later calls and ordinary edits reuse them.
+    Restarting the compiler or clearing its cache repeats this setup.
+  ],
+)
+
+== Inspect a worked rule trace
+
+`integrate-with-steps(expression, variable)` returns a dictionary with
+`result`, `complete`, and nested `steps`. The following example renders Rubi's
+internal integral calls with familiar integral notation and indents each step
+according to its nesting depth:
+
+```worked
+#let x = math($x$)
+#let f = math($x / (x + 1)$)
+#let explanation = integrate-with-steps(f, x)
+#let step-notation = notation(
+  calls: (
+    "symbolica_integrate::rubi_int": ctx => {
+      let (body, variable) = ctx.visual-arguments
+      $ integral #body dif #variable $
+    },
+  ),
+)
+#let show-step(expression) = to-typst(expression, notation: step-notation)
+
+$ integral #to-typst(f) dif x = #to-typst(explanation.result) + C $
+
+#for step in explanation.steps [
+  #h(step.depth * 1.15em)
+  #if step.rule == none [*Transformation*] else [*Rule #step.rule*]
+  #if step.description != "" [: #step.description]
+  #linebreak()
+  #h(step.depth * 1.15em)
+  $#show-step(step.input) = #show-step(step.output)$
+  #linebreak()
+]
+```
+
+`complete` is `true` when Rubi eliminated every integral. A partial result is
+still returned when it is `false`. No integration constant is added; the
+examples display $C$ explicitly. Symbol namespaces, attributes, and portable
+attachments are retained in the result and in each step payload.
+
+== Step fields
+
+Each step contains:
+
+- `rule`: the Rubi rule number, or `none` for an auxiliary transformation;
+- `depth`: nesting depth of the rewritten integral;
+- `description`, `references`, and `source`: Rubi's explanatory metadata; and
+- `input` and `output`: portable Atom payload bytes for the immediate rewrite.
+
+The array is ordered from the outer rewrite into nested integrals. Use `depth`
+to indent it, group it, or build a custom explanation layout. The API reference
+also documents both integration functions alongside algebra and calculus.
+
 = What to expect
 
 The Typst plugin exposes a subset of the Symbolica engine's features. The
@@ -828,6 +928,9 @@ For source, issues, and release history, visit
 This plugin is powered by #link("https://symbolica.io/")[Symbolica].
 Thank you to its contributors for building and sharing the algebra engine at
 the heart of this package.
+
+Integration is provided by Symbolica Integrate and the Rubi ruleset. Thanks
+to their contributors for the integration engine and its explanatory rules.
 
 Thanks also to #link("https://typst.app/universe/package/parsely/")[Parsely],
 which makes it possible to work with mathematics written directly in Typst,

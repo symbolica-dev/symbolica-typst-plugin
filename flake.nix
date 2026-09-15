@@ -23,13 +23,11 @@
         for fixture in api-surface parsely-metadata worked-examples integration; do
           typst compile --root . "symbolica/tests/$fixture.typ" "$check_dir/test-$fixture.pdf"
         done
-        for manual in manual integration-manual; do
-          typst compile --creation-timestamp 0 --root . "symbolica/$manual.typ" "$check_dir/$manual.pdf"
-          if ! cmp -s "symbolica/$manual.pdf" "$check_dir/$manual.pdf"; then
-            echo "symbolica/$manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
-            exit 1
-          fi
-        done
+        typst compile --creation-timestamp 0 --root . symbolica/manual.typ "$check_dir/manual.pdf"
+        if ! cmp -s symbolica/manual.pdf "$check_dir/manual.pdf"; then
+          echo "symbolica/manual.pdf is stale; run 'nix run .#manual' and commit it" >&2
+          exit 1
+        fi
         for example in local-package integration-local-package; do
           typst compile --package-path "$check_dir/packages" --root . \
             "symbolica/examples/$example.typ" "$check_dir/$example.pdf"
@@ -82,9 +80,7 @@
             mkdir -p "$manual_packages/preview/symbolica"
             ln -s "$PWD" "$manual_packages/preview/symbolica/0.1.0"
             export TYPST_PACKAGE_PATH="$manual_packages"
-            for manual in manual integration-manual; do
-              typst compile --creation-timestamp 0 --root . "symbolica/$manual.typ" "symbolica/$manual.pdf"
-            done
+            typst compile --creation-timestamp 0 --root . symbolica/manual.typ symbolica/manual.pdf
           '');
           check = app "symbolica-check" (dependencyBoundaryScript + engineBuildScript + packageScript + ''
             check_dir="$(mktemp -d)"

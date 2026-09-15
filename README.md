@@ -181,9 +181,8 @@ instead; the package is fetched without manually uploading its Wasm.
 
 ## Documentation and examples
 
-- [User manual](symbolica/manual.pdf) — quickstart, concepts, recipes, limitations,
-  and complete API reference
-- [Rubi manual](symbolica/integration-manual.pdf) — symbolic integration and nested Rubi steps
+- [User manual](symbolica/manual.pdf) — quickstart, concepts, recipes, symbolic
+  integration with nested Rubi steps, limitations, and complete API reference
 - [Minimal example](symbolica/examples/basic.typ) — a compact first document
 - [Rubi integration](symbolica/examples/integration.typ) — an antiderivative and
   its nested rule steps

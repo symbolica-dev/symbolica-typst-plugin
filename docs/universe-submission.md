@@ -2,7 +2,7 @@
 
 Run `python3 scripts/prepare-distribution.py` to create the clean submission
 directory at `dist/universe/packages/preview/symbolica/0.1.0` and the runtime
-archive at `dist/symbolica-0.1.0.tar.gz`. The submission includes linked manuals,
+archive at `dist/symbolica-0.1.0.tar.gz`. The submission includes the linked manual,
 public examples, and the changelog; those documentation files are excluded
 from runtime downloads. Build scripts, tests, source files, and split upload
 chunks are not copied into the submission directory.
