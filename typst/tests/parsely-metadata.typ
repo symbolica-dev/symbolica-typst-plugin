@@ -24,7 +24,7 @@
 #let annotated = parsely.parse($#tagged + 1$, grammar)
 #let annotation = annotated.tree.args.first()
 #assert.eq(annotation.head, "semantic-metadata")
-#assert.eq(annotation.slots.value.protocol, "tymbolica")
+#assert.eq(annotation.slots.value.protocol, "symbolica")
 #assert.eq(annotation.slots.value.version, 1)
 #assert.eq(annotation.slots.value.kind, "atom")
 #assert(type(annotation.slots.value.atom) == bytes)

@@ -33,7 +33,7 @@ use symbolica::prelude::{
     ReplaceSettings, Replacement, Ring, SeriesDepth, SolutionCondition, SolveCoverage, SolveDomain,
     Symbol, Z,
 };
-use tymbolica_atom_payload::{
+use symbolica_typst_atom_payload::{
     AttachmentSet, encode_atom as encode_shared_atom, encode_atom_from_set,
     encode_atom_render_tree, parse_payload, typst_ast::AttachedAtom,
 };
@@ -343,7 +343,7 @@ fn attached_atom_from_ast(
     namespace: &str,
     label: &str,
 ) -> Result<AttachedAtom, String> {
-    tymbolica_atom_payload::typst_ast::attached_atom_from_ast(input, namespace, label)
+    symbolica_typst_atom_payload::typst_ast::attached_atom_from_ast(input, namespace, label)
 }
 
 fn symbol_atom(name: &str, namespace: &str) -> Result<Atom, String> {
@@ -920,10 +920,10 @@ fn render_atom(atom: &Atom, opts: PrintOptions, float_style: FloatRenderStyle) -
             if value.is_some_and(SerializedFloatValue::is_zero) {
                 return None;
             }
-            let name = format!("tymbolicafloatplaceholderq{placeholder_index}q");
+            let name = format!("symbolicafloatplaceholderq{placeholder_index}q");
             placeholder_index += 1;
             let placeholder = Atom::var(
-                Symbol::parse(&name, "tymbolica")
+                Symbol::parse(&name, "symbolica")
                     .expect("internal float placeholder is a valid symbol"),
             );
             let token =
@@ -1813,7 +1813,7 @@ pub fn render_tree(payload: &[u8]) -> Result<Vec<u8>, String> {
         encode_cbor(Value::Map(vec![
             (
                 Value::Text("protocol".to_owned()),
-                Value::Text("tymbolica".to_owned()),
+                Value::Text("symbolica".to_owned()),
             ),
             (Value::Text("version".to_owned()), Value::Integer(1.into())),
             (
@@ -2796,7 +2796,7 @@ extern "C" fn test_write_args_to_buffer(_: *mut u8) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tymbolica_atom_payload::{Attachment, AttachmentKey};
+    use symbolica_typst_atom_payload::{Attachment, AttachmentKey};
 
     fn cbor_text(value: &str) -> Vec<u8> {
         encode_cbor(Value::Text(value.to_owned())).unwrap()
@@ -2813,7 +2813,7 @@ mod tests {
     }
 
     fn test_attachment_key(identity: &[u8]) -> AttachmentKey {
-        AttachmentKey::new("org.tymbolica.test", 1, identity.to_vec()).unwrap()
+        AttachmentKey::new("org.symbolica.test", 1, identity.to_vec()).unwrap()
     }
 
     fn attached_test_atom(atom: &Atom, key: &AttachmentKey, data: &[u8]) -> Vec<u8> {
@@ -2858,7 +2858,7 @@ mod tests {
 
     #[test]
     fn public_symbol_tags_are_validated_and_survive_a_transform() {
-        let validation_namespace = cbor_text("tymbolica_portable_tag_validation_test");
+        let validation_namespace = cbor_text("symbolica_portable_tag_validation_test");
         assert!(
             symbol(
                 &cbor_text("bad"),
@@ -2870,7 +2870,7 @@ mod tests {
         );
 
         let name = cbor_text("x");
-        let namespace = cbor_text("tymbolica_portable_tags_test");
+        let namespace = cbor_text("symbolica_portable_tags_test");
         let tags = cbor_tags(&["model::positive", "model::parameter"]);
         let payload = symbol(&name, &namespace, &tags).unwrap();
         let transformed = expand(&payload).unwrap();
@@ -3049,7 +3049,7 @@ mod tests {
 
         // An explicitly real unknown still needs a domain condition when the
         // surrounding solve (and its external parameter) is complex.
-        let real_unknown = Atom::var(symbolica::symbol!("tymbolica_solver_real_unknown"; Real));
+        let real_unknown = Atom::var(symbolica::symbol!("symbolica_solver_real_unknown"; Real));
         let branches = exact_solve_branches(&[&real_unknown - &a], &[real_unknown], "complex");
         let Value::Map(branch) = &branches[0] else {
             panic!("solution branch must be a dictionary");
@@ -3210,11 +3210,18 @@ mod tests {
         let exact_half = symbolica::parse!("1/2");
         let encoded_leaf = encode_cbor(Value::Text("0.5".to_owned())).unwrap();
         for half in [
-            tymbolica_atom_payload::typst_ast::atom_from_value(&Value::Float(0.5), "symbolica")
-                .unwrap(),
+            symbolica_typst_atom_payload::typst_ast::atom_from_value(
+                &Value::Float(0.5),
+                "symbolica",
+            )
+            .unwrap(),
             atom_from_cbor_value(&Value::Float(0.5), "half").unwrap(),
-            tymbolica_atom_payload::typst_ast::atom_from_ast(&encoded_leaf, "symbolica", "leaf")
-                .unwrap(),
+            symbolica_typst_atom_payload::typst_ast::atom_from_ast(
+                &encoded_leaf,
+                "symbolica",
+                "leaf",
+            )
+            .unwrap(),
         ] {
             assert!(matches!(
                 half.as_view(),

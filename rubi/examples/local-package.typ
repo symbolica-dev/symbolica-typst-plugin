@@ -1,5 +1,5 @@
-#import "@local/tymbolica:0.1.0" as sym
-#import "@local/tymbolica-rubi:0.1.0": integrate-with-steps
+#import "@local/symbolica:0.1.0" as sym
+#import "@local/symbolica-integrate:0.1.0": integrate-with-steps
 
 #set page(width: auto, height: auto, margin: 12pt)
 

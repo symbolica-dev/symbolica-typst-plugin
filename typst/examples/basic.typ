@@ -6,7 +6,7 @@
 
 = Exact algebra in one document
 
-Tymbolica turns native Typst mathematics into an exact Symbolica expression and
+Symbolica turns native Typst mathematics into an exact Symbolica expression and
 places the computed result back into the document.
 
 #let x = symbol("x")

@@ -1,6 +1,6 @@
 #let _payload(value, label) = {
   if type(value) != bytes {
-    panic(label + " must be portable Tymbolica Atom payload bytes")
+    panic(label + " must be portable Symbolica Atom payload bytes")
   }
   value
 }
@@ -10,18 +10,18 @@
 // but correctness does not depend on reuse: Wizer gives every instance the
 // same preinitialized Rubi tables.
 #let _rubi-plugin() = {
-  let inflater = plugin("tymbolica-inflate.wasm")
+  let inflater = plugin("symbolica-inflate.wasm")
   let module = inflater.decompress(
-    read("tymbolica-rubi.wasm.zlib", encoding: none),
+    read("symbolica-integrate.wasm.zlib", encoding: none),
   )
   plugin(module)
 }
 
-/// Integrate a portable Tymbolica Atom payload with Rubi.
+/// Integrate a portable Symbolica Atom payload with Rubi.
 ///
 /// The integration variable must be an Atom payload containing one symbol.
 /// Rubi returns its best-effort result and does not add an integration
-/// constant. Construct inputs and render the returned bytes with Tymbolica or
+/// constant. Construct inputs and render the returned bytes with Symbolica or
 /// another plugin that implements the shared Atom-payload protocol.
 ///
 /// -> bytes

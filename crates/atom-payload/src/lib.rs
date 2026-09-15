@@ -1,4 +1,4 @@
-//! Symbolica Atom payloads exchanged by Tymbolica-compatible plugins.
+//! Symbolica Atom payloads exchanged by Symbolica-compatible plugins.
 //!
 //! The envelope validates the native Symbolica export's compatibility header,
 //! while keeping the rest of that export opaque. Consumers can inspect portable
@@ -21,12 +21,12 @@ use symbolica::{
 };
 
 /// Magic prefix for the versioned envelope.
-pub const PAYLOAD_MAGIC: &[u8; 8] = b"TYMATOM\0";
+pub const PAYLOAD_MAGIC: &[u8; 8] = b"SYMATOM\0";
 /// Current binary-envelope version.
 pub const PAYLOAD_VERSION: u16 = 2;
 
 /// Protocol discriminator for the generic CBOR Atom render tree.
-pub const RENDER_TREE_PROTOCOL: &str = "tymbolica";
+pub const RENDER_TREE_PROTOCOL: &str = "symbolica";
 /// Current schema version of the generic CBOR Atom render tree.
 pub const RENDER_TREE_VERSION: u16 = 1;
 /// Kind discriminator for the generic CBOR Atom render tree.
@@ -1047,7 +1047,7 @@ mod tests {
 
     #[test]
     fn envelope_supports_two_stage_inspection_without_import() {
-        let attachment_key = key("org.tymbolica.test", 1, b"namespace::f");
+        let attachment_key = key("org.symbolica.test", 1, b"namespace::f");
         let payload = encode_exported_atom(
             OPAQUE_ATOM_EXPORT,
             [Attachment::new(attachment_key.clone(), b"metadata".to_vec()).unwrap()],
@@ -1065,8 +1065,8 @@ mod tests {
 
     #[test]
     fn encoding_is_deterministic_and_merges_identical_entries() {
-        let a = attachment("org.tymbolica.a", 1, b"a", b"first");
-        let b = attachment("org.tymbolica.b", 2, b"b", b"second");
+        let a = attachment("org.symbolica.a", 1, b"a", b"first");
+        let b = attachment("org.symbolica.b", 2, b"b", b"second");
         let forward = encode_exported_atom(OPAQUE_ATOM_EXPORT, [a.clone(), b.clone()]).unwrap();
         let reversed_with_duplicate =
             encode_exported_atom(OPAQUE_ATOM_EXPORT, [b, a.clone(), a]).unwrap();
@@ -1074,20 +1074,20 @@ mod tests {
         assert_eq!(forward, reversed_with_duplicate);
         let parsed = parse_payload(&forward).unwrap();
         assert_eq!(parsed.attachments().len(), 2);
-        assert_eq!(parsed.attachments()[0].schema(), "org.tymbolica.a");
-        assert_eq!(parsed.attachments()[1].schema(), "org.tymbolica.b");
+        assert_eq!(parsed.attachments()[0].schema(), "org.symbolica.a");
+        assert_eq!(parsed.attachments()[1].schema(), "org.symbolica.b");
     }
 
     #[test]
     fn attachment_sets_merge_associatively_and_reencode_raw_exports() {
-        let a = AttachmentSet::from_attachments([attachment("org.tymbolica.a", 1, b"a", b"first")])
+        let a = AttachmentSet::from_attachments([attachment("org.symbolica.a", 1, b"a", b"first")])
             .unwrap();
         let b = AttachmentSet::from_attachments([
-            attachment("org.tymbolica.a", 1, b"a", b"first"),
-            attachment("org.tymbolica.b", 1, b"b", b"second"),
+            attachment("org.symbolica.a", 1, b"a", b"first"),
+            attachment("org.symbolica.b", 1, b"b", b"second"),
         ])
         .unwrap();
-        let c = AttachmentSet::from_attachments([attachment("org.tymbolica.c", 2, b"c", b"third")])
+        let c = AttachmentSet::from_attachments([attachment("org.symbolica.c", 2, b"c", b"third")])
             .unwrap();
 
         let mut left = a.clone();
@@ -1100,7 +1100,7 @@ mod tests {
         assert_eq!(left, right);
         assert_eq!(left.len(), 3);
         assert_eq!(
-            left.get(&key("org.tymbolica.b", 1, b"b")),
+            left.get(&key("org.symbolica.b", 1, b"b")),
             Some(b"second".as_slice())
         );
         assert_eq!(left.iter().count(), 3);
@@ -1113,7 +1113,7 @@ mod tests {
 
     #[test]
     fn attachment_limit_counts_unique_keys_after_deduplication() {
-        let repeated = attachment("org.tymbolica.same", 1, b"same", b"same-data");
+        let repeated = attachment("org.symbolica.same", 1, b"same", b"same-data");
         let set = AttachmentSet::from_attachments(std::iter::repeat_n(
             repeated.clone(),
             MAX_ATTACHMENTS + 1,
@@ -1132,7 +1132,7 @@ mod tests {
         );
 
         let unique = (0..=MAX_ATTACHMENTS)
-            .map(|index| attachment("org.tymbolica.unique", 1, &index.to_be_bytes(), b"data"))
+            .map(|index| attachment("org.symbolica.unique", 1, &index.to_be_bytes(), b"data"))
             .collect::<Vec<_>>();
         assert!(matches!(
             AttachmentSet::from_attachments(unique),
@@ -1143,14 +1143,14 @@ mod tests {
     #[test]
     fn attachment_set_conflicts_are_transactional() {
         let mut target = AttachmentSet::from_attachments([
-            attachment("org.tymbolica.a", 1, b"a", b"original"),
-            attachment("org.tymbolica.b", 1, b"b", b"stable"),
+            attachment("org.symbolica.a", 1, b"a", b"original"),
+            attachment("org.symbolica.b", 1, b"b", b"stable"),
         ])
         .unwrap();
         let before = target.clone();
         let conflicting = AttachmentSet::from_attachments([
-            attachment("org.tymbolica.c", 1, b"c", b"new"),
-            attachment("org.tymbolica.a", 1, b"a", b"different"),
+            attachment("org.symbolica.c", 1, b"c", b"new"),
+            attachment("org.symbolica.a", 1, b"a", b"different"),
         ])
         .unwrap();
 
@@ -1165,12 +1165,12 @@ mod tests {
     fn attachment_set_limit_failures_are_transactional() {
         let mut count_limited = AttachmentSet::from_attachments(
             (0..MAX_ATTACHMENTS)
-                .map(|index| attachment("org.tymbolica.count", 1, &index.to_be_bytes(), b"data")),
+                .map(|index| attachment("org.symbolica.count", 1, &index.to_be_bytes(), b"data")),
         )
         .unwrap();
         let count_before = count_limited.clone();
         let count_overflow = AttachmentSet::from_attachments([attachment(
-            "org.tymbolica.count",
+            "org.symbolica.count",
             1,
             b"overflow",
             b"data",
@@ -1185,12 +1185,12 @@ mod tests {
         let large_data = vec![0; MAX_ATTACHMENT_DATA_BYTES];
         let mut byte_limited =
             AttachmentSet::from_attachments((0_u32..3).map(|index| {
-                attachment("org.tymbolica.bytes", 1, &index.to_be_bytes(), &large_data)
+                attachment("org.symbolica.bytes", 1, &index.to_be_bytes(), &large_data)
             }))
             .unwrap();
         let byte_before = byte_limited.clone();
         let byte_overflow = AttachmentSet::from_attachments([attachment(
-            "org.tymbolica.bytes",
+            "org.symbolica.bytes",
             1,
             &3_u32.to_be_bytes(),
             &large_data,
@@ -1205,8 +1205,8 @@ mod tests {
 
     #[test]
     fn conflicting_entries_are_rejected_during_encode_and_parse() {
-        let first = attachment("org.tymbolica.test", 1, b"same", b"one");
-        let second = attachment("org.tymbolica.test", 1, b"same", b"two");
+        let first = attachment("org.symbolica.test", 1, b"same", b"one");
+        let second = attachment("org.symbolica.test", 1, b"same", b"two");
         assert!(matches!(
             encode_exported_atom(OPAQUE_ATOM_EXPORT, [first.clone(), second]),
             Err(PayloadError::ConflictingAttachment(_))
@@ -1230,7 +1230,7 @@ mod tests {
     fn incompatible_symbolica_headers_are_rejected_during_parse() {
         let payload = encode_exported_atom(
             OPAQUE_ATOM_EXPORT,
-            [attachment("org.tymbolica.test", 1, b"id", b"data")],
+            [attachment("org.symbolica.test", 1, b"id", b"data")],
         )
         .unwrap();
 
@@ -1264,7 +1264,7 @@ mod tests {
     fn truncated_envelopes_are_always_rejected() {
         let payload = encode_exported_atom(
             OPAQUE_ATOM_EXPORT,
-            [attachment("org.tymbolica.test", 1, b"id", b"data")],
+            [attachment("org.symbolica.test", 1, b"id", b"data")],
         )
         .unwrap();
 
@@ -1321,12 +1321,12 @@ mod tests {
     #[test]
     fn limits_and_trailing_bytes_are_enforced() {
         assert!(matches!(
-            AttachmentKey::new("org.tymbolica.test", 1, vec![0; MAX_ATTACHMENT_KEY_BYTES]),
+            AttachmentKey::new("org.symbolica.test", 1, vec![0; MAX_ATTACHMENT_KEY_BYTES]),
             Err(PayloadError::LimitExceeded)
         ));
         assert!(matches!(
             Attachment::new(
-                key("org.tymbolica.test", 1, b"id"),
+                key("org.symbolica.test", 1, b"id"),
                 vec![0; MAX_ATTACHMENT_DATA_BYTES + 1]
             ),
             Err(PayloadError::LimitExceeded)
@@ -1360,7 +1360,7 @@ mod tests {
         let payload = encode_atom_with_attachments(
             &atom,
             [attachment(
-                "org.tymbolica.test",
+                "org.symbolica.test",
                 1,
                 b"namespace::f",
                 b"metadata",
@@ -1384,14 +1384,14 @@ mod tests {
         ));
 
         let rich = symbol!(
-            "tymbolica_payload_test::g";
+            "symbolica_payload_test::g";
             Symmetric, Linear, Real;
-            tags = ["tymbolica_test::render"]
+            tags = ["symbolica_test::render"]
         );
         let rich_atom = function!(
             rich,
-            symbol!("tymbolica_payload_test::y"),
-            symbol!("tymbolica_payload_test::x")
+            symbol!("symbolica_payload_test::y"),
+            symbol!("symbolica_payload_test::x")
         );
         assert_eq!(
             decode_atom(&encode_atom(&rich_atom).unwrap()).unwrap(),
@@ -1419,9 +1419,9 @@ mod tests {
 
         let render_attachments = AttachmentSet::from_attachments([
             attachment(
-                "org.tymbolica.known",
+                "org.symbolica.known",
                 1,
-                b"tymbolica_payload_test::g",
+                b"symbolica_payload_test::g",
                 b"known declaration",
             ),
             attachment(
@@ -1432,7 +1432,7 @@ mod tests {
             ),
         ])
         .unwrap();
-        let x = symbol!("tymbolica_payload_test::render_x");
+        let x = symbol!("symbolica_payload_test::render_x");
         let structured = rich_atom.clone() * Atom::var(x).pow(2) + Atom::num((1, 3));
         let render_tree = atom_render_tree_value(&structured, &render_attachments).unwrap();
 
@@ -1487,11 +1487,11 @@ mod tests {
         };
         assert_eq!(
             value_field(function_symbol, "name"),
-            Some(&Value::Text("tymbolica_payload_test::g".to_owned()))
+            Some(&Value::Text("symbolica_payload_test::g".to_owned()))
         );
         assert_eq!(
             value_field(function_symbol, "namespace"),
-            Some(&Value::Text("tymbolica_payload_test".to_owned()))
+            Some(&Value::Text("symbolica_payload_test".to_owned()))
         );
         assert_eq!(
             value_field(function_symbol, "short-name"),
@@ -1500,7 +1500,7 @@ mod tests {
         assert_eq!(
             value_field(function_symbol, "tags"),
             Some(&Value::Array(vec![Value::Text(
-                "tymbolica_test::render".to_owned()
+                "symbolica_test::render".to_owned()
             )]))
         );
         let Value::Array(attributes) = value_field(function_symbol, "attributes").unwrap() else {
@@ -1553,7 +1553,7 @@ mod tests {
         assert_eq!(decoded_render_tree, render_tree);
 
         let custom = symbol!(
-            "tymbolica_payload_test::custom",
+            "symbolica_payload_test::custom",
             print = |_view, _options, _state| Some("callback-must-not-run".to_owned())
         );
         let custom_tree =

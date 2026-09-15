@@ -169,7 +169,7 @@
   }
 }
 #let _atom-envelope(atom, semantic) = (
-  protocol: "tymbolica",
+  protocol: "symbolica",
   version: 1,
   kind: "atom",
   atom: atom,
@@ -606,14 +606,14 @@
 #let _div(engine, lhs, rhs) = engine.plugin.div(_expr_bytes(engine, lhs), _expr_bytes(engine, rhs))
 #let _pow(engine, base, exp) = engine.plugin.power(_expr_bytes(engine, base), _expr_bytes(engine, exp))
 
-#let _decompress-bundled(path) = plugin("tymbolica-inflate.wasm").decompress(
+#let _decompress-bundled(path) = plugin("symbolica-inflate.wasm").decompress(
   read(path, encoding: none),
 )
-#let _bundled_plugin() = plugin(_decompress-bundled("tymbolica.wasm.zlib"))
+#let _bundled_plugin() = plugin(_decompress-bundled("symbolica.wasm.zlib"))
 
-/// Create an independent set of Tymbolica functions.
+/// Create an independent set of Symbolica functions.
 ///
-/// The returned dictionary exposes Tymbolica's parsing, algebra, evaluation,
+/// The returned dictionary exposes Symbolica's parsing, algebra, evaluation,
 /// solving, and matrix operations. Use `init` when you want to select a symbol
 /// namespace, plugin location, or parser grammar; ordinary calculations can
 /// use the imported top-level functions directly.

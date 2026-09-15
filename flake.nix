@@ -31,10 +31,10 @@
           loaderBuildScript = ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package tymbolica-inflate-plugin --lib
-            for output in typst/tymbolica-inflate.wasm rubi/tymbolica-inflate.wasm; do
+            cargo build --release --target "$target" --package symbolica-typst-inflate-plugin --lib
+            for output in typst/symbolica-inflate.wasm rubi/symbolica-inflate.wasm; do
               wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-                -o "$output" "target/$target/release/tymbolica_inflate_plugin.wasm"
+                -o "$output" "target/$target/release/symbolica_typst_inflate_plugin.wasm"
               size="$(wc -c < "$output")"
               if [ "$size" -gt 10485760 ]; then
                 echo "$output is $size bytes; the loader must remain below 10 MiB" >&2
@@ -46,29 +46,29 @@
           engineBuildScript = ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package tymbolica-plugin --no-default-features
+            cargo build --release --target "$target" --package symbolica-typst-plugin --no-default-features
 
-            engine_raw="target/$target/release/tymbolica.raw.wasm"
+            engine_raw="target/$target/release/symbolica.raw.wasm"
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd --strip-debug --strip-producers \
-              -o "$engine_raw" "target/$target/release/tymbolica_plugin.wasm"
+              -o "$engine_raw" "target/$target/release/symbolica_typst_plugin.wasm"
 
-            cargo run --release --package tymbolica-inflate-plugin --bin tymbolica-compress -- \
-              "$engine_raw" typst/tymbolica.wasm.zlib
-            size="$(wc -c < typst/tymbolica.wasm.zlib)"
+            cargo run --release --package symbolica-typst-inflate-plugin --bin symbolica-typst-compress -- \
+              "$engine_raw" typst/symbolica.wasm.zlib
+            size="$(wc -c < typst/symbolica.wasm.zlib)"
             if [ "$size" -gt 10485760 ]; then
-              echo "typst/tymbolica.wasm.zlib is $size bytes; the compressed engine must remain below 10 MiB" >&2
+              echo "typst/symbolica.wasm.zlib is $size bytes; the compressed engine must remain below 10 MiB" >&2
               exit 1
             fi
-            ls -lh typst/tymbolica.wasm.zlib
+            ls -lh typst/symbolica.wasm.zlib
           '';
           rubiBuildScript = ''
             target=wasm32-unknown-unknown
             unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
-            cargo build --release --target "$target" --package tymbolica-rubi-plugin \
+            cargo build --release --target "$target" --package symbolica-typst-integrate-plugin \
               --no-default-features --features wizer-preinitialize
 
-            rubi_preinitialized_input="target/$target/release/tymbolica-rubi.preinitialize.wasm"
-            rubi_wizened="target/$target/release/tymbolica-rubi.wizened.wasm"
+            rubi_preinitialized_input="target/$target/release/symbolica-integrate.preinitialize.wasm"
+            rubi_wizened="target/$target/release/symbolica-integrate.wizened.wasm"
             wasm-opt -Oz --quiet --enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-simd \
               --remove-exports --pass-arg='remove-exports@__getrandom*' \
               --remove-exports --pass-arg='remove-exports@drop' \
@@ -80,17 +80,17 @@
               --remove-exports --pass-arg='remove-exports@simplify*' \
               --remove-exports --pass-arg='remove-exports@use_hu_*' \
               --remove-unused-module-elements --strip-debug --strip-producers \
-              -o "$rubi_preinitialized_input" "target/$target/release/tymbolica_rubi_plugin.wasm"
+              -o "$rubi_preinitialized_input" "target/$target/release/symbolica_typst_integrate_plugin.wasm"
             wizer --init-func wizer.initialize "$rubi_preinitialized_input" -o "$rubi_wizened"
 
-            cargo run --release --package tymbolica-inflate-plugin --bin tymbolica-compress -- \
-              "$rubi_wizened" rubi/tymbolica-rubi.wasm.zlib
-            size="$(wc -c < rubi/tymbolica-rubi.wasm.zlib)"
+            cargo run --release --package symbolica-typst-inflate-plugin --bin symbolica-typst-compress -- \
+              "$rubi_wizened" rubi/symbolica-integrate.wasm.zlib
+            size="$(wc -c < rubi/symbolica-integrate.wasm.zlib)"
             if [ "$size" -gt 10485760 ]; then
-              echo "rubi/tymbolica-rubi.wasm.zlib is $size bytes; the compressed Rubi engine must remain below 10 MiB" >&2
+              echo "rubi/symbolica-integrate.wasm.zlib is $size bytes; the compressed Rubi engine must remain below 10 MiB" >&2
               exit 1
             fi
-            ls -lh rubi/tymbolica-rubi.wasm.zlib
+            ls -lh rubi/symbolica-integrate.wasm.zlib
           '';
           dependencyBoundaryScript = ''
             assert_dependency_absent() {
@@ -105,28 +105,28 @@
             }
 
             for dependency in spenso idenso; do
-              for package in tymbolica-plugin tymbolica-atom-payload tymbolica-rubi-plugin; do
+              for package in symbolica-typst-plugin symbolica-typst-atom-payload symbolica-typst-integrate-plugin; do
                 assert_dependency_absent "$package" "$dependency"
               done
             done
-            assert_dependency_absent tymbolica-plugin symbolica-integrate
-            assert_dependency_absent tymbolica-atom-payload symbolica-integrate
+            assert_dependency_absent symbolica-typst-plugin symbolica-integrate
+            assert_dependency_absent symbolica-typst-atom-payload symbolica-integrate
           '';
           buildScript = loaderBuildScript + engineBuildScript + rubiBuildScript;
         in rec {
           default = build;
-          build = app "tymbolica-build" buildScript;
-          build-engine = app "tymbolica-build-engine" (loaderBuildScript + engineBuildScript);
-          build-rubi = app "tymbolica-build-rubi" (loaderBuildScript + rubiBuildScript);
-          manual = app "tymbolica-manual" (buildScript + ''
-            tymbolica_out="''${TYMBOLICA_MANUAL_OUT:-typst/manual.pdf}"
-            rubi_out="''${TYMBOLICA_RUBI_MANUAL_OUT:-rubi/manual.pdf}"
-            mkdir -p "$(dirname "$tymbolica_out")" "$(dirname "$rubi_out")"
-            typst compile --creation-timestamp 0 --root . typst/manual.typ "$tymbolica_out"
+          build = app "symbolica-build" buildScript;
+          build-engine = app "symbolica-build-engine" (loaderBuildScript + engineBuildScript);
+          build-rubi = app "symbolica-build-rubi" (loaderBuildScript + rubiBuildScript);
+          manual = app "symbolica-manual" (buildScript + ''
+            symbolica_out="''${SYMBOLICA_MANUAL_OUT:-typst/manual.pdf}"
+            rubi_out="''${SYMBOLICA_RUBI_MANUAL_OUT:-rubi/manual.pdf}"
+            mkdir -p "$(dirname "$symbolica_out")" "$(dirname "$rubi_out")"
+            typst compile --creation-timestamp 0 --root . typst/manual.typ "$symbolica_out"
             typst compile --creation-timestamp 0 --root . rubi/manual.typ "$rubi_out"
-            ls -lh "$tymbolica_out" "$rubi_out"
+            ls -lh "$symbolica_out" "$rubi_out"
           '');
-          check = app "tymbolica-check" (dependencyBoundaryScript + buildScript + ''
+          check = app "symbolica-check" (dependencyBoundaryScript + buildScript + ''
             check_dir="$(mktemp -d)"
             trap 'rm -rf "$check_dir"' EXIT
 
@@ -143,13 +143,13 @@
             typst compile --root . rubi/tests/integration.typ "$check_dir/rubi-integration-tests.pdf"
             typst compile --creation-timestamp 0 --root . rubi/manual.typ "$check_dir/rubi-manual.pdf"
 
-            package_dir="$check_dir/xdg/typst/packages/local/tymbolica"
+            package_dir="$check_dir/xdg/typst/packages/local/symbolica"
             mkdir -p "$package_dir"
             ln -s "$PWD" "$package_dir/0.1.0"
             XDG_DATA_HOME="$check_dir/xdg" \
               typst compile --root . typst/examples/local-package.typ "$check_dir/local-package.pdf"
 
-            rubi_package_dir="$check_dir/xdg/typst/packages/local/tymbolica-rubi"
+            rubi_package_dir="$check_dir/xdg/typst/packages/local/symbolica-integrate"
             mkdir -p "$rubi_package_dir"
             ln -s "$PWD/rubi" "$rubi_package_dir/0.1.0"
             XDG_DATA_HOME="$check_dir/xdg" \
@@ -164,17 +164,17 @@
               exit 1
             fi
           '');
-          typst = app "tymbolica-typst" ''exec typst "$@"'';
+          typst = app "symbolica-typst" ''exec typst "$@"'';
         });
 
       checks = eachSystem (pkgs:
         let
           typst = typstWithPackages pkgs;
         in {
-          default = pkgs.runCommand "tymbolica-typst-check" {
+          default = pkgs.runCommand "symbolica-typst-check" {
             nativeBuildInputs = [ pkgs.coreutils pkgs.diffutils pkgs.findutils typst ];
           } ''
-            work="$TMPDIR/tymbolica"
+            work="$TMPDIR/symbolica"
             mkdir -p "$work"
             cp -R ${self}/typst "$work/typst"
             cp -R ${self}/rubi "$work/rubi"
@@ -211,13 +211,13 @@
             typst compile --root "$work" "$work/rubi/tests/integration.typ" "$out/rubi-integration-tests.pdf"
             typst compile --creation-timestamp 0 --root "$work" "$work/rubi/manual.typ" "$out/rubi-manual.pdf"
 
-            package_dir="$TMPDIR/xdg/typst/packages/local/tymbolica"
+            package_dir="$TMPDIR/xdg/typst/packages/local/symbolica"
             mkdir -p "$package_dir"
             ln -s "$work" "$package_dir/0.1.0"
             XDG_DATA_HOME="$TMPDIR/xdg" \
               typst compile --root "$work" "$work/typst/examples/local-package.typ" "$out/local-package.pdf"
 
-            rubi_package_dir="$TMPDIR/xdg/typst/packages/local/tymbolica-rubi"
+            rubi_package_dir="$TMPDIR/xdg/typst/packages/local/symbolica-integrate"
             mkdir -p "$rubi_package_dir"
             ln -s "$work/rubi" "$rubi_package_dir/0.1.0"
             XDG_DATA_HOME="$TMPDIR/xdg" \

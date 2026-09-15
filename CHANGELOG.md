@@ -1,12 +1,20 @@
 # Changelog
 
-All notable user-visible changes are recorded here. Tymbolica currently uses a
-local `0.1.0` package while its initial public surface is being prepared.
+All notable user-visible changes are recorded here. The Symbolica Typst plugin
+currently uses a local `0.1.0` package while its initial public surface is being
+prepared.
 
 ## Unreleased
 
-- Updated core and Rubi to official Symbolica `main` at `4f132318`, with
-  Numerica and Graphica pinned to the same revision.
+- Updated core and integration to the Symbolica 3.0.0 release from crates.io.
+- Renamed the official Typst packages to `symbolica` and `symbolica-integrate`,
+  and the Rust crates to `symbolica-typst-plugin`,
+  `symbolica-typst-integrate-plugin`, `symbolica-typst-inflate-plugin`, and
+  `symbolica-typst-atom-payload`. Update package imports and Rust dependencies
+  to the new names. Payloads now use the `symbolica` protocol identifier and
+  `SYMATOM` envelope prefix.
+- The official plugins are free to use for any use within Typst, including
+  academic and commercial work. No Symbolica license or license key is needed.
 - Includes the upstream fix for the exact algebraic solver hang present in
   `ba373713`, including `x - sqrt(2) = 0` with the Wasm numeric backend. The
   standalone regression check and historical diagnosis remain in
@@ -27,26 +35,26 @@ local `0.1.0` package while its initial public surface is being prepared.
 - Added a pendulum-calibration workflow, exact and numerical nonlinear solving,
   verified polynomial integration, wildcard rewriting, exact interpolation,
   and batched gradient evaluation examples.
-- Added the separate `tymbolica-rubi` package around the MIT-licensed
+- Added the separate `symbolica-integrate` package around the MIT-licensed
   `symbolica-integrate` engine. Its focused plugin exposes only `integrate` and
   `integrate-with-steps`; the latter returns Rubi's genuine nested
   transformations, metadata, expressions, and completion status.
 - Preinitialize Rubi's immutable rule tables with Wizer at build time. The
-  lightweight Tymbolica core and focused Rubi extension are stored as
+  lightweight Symbolica core and focused Rubi extension are stored as
   independent DEFLATE-compressed assets below the Typst web app's 10 MiB limit.
 - Consolidated the Parsely-to-Atom bridge, native Atom export, portable
   attachments, and recursive render tree in the reusable
-  `tymbolica-atom-payload` crate. Tymbolica and Rubi preserve unknown attachment
+  `symbolica-typst-atom-payload` crate. Symbolica and Rubi preserve unknown attachment
   schemas without linking their owners.
 - Moved Tydenso's plugin, Typst package, manual, examples, and tensor-specific
   attachment codecs into GammaLoop, where Spenso, Idenso, and Spynso are
   maintained. GammaLoop consumes the shared payload crate as a pinned Git
-  dependency; Tymbolica has no reverse dependency on GammaLoop.
+  dependency; Symbolica has no reverse dependency on GammaLoop.
 - Added recursive CBOR inspection of Symbolica Atom internals while retaining
   the native Atom export as the lossless cross-plugin payload.
 - Documented every public parameter, default, return shape, and current
   capability boundary in the generated reference.
-- Declared Tymbolica's original source code under the MIT License while keeping
+- Declared the original plugin source code under the MIT License while keeping
   Symbolica's separate upstream terms explicit.
 - Added release checks for the root package manifest and documented `@local`
   import layout.

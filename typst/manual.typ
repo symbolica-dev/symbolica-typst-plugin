@@ -3,7 +3,7 @@
 
 #let manifest = toml("../typst.toml")
 #let package-version = manifest.package.version
-#let repository = "https://github.com/lcnbr/tymbolica"
+#let repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
 #let symbolica-guide = "https://symbolica.io/docs/quick_start.html"
 #let accent = rgb("#315c88")
 #let pale-accent = rgb("#edf4fb")
@@ -12,8 +12,8 @@
 #let muted = rgb("#5f6873")
 
 #set document(
-  title: "Tymbolica Manual",
-  author: "Tymbolica contributors",
+  title: "Symbolica Manual",
+  author: "Symbolica contributors",
 )
 #set page(
   paper: "a4",
@@ -24,7 +24,7 @@
       grid(
         columns: (1fr, auto),
         align: (left, right),
-        [Tymbolica],
+        [Symbolica],
         [Version #package-version],
       )
       line(length: 100%, stroke: 0.35pt + rgb("#ccd3da"))
@@ -89,10 +89,10 @@
 #align(center)[
   #v(25mm)
   #text(font: "Libertinus Serif", size: 35pt, weight: "bold", fill: accent)[
-    Tymbolica
+    Symbolica
   ]
   #v(5mm)
-  #text(size: 16pt, fill: muted)[Exact symbolic computation inside Typst]
+  #text(size: 16pt, fill: muted)[The official Symbolica plugin for Typst]
   #v(13mm)
   #text(size: 11pt)[User manual · version #package-version]
   #v(23mm)
@@ -104,12 +104,14 @@
   )[
     Parse Typst mathematics, transform it with Symbolica's exact algebra
     engine, and place the result directly back into a document.
+
+    Powered by Symbolica 3.0. Free for any use within Typst.
+    No license or license key needed.
   ]
   #v(34mm)
   #link(repository)[Repository] ·
-  #link(repository + "/blob/main/LICENSE")[MIT license] ·
-  #link(symbolica-guide)[Symbolica guide] ·
-  #link("https://symbolica.io/license/")[Symbolica license]
+  #link(repository + "/blob/main/LICENSE")[Plugin source license] ·
+  #link(symbolica-guide)[Symbolica guide]
 ]
 
 #pagebreak()
@@ -123,7 +125,7 @@
 
 = Start here
 
-Tymbolica keeps symbolic calculation beside the mathematics it belongs to.
+Symbolica keeps symbolic calculation beside the mathematics it belongs to.
 You can write a formula in Typst, factor or differentiate it, and place the
 answer straight back into the page—without copying expressions to another
 program.
@@ -132,22 +134,22 @@ Here is the whole pattern: read some mathematics with `math`, do the algebra,
 and display the result with `to-typst`.
 
 #let quickstart-source = (
-  "<<<#import \"@local/tymbolica:" + package-version + "\": *\n\n"
+  "<<<#import \"@local/symbolica:" + package-version + "\": *\n\n"
   + "#let p = math($(x + y)^3 - (x^3 + y^3)$)\n"
   + "#to-typst(factor(expand(p)))"
 )
 #worked-example(raw(quickstart-source, lang: "worked", block: true))
 
-Tymbolica finds $3 x y (x + y)$ exactly. The same three-step pattern—read,
+Symbolica finds $3 x y (x + y)$ exactly. The same three-step pattern—read,
 calculate, display—runs through the rest of this manual.
 
 == Installation
 
-Until Tymbolica is published in Typst Universe, install it from a checkout. On
+Until Symbolica is published in Typst Universe, install it from a checkout. On
 Linux, place or symlink the repository root at:
 
 #raw(
-  "~/.local/share/typst/packages/local/tymbolica/" + package-version,
+  "~/.local/share/typst/packages/local/symbolica/" + package-version,
   lang: "text",
   block: true,
 )
@@ -158,7 +160,7 @@ the bundled compressed engine and its loader.
 Then import:
 
 #raw(
-  "#import \"@local/tymbolica:" + package-version + "\": *",
+  "#import \"@local/symbolica:" + package-version + "\": *",
   lang: "typ",
   block: true,
 )
@@ -167,7 +169,7 @@ From a source checkout, a document can instead import the library by relative
 path:
 
 ```typst
-#import "path/to/tymbolica/typst/lib.typ": *
+#import "path/to/symbolica-typst-plugin/typst/lib.typ": *
 ```
 
 No build step is needed to use the package: everything required is already
@@ -184,7 +186,7 @@ included in the checkout.
 
 == Create an engine
 
-Tymbolica's Symbolica engine provides algebra, solving, evaluation, and
+The Symbolica 3.0 engine provides algebra, solving, evaluation, and
 matrices. It is stored as a compressed asset and expanded transparently by a
 small loader. Most operations are available directly from the imported
 top-level API. Create an engine with `init()` when you need a custom symbol
@@ -199,7 +201,7 @@ namespace or parser grammar:
 ```
 
 Symbolic integration and its rule steps live in the companion
-`tymbolica-rubi` package, whose manual starts from Tymbolica Atom payloads.
+`symbolica-integrate` package, whose manual starts from Symbolica Atom payloads.
 
 == Where to begin
 
@@ -218,7 +220,7 @@ Symbolic integration and its rule steps live in the companion
   [Factor, expand, differentiate, or take a series],
   [`expand`, `factor`, `derivative`, `series`],
   [Integrate and inspect Rubi's rule path],
-  [Use the companion `tymbolica-rubi` package],
+  [Use the companion `symbolica-integrate` package],
   [Replace a recurring symbolic pattern],
   [`wild`, `rule`, `replace`],
   [Evaluate a formula at many points],
@@ -678,12 +680,12 @@ not form a Cartesian product.
 
 = What to expect
 
-Tymbolica deliberately presents a smaller surface than Symbolica itself. The
+The Typst plugin exposes a subset of the Symbolica engine's features. The
 parts covered in this manual work well for exact algebra in documents, but a
 few boundaries are worth knowing before you choose an approach:
 
 - Symbolic integration is intentionally a separate concern. The companion
-  `tymbolica-rubi` package accepts and returns the same portable Atom payloads.
+  `symbolica-integrate` package accepts and returns the same portable Atom payloads.
   Matrix payloads remain separate from Atom payloads.
 
 - Exact system solving is intended for linear and polynomial equations.
@@ -704,7 +706,7 @@ few boundaries are worth knowing before you choose an approach:
 - Some unusual Typst math structures may not parse. `array-tree` can help show
   what the parser received.
 
-For symbolic integration, use `tymbolica-rubi`. For arbitrary precision or
+For symbolic integration, use `symbolica-integrate`. For arbitrary precision or
 deeper polynomial algorithms, use Symbolica directly.
 
 == When something looks wrong
@@ -828,22 +830,26 @@ things up. The generated groups below cover the complete top-level API.
 
 = Compatibility and licensing
 
-This manual describes Tymbolica #package-version. The package is tested with
-Typst 0.14 or newer.
+This manual describes the official Symbolica Typst plugin #package-version,
+powered by Symbolica 3.0. The package is tested with Typst 0.14 or newer.
 
-Tymbolica's original source code is released under the
-#link(repository + "/blob/main/LICENSE")[MIT License]. Symbolica is developed
-by the Symbolica contributors and is distributed under its own
-#link("https://symbolica.io/license/")[license terms]. The MIT License does not
-relicense Symbolica or the bundled WebAssembly engines; Symbolica's terms
-still apply to their use.
+The official `symbolica` plugin and its `symbolica-integrate` companion are
+free to use for any use within Typst, including academic and commercial work.
+No Symbolica license or license key is needed for use within Typst.
+
+The original plugin source code is released under the
+#link(repository + "/blob/main/LICENSE")[MIT License]. The bundled WebAssembly
+engines are included with redistribution permission. The underlying Symbolica
+computer algebra system is governed by its own
+#link("https://symbolica.io/license/")[license terms] outside this Typst usage
+permission.
 
 For source, issues, and release history, visit
-#link(repository)[github.com/lcnbr/tymbolica].
+#link(repository)[github.com/symbolica-dev/symbolica-typst-plugin].
 
 = Acknowledgements
 
-Tymbolica would not exist without #link("https://symbolica.io/")[Symbolica].
+This plugin is powered by #link("https://symbolica.io/")[Symbolica].
 Thank you to its contributors for building and sharing the algebra engine at
 the heart of this package.
 

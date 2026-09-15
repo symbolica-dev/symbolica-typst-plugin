@@ -1,16 +1,17 @@
 [package]
-name = "tymbolica-inflate-plugin"
+name = "symbolica-typst-inflate-plugin"
 version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MIT"
+repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
 
 [lib]
-name = "tymbolica_inflate_plugin"
+name = "symbolica_typst_inflate_plugin"
 crate-type = ["cdylib"]
 
 [[bin]]
-name = "tymbolica-compress"
+name = "symbolica-typst-compress"
 path = "src/bin/compress.rs"
 
 [dependencies]

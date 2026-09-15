@@ -1,12 +1,13 @@
 [package]
-name = "tymbolica-rubi-plugin"
+name = "symbolica-typst-integrate-plugin"
 version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MIT"
+repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
 
 [lib]
-name = "tymbolica_rubi_plugin"
+name = "symbolica_typst_integrate_plugin"
 crate-type = ["cdylib"]
 
 [features]
@@ -19,5 +20,5 @@ ciborium = "0.2.2"
 getrandom = "0.3"
 symbolica = { version = "3.0.0", default-features = false, features = ["wasm"] }
 symbolica-integrate = { path = "../../vendor/symbolica-integrate", default-features = false, features = ["steps"] }
-tymbolica-atom-payload = { path = "../atom-payload", default-features = false, features = ["wasm"] }
+symbolica-typst-atom-payload = { path = "../atom-payload", default-features = false, features = ["wasm"] }
 wasm-minimal-protocol = "0.1"

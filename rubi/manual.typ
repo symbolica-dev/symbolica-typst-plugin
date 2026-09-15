@@ -3,19 +3,19 @@
 
 #let manifest = toml("typst.toml")
 #let package-version = manifest.package.version
-#let repository = "https://github.com/lcnbr/tymbolica"
+#let repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
 #let accent = rgb("#704b7c")
 #let pale-accent = rgb("#f5eef8")
 #let muted = rgb("#61616b")
 
-#set document(title: "Tymbolica Rubi Manual", author: "Tymbolica contributors")
+#set document(title: "Symbolica Integrate Manual", author: "Symbolica contributors")
 #set page(
   paper: "a4",
   margin: (x: 21mm, top: 20mm, bottom: 19mm),
   header: context {
     if counter(page).get().first() > 1 {
       set text(size: 8pt, fill: muted)
-      grid(columns: (1fr, auto), [Tymbolica Rubi], [Version #package-version])
+      grid(columns: (1fr, auto), [Symbolica Integrate], [Version #package-version])
       line(length: 100%, stroke: 0.35pt + rgb("#d7cfda"))
     }
   },
@@ -34,13 +34,16 @@
 
 #align(center)[
   #v(19mm)
-  #text(size: 32pt, weight: "bold", fill: accent)[Tymbolica Rubi]
+  #text(size: 32pt, weight: "bold", fill: accent)[Symbolica Integrate]
   #v(4mm)
   #text(size: 15pt, fill: muted)[Symbolic integration with genuine Rubi steps]
   #v(12mm)
   #block(width: 78%, inset: 13pt, radius: 5pt, fill: pale-accent)[
-    A focused companion to Tymbolica: pass in portable Symbolica Atom
+    A focused companion to Symbolica: pass in portable Symbolica Atom
     payloads, receive an antiderivative or the complete nested rule trace.
+
+    The official integration plugin, powered by Symbolica 3.0.
+    Free for any use within Typst. No license or license key needed.
   ]
   #v(18mm)
   #link(repository)[Repository] ·
@@ -49,18 +52,21 @@
 
 #pagebreak()
 
-= Use Rubi from Tymbolica
+= Use Rubi from Symbolica
 
-Tymbolica Rubi is a separate package and WebAssembly engine. It deliberately
-does not parse expressions, declare symbols, or print mathematics. Tymbolica
+Symbolica Integrate is a separate package and WebAssembly engine. It deliberately
+does not parse expressions, declare symbols, or print mathematics. Symbolica
 and compatible extensions create the versioned Atom payloads it consumes and
 can continue working with the result.
 
-Import the Rubi package explicitly alongside Tymbolica:
+It is free to use for any use within Typst, including academic and commercial
+work. No Symbolica license or license key is needed.
+
+Import the Rubi package explicitly alongside Symbolica:
 
 ```typst
-#import "@local/tymbolica:0.1.0" as sym
-#import "@local/tymbolica-rubi:0.1.0": integrate, integrate-with-steps
+#import "@local/symbolica:0.1.0" as sym
+#import "@local/symbolica-integrate:0.1.0": integrate, integrate-with-steps
 
 #let x = sym.math($x$)
 #let f = sym.math($x / (x + 1)$)
@@ -122,11 +128,11 @@ The package exports exactly two public functions.
   [A dictionary containing `result`, `complete`, and nested `steps`.],
 )
 
-Both arguments must be portable Tymbolica Atom payload bytes, and `variable`
+Both arguments must be portable Symbolica Atom payload bytes, and `variable`
 must encode one symbol. Invalid input produces an error instead of being
 reparsed from its printed form. Thus `math($x$)` is a valid variable, while the
 annotated Typst content returned directly by `symbol("x")` must first be passed
-through Tymbolica's `atom` function.
+through Symbolica's `atom` function.
 
 == Step fields
 
@@ -142,22 +148,22 @@ The array is ordered from the outer rewrite into nested integrals. Use the
 
 = Installation from this repository
 
-Install `tymbolica` and `tymbolica-rubi` as independent local packages. On
-Linux, expose the repository root as Tymbolica and its `rubi` directory as the
+Install `symbolica` and `symbolica-integrate` as independent local packages. On
+Linux, expose the repository root as Symbolica and its `rubi` directory as the
 Rubi package:
 
 ```shell
-mkdir -p ~/.local/share/typst/packages/local/tymbolica
-mkdir -p ~/.local/share/typst/packages/local/tymbolica-rubi
-ln -s /path/to/tymbolica \
-  ~/.local/share/typst/packages/local/tymbolica/0.1.0
-ln -s /path/to/tymbolica/rubi \
-  ~/.local/share/typst/packages/local/tymbolica-rubi/0.1.0
+mkdir -p ~/.local/share/typst/packages/local/symbolica
+mkdir -p ~/.local/share/typst/packages/local/symbolica-integrate
+ln -s /path/to/symbolica-typst-plugin \
+  ~/.local/share/typst/packages/local/symbolica/0.1.0
+ln -s /path/to/symbolica-typst-plugin/rubi \
+  ~/.local/share/typst/packages/local/symbolica-integrate/0.1.0
 ```
 
 The Rubi directory contains its own compressed Wizer-preinitialized engine and
-its own inflater. Documents that use only Tymbolica do not construct this
+its own inflater. Documents that use only Symbolica do not construct this
 engine.
 
-Tymbolica Rubi uses Symbolica's integration interface and the Rubi ruleset.
+Symbolica Integrate uses Symbolica's integration interface and the Rubi ruleset.
 Thanks to the Symbolica and Rubi contributors for making the engine possible.

@@ -1,9 +1,10 @@
-# Tymbolica
+# Symbolica
 
-Exact symbolic computation inside Typst, powered by
-[Symbolica](https://symbolica.io/).
+The official [Symbolica](https://symbolica.io/) plugin for Typst, powered by
+Symbolica 3.0. It is free to use for any use within Typst, including academic
+and commercial work. No license or license key is needed.
 
-Tymbolica lets the formulas on a Typst page take part in the calculation. Write
+Symbolica lets the formulas on a Typst page take part in the calculation. Write
 an expression as ordinary Typst mathematics, work with it symbolically, and
 place the result back into the same document. You can currently:
 
@@ -26,7 +27,7 @@ reference.
 After installing the local package below, this is a complete Typst document:
 
 ```typst
-#import "@local/tymbolica:0.1.0": *
+#import "@local/symbolica:0.1.0": *
 
 #let x = symbol("x")
 #let f = math($x^4 - 5 x^2 + 4$)
@@ -44,13 +45,13 @@ or inspect them with `canonical`.
 
 ## Rubi integration
 
-Symbolic integration is provided by the separate `tymbolica-rubi` package.
+Symbolic integration is provided by the separate `symbolica-integrate` package.
 It exposes only `integrate` and `integrate-with-steps`; expressions move between
-it and Tymbolica through the shared Atom payload:
+it and Symbolica through the shared Atom payload:
 
 ```typst
-#import "@local/tymbolica:0.1.0" as sym
-#import "@local/tymbolica-rubi:0.1.0": integrate
+#import "@local/symbolica:0.1.0" as sym
+#import "@local/symbolica-integrate:0.1.0": integrate
 
 #let x = sym.math($x$)
 #let f = sym.math($x / (x + 1)$)
@@ -58,13 +59,13 @@ it and Tymbolica through the shared Atom payload:
 ```
 
 Rubi's rule tables are prepared with Wizer when the plugin is built. Its
-compressed engine is independent of Tymbolica's smaller algebra engine.
+compressed engine is independent of Symbolica's smaller algebra engine.
 Both Rubi arguments are portable Atom payload bytes; `math($x$)` creates the
 single-symbol payload required for the integration variable.
 
-The `tymbolica-atom-payload` crate is the reusable boundary for extensions. It
+The `symbolica-typst-atom-payload` crate is the reusable boundary for extensions. It
 combines Symbolica's exact native Atom export with schema-keyed portable
-attachments and a generic render tree. Tymbolica and Rubi preserve unknown
+attachments and a generic render tree. Symbolica and Rubi preserve unknown
 attachments without interpreting them and do not depend on Spenso, Idenso, or
 GammaLoop.
 
@@ -72,7 +73,7 @@ Tensor algebra and the Tydenso Typst package are maintained with
 [GammaLoop](https://github.com/alphal00p/gammaloop). GammaLoop consumes the
 shared payload crate as a pinned Git dependency, so tensor-specific metadata
 and rendering can evolve beside Spenso and Spynso without coupling those
-projects back into Tymbolica.
+projects back into Symbolica.
 
 ## Install locally
 
@@ -80,14 +81,14 @@ To use this repository checkout, clone it and expose its root as a local
 package. On Linux:
 
 ```sh
-git clone https://github.com/lcnbr/tymbolica.git
-cd tymbolica
-mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica"
+git clone https://github.com/symbolica-dev/symbolica-typst-plugin.git
+cd symbolica-typst-plugin
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica"
 ln -s "$PWD" \
-  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica/0.1.0"
-mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica-rubi"
+  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica/0.1.0"
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica-integrate"
 ln -s "$PWD/rubi" \
-  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/tymbolica-rubi/0.1.0"
+  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica-integrate/0.1.0"
 ```
 
 On macOS, use `~/Library/Application Support/typst/packages` in place of the
@@ -124,7 +125,7 @@ Use the repository apps for the normal release workflow:
 
 ```sh
 nix run .#build        # rebuild all compressed engines and their loaders
-nix run .#build-engine # rebuild only the compressed Tymbolica core engine
+nix run .#build-engine # rebuild only the compressed Symbolica core engine
 nix run .#build-rubi   # rebuild the Wizer-preinitialized Rubi engine
 nix run .#manual       # rebuild all engines and manuals
 nix run .#check       # rebuild, compile the public examples, and verify the PDF
@@ -141,16 +142,17 @@ regenerated manuals together.
 
 ## Attribution and licensing
 
-Tymbolica's original source code is available under the [MIT License](LICENSE).
-Tymbolica is an interface to the
-[Symbolica computer algebra system](https://symbolica.io/) and follows its
-upstream development. The generated WebAssembly bundles are
-included here with redistribution permission. The MIT License does not
-relicense Symbolica or those artifacts: Symbolica's own terms apply, so read the
-[Symbolica license](https://symbolica.io/license/) before redistributing or
-deploying the plugins.
+The official `symbolica` plugin and its `symbolica-integrate` companion are
+free to use for any use within Typst, including academic and commercial work.
+No Symbolica license or license key is needed for use within Typst.
 
-Tymbolica would not exist without [Symbolica](https://symbolica.io/). Thank you
+This repository's original plugin source code is available under the
+[MIT License](LICENSE). The bundled WebAssembly engines are included with
+redistribution permission. The MIT License covers the plugin source, while
+the [Symbolica license](https://symbolica.io/license/) governs the underlying
+computer algebra system outside this Typst usage permission.
+
+This plugin is powered by [Symbolica](https://symbolica.io/). Thank you
 to its contributors for the algebra engine at the heart of this package.
 Integration is provided by the MIT-licensed
 [`symbolica-integrate`](https://github.com/symbolica-dev/symbolica-integrate)
@@ -162,5 +164,5 @@ native Typst-math parsing possible, and to
 The batched-evaluation, predator–prey, and phase-portrait examples were inspired
 by TimeTravelPenguin's
 [`symbolic-eval`](https://github.com/TimeTravelPenguin/symbolic-eval) package and
-independently adapted to Tymbolica's API. Their pinned sources and upstream
+independently adapted to Symbolica's API. Their pinned sources and upstream
 license declaration are recorded in the [third-party notices](THIRD_PARTY.md).

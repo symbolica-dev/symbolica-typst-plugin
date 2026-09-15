@@ -19,7 +19,7 @@ $
   (dif y)/(dif t) &= x y - y,
 $
 
-with $x(0)=y(0)=1$. Tymbolica evaluates the two right-hand sides together at
+with $x(0)=y(0)=1$. Symbolica evaluates the two right-hand sides together at
 each stage. A short fourth-order Runge–Kutta loop local to this example then
 advances both populations; it is ordinary Typst code rather than a new ODE API.
 
@@ -124,6 +124,6 @@ advances both populations; it is ordinary Typst code rather than a new ODE API.
 )
 
 #text(size: 8pt, fill: luma(40%))[
-  Independently adapted for Tymbolica from the predator–prey example in
+  Independently adapted for Symbolica from the predator–prey example in
   #link("https://github.com/TimeTravelPenguin/symbolic-eval")[`symbolic-eval`].
 ]

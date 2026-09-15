@@ -1,11 +1,11 @@
 [package]
-name = "tymbolica-rubi"
+name = "symbolica-integrate"
 version = "0.1.0"
 entrypoint = "lib.typ"
 authors = ["lcnbr <https://github.com/lcnbr>"]
 license = "MIT"
-description = "Integrate portable Tymbolica atoms with Rubi, including genuine rule steps."
-repository = "https://github.com/lcnbr/tymbolica"
+description = "Symbolica's official integration plugin with Rubi rule steps. Free for any use within Typst; no license needed."
+repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
 keywords = ["computer-algebra", "symbolic-integration", "symbolica", "rubi"]
 categories = ["integration", "scripting"]
 disciplines = ["mathematics"]

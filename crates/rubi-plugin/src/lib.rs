@@ -1,11 +1,11 @@
-//! Rubi integration extension for Tymbolica Atom payloads.
+//! Rubi integration extension for Symbolica Atom payloads.
 
 use std::sync::Once;
 
 use ciborium::value::Value;
 use symbolica::prelude::{Atom, AtomView, Symbol};
 use symbolica_integrate::{IntegralFunctions, Integrate, IntegrationExplanation, IntegrationStep};
-use tymbolica_atom_payload::{AttachmentSet, encode_atom_from_set, parse_payload};
+use symbolica_typst_atom_payload::{AttachmentSet, encode_atom_from_set, parse_payload};
 use wasm_minimal_protocol::*;
 
 initiate_protocol!();
@@ -210,11 +210,11 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
-    use tymbolica_atom_payload::{Attachment, AttachmentKey, encode_atom, parse_payload};
+    use symbolica_typst_atom_payload::{Attachment, AttachmentKey, encode_atom, parse_payload};
 
     fn attachment(identity: &[u8], data: &[u8]) -> Attachment {
         Attachment::new(
-            AttachmentKey::new("org.tymbolica.test", 1, identity.to_vec()).unwrap(),
+            AttachmentKey::new("org.symbolica.test", 1, identity.to_vec()).unwrap(),
             data.to_vec(),
         )
         .unwrap()
@@ -250,8 +250,8 @@ mod tests {
 
     #[test]
     fn integrate_merges_expression_and_variable_attachments() {
-        let expression_key = AttachmentKey::new("org.tymbolica.test", 1, b"expr".to_vec()).unwrap();
-        let variable_key = AttachmentKey::new("org.tymbolica.test", 1, b"var".to_vec()).unwrap();
+        let expression_key = AttachmentKey::new("org.symbolica.test", 1, b"expr".to_vec()).unwrap();
+        let variable_key = AttachmentKey::new("org.symbolica.test", 1, b"var".to_vec()).unwrap();
         let expression = attached_atom(
             &symbolica::parse!("x"),
             attachment(b"expr", b"expression metadata"),
@@ -305,8 +305,8 @@ mod tests {
 
     #[test]
     fn step_bridge_preserves_attachments_on_result_and_every_step_atom() {
-        let expression_key = AttachmentKey::new("org.tymbolica.test", 1, b"expr".to_vec()).unwrap();
-        let variable_key = AttachmentKey::new("org.tymbolica.test", 1, b"var".to_vec()).unwrap();
+        let expression_key = AttachmentKey::new("org.symbolica.test", 1, b"expr".to_vec()).unwrap();
+        let variable_key = AttachmentKey::new("org.symbolica.test", 1, b"var".to_vec()).unwrap();
         let expression = attached_atom(
             &symbolica::parse!("x/(x+1)"),
             attachment(b"expr", b"expression metadata"),

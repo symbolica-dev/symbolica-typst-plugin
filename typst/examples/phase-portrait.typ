@@ -90,6 +90,6 @@ batch; Typst then turns the returned grid into coloured cells.
 
 #v(3mm)
 #text(size: 8pt, fill: luma(40%))[
-  Independently adapted for Tymbolica from the phase-portrait example in
+  Independently adapted for Symbolica from the phase-portrait example in
   #link("https://github.com/TimeTravelPenguin/symbolic-eval")[`symbolic-eval`].
 ]

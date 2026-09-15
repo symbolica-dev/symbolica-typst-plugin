@@ -197,7 +197,7 @@ fn inspect_semantic_metadata_attachments(
     let Some(Value::Map(payload)) = map_get(slots, "value") else {
         return inspect_arg_attachment(args, 0, "semantic-metadata", preflight);
     };
-    if map_get(payload, "protocol") != Some(&Value::Text("tymbolica".to_owned())) {
+    if map_get(payload, "protocol") != Some(&Value::Text("symbolica".to_owned())) {
         return inspect_arg_attachment(args, 0, "semantic-metadata", preflight);
     }
     if map_text(payload, "kind")? != "atom" {
@@ -205,20 +205,20 @@ fn inspect_semantic_metadata_attachments(
     }
     if value_i64(
         map_get(payload, "version")
-            .ok_or_else(|| "tymbolica metadata missing version".to_owned())?,
-        "tymbolica metadata version",
+            .ok_or_else(|| "symbolica metadata missing version".to_owned())?,
+        "symbolica metadata version",
     )? != 1
     {
-        return Err("unsupported tymbolica metadata version".to_owned());
+        return Err("unsupported symbolica metadata version".to_owned());
     }
     match map_get(payload, "atom") {
         Some(Value::Bytes(bytes)) => {
-            inspect_payload_attachments(bytes, "tymbolica metadata Atom", preflight)
+            inspect_payload_attachments(bytes, "symbolica metadata Atom", preflight)
         }
         Some(other) => Err(format!(
-            "tymbolica metadata atom must be bytes, got {other:?}"
+            "symbolica metadata atom must be bytes, got {other:?}"
         )),
-        None => Err("tymbolica metadata missing atom".to_owned()),
+        None => Err("symbolica metadata missing atom".to_owned()),
     }
 }
 
@@ -463,7 +463,7 @@ fn atom_from_semantic_metadata(
         return visible(attachments);
     };
 
-    if map_get(payload, "protocol") != Some(&Value::Text("tymbolica".to_owned())) {
+    if map_get(payload, "protocol") != Some(&Value::Text("symbolica".to_owned())) {
         return visible(attachments);
     }
 
@@ -471,20 +471,20 @@ fn atom_from_semantic_metadata(
         "atom" => {
             if value_i64(
                 map_get(payload, "version")
-                    .ok_or_else(|| "tymbolica metadata missing version".to_owned())?,
-                "tymbolica metadata version",
+                    .ok_or_else(|| "symbolica metadata missing version".to_owned())?,
+                "symbolica metadata version",
             )? != 1
             {
-                return Err("unsupported tymbolica metadata version".to_owned());
+                return Err("unsupported symbolica metadata version".to_owned());
             }
             match map_get(payload, "atom") {
                 Some(Value::Bytes(bytes)) => {
-                    decode_embedded_atom(bytes, "tymbolica metadata Atom", attachments)
+                    decode_embedded_atom(bytes, "symbolica metadata Atom", attachments)
                 }
                 Some(other) => Err(format!(
-                    "tymbolica metadata atom must be bytes, got {other:?}"
+                    "symbolica metadata atom must be bytes, got {other:?}"
                 )),
-                None => Err("tymbolica metadata missing atom".to_owned()),
+                None => Err("symbolica metadata missing atom".to_owned()),
             }
         }
         _ => visible(attachments),
@@ -665,7 +665,7 @@ mod tests {
         let payload = Value::Map(vec![
             (
                 Value::Text("protocol".to_owned()),
-                Value::Text("tymbolica".to_owned()),
+                Value::Text("symbolica".to_owned()),
             ),
             (Value::Text("version".to_owned()), Value::Integer(1.into())),
             (
@@ -714,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn other_tymbolica_metadata_kinds_are_transparent() {
+    fn other_symbolica_metadata_kinds_are_transparent() {
         let ast = node(
             "semantic-metadata",
             vec![Value::Text("x".to_owned())],
@@ -723,7 +723,7 @@ mod tests {
                 Value::Map(vec![
                     (
                         Value::Text("protocol".to_owned()),
-                        Value::Text("tymbolica".to_owned()),
+                        Value::Text("symbolica".to_owned()),
                     ),
                     (
                         Value::Text("kind".to_owned()),
@@ -745,7 +745,7 @@ mod tests {
             let mut fields = vec![
                 (
                     Value::Text("protocol".to_owned()),
-                    Value::Text("tymbolica".to_owned()),
+                    Value::Text("symbolica".to_owned()),
                 ),
                 (
                     Value::Text("version".to_owned()),
@@ -797,8 +797,8 @@ mod tests {
 
     #[test]
     fn recursive_atom_payloads_merge_attachments_before_import() {
-        let first_key = AttachmentKey::new("org.tymbolica.test", 1, b"first".to_vec()).unwrap();
-        let second_key = AttachmentKey::new("org.tymbolica.test", 1, b"second".to_vec()).unwrap();
+        let first_key = AttachmentKey::new("org.symbolica.test", 1, b"first".to_vec()).unwrap();
+        let second_key = AttachmentKey::new("org.symbolica.test", 1, b"second".to_vec()).unwrap();
         let x = symbol_atom("x", "embedded").unwrap();
         let y = symbol_atom("y", "embedded").unwrap();
         let ast = node(
@@ -838,7 +838,7 @@ mod tests {
 
     #[test]
     fn recursive_attachment_conflicts_fail_closed() {
-        let key = AttachmentKey::new("org.tymbolica.test", 1, b"same".to_vec()).unwrap();
+        let key = AttachmentKey::new("org.symbolica.test", 1, b"same".to_vec()).unwrap();
         let x = symbol_atom("x", "embedded").unwrap();
         let ast = node(
             "add",

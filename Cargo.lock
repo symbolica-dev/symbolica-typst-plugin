@@ -63,8 +63,9 @@ dependencies = [
 
 [[package]]
 name = "astro-float"
-version = "0.9.5"
-source = "git+https://github.com/stencillogic/astro-float?rev=f92380e025deb8e1743ed93c6d5bf0783ac28717#f92380e025deb8e1743ed93c6d5bf0783ac28717"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cf6ecd69dd6fbe3763187ff2fa2b0e475b79f04ed86f631a7bc6b04ede0355e"
 dependencies = [
  "astro-float-macro",
  "astro-float-num",
@@ -72,9 +73,9 @@ dependencies = [
 
 [[package]]
 name = "astro-float-macro"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05cfe0f6df5a74fb25b9e713470ad77e091f35f798730673c8772f26ed438963"
+checksum = "9c007205ae7076600c8a59022866990afac02ff186f9031839f67ecce4df2146"
 dependencies = [
  "astro-float-num",
  "proc-macro2",
@@ -84,8 +85,9 @@ dependencies = [
 
 [[package]]
 name = "astro-float-num"
-version = "0.3.6"
-source = "git+https://github.com/stencillogic/astro-float?rev=f92380e025deb8e1743ed93c6d5bf0783ac28717#f92380e025deb8e1743ed93c6d5bf0783ac28717"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7f6a0312e8f5845f84241b21bd2394d49940b6bc333c6a84f992e6dc9ebb85"
 dependencies = [
  "itertools 0.10.5",
  "lazy_static",
@@ -831,6 +833,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "symbolica-typst-atom-payload"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "symbolica",
+]
+
+[[package]]
+name = "symbolica-typst-inflate-plugin"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide",
+ "wasm-minimal-protocol",
+]
+
+[[package]]
+name = "symbolica-typst-integrate-plugin"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "getrandom 0.3.4",
+ "symbolica",
+ "symbolica-integrate",
+ "symbolica-typst-atom-payload",
+ "wasm-minimal-protocol",
+]
+
+[[package]]
+name = "symbolica-typst-plugin"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "ciborium",
+ "getrandom 0.3.4",
+ "symbolica",
+ "symbolica-typst-atom-payload",
+ "wasm-minimal-protocol",
+]
+
+[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -966,46 +1008,6 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
-]
-
-[[package]]
-name = "tymbolica-atom-payload"
-version = "0.1.0"
-dependencies = [
- "ciborium",
- "symbolica",
-]
-
-[[package]]
-name = "tymbolica-inflate-plugin"
-version = "0.1.0"
-dependencies = [
- "miniz_oxide",
- "wasm-minimal-protocol",
-]
-
-[[package]]
-name = "tymbolica-plugin"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "ciborium",
- "getrandom 0.3.4",
- "symbolica",
- "tymbolica-atom-payload",
- "wasm-minimal-protocol",
-]
-
-[[package]]
-name = "tymbolica-rubi-plugin"
-version = "0.1.0"
-dependencies = [
- "ciborium",
- "getrandom 0.3.4",
- "symbolica",
- "symbolica-integrate",
- "tymbolica-atom-payload",
- "wasm-minimal-protocol",
 ]
 
 [[package]]

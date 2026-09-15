@@ -1,11 +1,11 @@
 [package]
-name = "tymbolica"
+name = "symbolica"
 version = "0.1.0"
 entrypoint = "typst/lib.typ"
 authors = ["lcnbr <https://github.com/lcnbr>"]
 license = "MIT"
-description = "Perform exact symbolic computation with Symbolica."
-repository = "https://github.com/lcnbr/tymbolica"
+description = "The official Symbolica 3.0 plugin. Free for any use within Typst; no license needed."
+repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
 keywords = ["computer-algebra", "symbolic-computation", "symbolica"]
 categories = ["integration", "scripting"]
 disciplines = ["mathematics"]

@@ -1,4 +1,4 @@
-#import "@local/tymbolica:0.1.0": *
+#import "@local/symbolica:0.1.0": *
 
 #set page(width: 120mm, height: auto, margin: 12mm)
 #set text(size: 10pt)

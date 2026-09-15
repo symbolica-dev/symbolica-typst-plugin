@@ -8,7 +8,7 @@
 
 = Four formulas, one parameter grid
 
-Tymbolica can compile several expressions into one evaluator and run all of
+Symbolica can compile several expressions into one evaluator and run all of
 them at every requested point. Here the definitions
 
 #align(center)[
@@ -84,6 +84,6 @@ $f(x,y)+g(x)$ for $f(x,y)=x^2+y^2$ and $g(x)=x sin(x)$.
 
 #v(4mm)
 #text(size: 8pt, fill: luma(40%))[
-  Independently adapted for Tymbolica from the evaluation example in
+  Independently adapted for Symbolica from the evaluation example in
   #link("https://github.com/TimeTravelPenguin/symbolic-eval")[`symbolic-eval`].
 ]

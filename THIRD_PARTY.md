@@ -2,7 +2,7 @@
 
 ## `symbolic-eval` example inspiration
 
-The following Tymbolica examples are new implementations inspired by examples
+The following Symbolica examples are new implementations inspired by examples
 from TimeTravelPenguin's [`symbolic-eval`](https://github.com/TimeTravelPenguin/symbolic-eval)
 repository at revision
 [`79c6588`](https://github.com/TimeTravelPenguin/symbolic-eval/tree/79c6588351603b85b11b6c92b1fbff3faf478215):
@@ -19,4 +19,4 @@ repository at revision
 The upstream package metadata identifies TimeTravelPenguin as the author and
 declares `license = "MIT"`. That revision does not contain a separate license
 file. No upstream images, WebAssembly binaries, or other generated artifacts
-are included in Tymbolica.
+are included in Symbolica.
