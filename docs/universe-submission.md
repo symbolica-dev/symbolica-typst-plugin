@@ -7,12 +7,24 @@ public examples, and the changelog; those documentation files are excluded
 from runtime downloads. Build scripts, tests, source files, and split upload
 chunks are not copied into the submission directory.
 
-Run `python3 scripts/prepare-source.py` to create
-`dist/symbolica-0.1.0-source.tar.gz`. Publish that corresponding-source archive
-alongside the binary release before submitting it. Its offline dependencies
-and application source support modification and relinking of the LGPL
-components. The source archive belongs in the upstream release assets, not
-the Universe runtime download.
+Publish the matching plugin source revision, lockfile, and build scripts and
+link them from the binary release. `REBUILDING.md` describes those sources and
+the exact crates.io dependency sources listed in `THIRD_PARTY_LICENSES.txt`.
+Source may be hosted on other servers under GPLv3 Section 6(d), provided there
+are clear directions beside the binary and equivalent access is maintained.
+A separate archive is not mandatory. `python3 scripts/prepare-source.py`
+optionally creates a vendored source archive for offline builds and backup;
+keep it out of the Universe runtime download.
+
+## Dependency licensing issue to resolve before distribution
+
+The Symbolica allowance leaves its existing reverse-engineering restrictions
+unchanged. LGPLv3 Section 4 requires the combined work's terms to permit
+reverse engineering for debugging modifications to its LGPL-covered portions.
+Do not treat the current combination as cleared for distribution: resolve
+that conflict through an appropriate narrow permission, an alternative
+license for the affected dependencies, or a build without those dependencies.
+A source archive does not resolve this issue.
 
 ## Decisions still required from Universe maintainers
 
@@ -54,13 +66,13 @@ when equations or parameters change.
 
 This submission requests review of two exceptions: the custom Symbolica Typst
 permission and the approximately 23.36 MiB Wasm. The permission grants runtime
-use, redistribution through Universe and mirrors, and rebuilding with a modified
-Typst interface or separately licensed dependencies. It grants no additional
-right to modify Symbolica's own source or distribute such modifications, and
-preserves third-party license rights. The accompanying
-source release supplies the application and dependency source needed to
-rebuild and relink the engine. The compressed runtime download remains much
+use, redistribution through Universe and mirrors, and rebuilding unmodified
+Symbolica as part of the plugin. It grants no additional right to modify
+Symbolica's own source or distribute such modifications. The matching plugin
+source, lockfile, build instructions, and exact dependency source links are
+provided for rebuilding. The compressed runtime download remains much
 smaller than the raw Wasm.
 
-Do not submit this description until the corresponding-source archive is
-published and the licensing arrangement is ready for review.
+Do not submit this description until the matching source revision is published
+and both the dependency licensing issue and Universe licensing arrangement
+are resolved.

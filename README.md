@@ -207,9 +207,8 @@ The [Symbolica Typst permission](LICENSE-SYMBOLICA-TYPST.md) explicitly grants
 free runtime use for all purposes within Typst, including commercial, server,
 and hosted use. No payment, registration, activation, license key, or separate
 runtime agreement is required. It also permits redistribution of the plugin
-and rebuilding it with a modified Typst interface or separately licensed
-dependencies. It grants no additional rights to modify Symbolica itself or
-distribute modified Symbolica source.
+and rebuilding unmodified Symbolica as part of it. It grants no additional
+rights to modify Symbolica itself or distribute modified Symbolica source.
 
 The original plugin source is under [MIT](LICENSE). Symbolica itself is covered
 by its [source-available license](LICENSE-SYMBOLICA.md), with the Typst permission

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare corresponding source, locked dependencies, and rebuild instructions."""
+"""Prepare an optional offline source archive with locked dependencies."""
 import gzip
 import shutil
 import subprocess
@@ -51,7 +51,7 @@ def main():
                         with path.open("rb") as file:
                             tar.addfile(info, file)
         print(f"Corresponding source: {archive} ({archive.stat().st_size:,} bytes)")
-        print("Publish this archive alongside the binary before distributing the release.")
+        print("Optional offline archive; source access may instead use the matching repository revision and crates.io.")
 
 
 if __name__ == "__main__":

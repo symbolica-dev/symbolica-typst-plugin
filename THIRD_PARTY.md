@@ -19,9 +19,9 @@ plugin code remains under [MIT](LICENSE).
 The Wasm includes malachite-base, malachite-nz, and malachite-q 0.7.1 under
 LGPL-3.0-only, as well as MPL-covered colored and smartstring components.
 Their source and license obligations remain in effect. See
-[corresponding source and rebuilding](REBUILDING.md) for the complete source
-archive, replacement of dependencies, and relinking instructions. Third-party
-rights are not narrowed by the Symbolica Typst permission.
+[source locations and rebuilding](REBUILDING.md) for the plugin source,
+locked crates.io dependencies, and build instructions. A vendored source
+archive is optional; maintaining access to the matching sources is required.
 
 Maintainers regenerate the notices with `python3 scripts/update-licenses.py`.
 The generator uses `Cargo.lock` and the actual Wasm build dependency tree;
