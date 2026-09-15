@@ -27,10 +27,10 @@ reference.
 
 ### Exact factorization and differentiation
 
-After installing the local package below, this is a complete Typst document:
+Import the published package to use Symbolica in a Typst document:
 
 ```typst
-#import "@local/symbolica:0.1.0": *
+#import "@preview/symbolica:0.1.0": *
 
 #let x = symbol("x")
 #let f = math($x^4 - 5 x^2 + 4$)
@@ -59,7 +59,7 @@ them with `canonical`.
 Evaluate `π² + sin(π/4)` using Symbolica's built-in value of π:
 
 ```typst
-#import "@local/symbolica:0.1.0" as sym
+#import "@preview/symbolica:0.1.0" as sym
 
 #let expression = sym.math($pi^2 + sin(pi / 4)$)
 #let value = sym.evaluate(expression)
@@ -79,7 +79,7 @@ with real and imaginary parts, `re` and `im`; here `im` is zero.
 Solve `x + y = a` and `x - y = b` for `x` and `y`, keeping `a` and `b` symbolic:
 
 ```typst
-#import "@local/symbolica:0.1.0" as sym
+#import "@preview/symbolica:0.1.0" as sym
 
 #let solutions = sym.solve(
   ($x + y - a$, $x - y - b$).map(sym.math),
@@ -99,7 +99,7 @@ $$
 ### Symbolic integration
 
 ```typst
-#import "@local/symbolica:0.1.0" as sym
+#import "@preview/symbolica:0.1.0" as sym
 
 #let x = sym.math($x$)
 #let f = sym.math($x / (x + 1)$)
@@ -121,7 +121,7 @@ The `symbolica-typst-atom-payload` crate is the reusable boundary for extensions
 combines Symbolica's exact native Atom export with schema-keyed portable
 attachments and a generic render tree.
 
-Several Typst packages are in development than make use of the symbolic payload, for example
+Several Typst packages are in development that make use of the symbolic payload, for example
 the tensor algebra package [spenso](https://github.com/alphal00p/gammaloop).
 ## Install locally
 
@@ -137,8 +137,9 @@ ln -s "$PWD" \
 ```
 
 On macOS, use `~/Library/Application Support/typst/packages` in place of the
-Linux data directory. During repository development, examples instead import
-`../lib.typ` directly.
+Linux data directory. For that local installation, replace `@preview` with
+`@local` in your document import. The repository checks make the checkout
+available under both namespaces, so public examples run unchanged.
 
 ## Use in the Typst web app
 
@@ -195,53 +196,25 @@ instead; the package is fetched without manually uploading its Wasm.
   rational function over thousands of complex points in one batch
 - [Changelog](CHANGELOG.md) — user-visible changes and compatibility notes
 
-## Development
-
-The pinned Nix flake supplies Rust, Binaryen, and Typst:
-
-```sh
-nix develop
-```
-
-Use the repository apps for the normal release workflow:
-
-```sh
-nix run .#build       # rebuild the joint Symbolica Wasm engine
-nix run .#package     # build dist/symbolica-0.1.0.tar.gz
-nix run .#manual      # rebuild the engine and both manuals
-nix run .#check       # rebuild, compile the public examples, and verify the PDF
-nix flake check       # validate the Typst distribution using tracked plugins
-```
-
-Maintainer checks also compile the non-user-facing regression fixtures under
-[`symbolica/tests`](symbolica/tests) and verify the
-[`@local` package import](symbolica/examples/local-package.typ).
-
-`nix run .#check` verifies all documented `@local` installation layouts and
-fails when any committed manual PDF is stale. Commit the source, bundles, and
-regenerated manuals together.
-
-See the [Wasm size investigation](docs/wasm-size.md) for measured size reductions
-and the tradeoffs between compressed, direct, and preinitialized engines.
-
 ## Attribution and licensing
 
 The official `symbolica` Typst plugin is
 free to use for any use within Typst, including academic and commercial work.
 No Symbolica license or license key is needed for use within Typst.
 
-This repository's original plugin source code is available under the
-[MIT License](LICENSE). The bundled WebAssembly engine is included with
-redistribution permission. The MIT License covers the plugin source, while
-the [Symbolica license](https://symbolica.io/license/) governs the underlying
-computer algebra system outside this Typst usage permission.
+The [Symbolica Typst permission](LICENSE-SYMBOLICA-TYPST.md) explicitly grants
+free runtime use for all purposes within Typst, including commercial, server,
+and hosted use. No payment, registration, activation, license key, or separate
+runtime agreement is required. It also permits redistribution of the plugin
+and rebuilding it with modified dependencies.
 
-This plugin is powered by [Symbolica](https://symbolica.io/). Thank you
-to its contributors for the algebra engine at the heart of this package.
-Integration is provided by the MIT-licensed
-[`symbolica-integrate`](https://github.com/symbolica-dev/symbolica-integrate)
-port of the Rubi rule collection; thanks to both projects and their
-contributors.
+The original plugin source is under [MIT](LICENSE). Symbolica itself is covered
+by its [source-available license](LICENSE-SYMBOLICA.md), with the Typst permission
+taking precedence for the uses it grants. Use outside Typst retains the
+otherwise applicable Symbolica terms. Third-party components retain their own
+licenses; see [license texts](THIRD_PARTY_LICENSES.txt) and
+[source availability and rebuilding](REBUILDING.md).
+
 Thanks also to [Parsely](https://typst.app/universe/package/parsely/) for making
 native Typst-math parsing possible, and to
 [Tidy](https://typst.app/universe/package/tidy/) for the documentation tools.

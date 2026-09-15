@@ -134,7 +134,7 @@ Here is the whole pattern: read some mathematics with `math`, do the algebra,
 and display the result with `to-typst`.
 
 #let quickstart-source = (
-  "<<<#import \"@local/symbolica:" + package-version + "\": *\n\n"
+  "<<<#import \"@preview/symbolica:" + package-version + "\": *\n\n"
   + "#let p = math($(x + y)^3 - (x^3 + y^3)$)\n"
   + "#to-typst(factor(expand(p)))"
 )
@@ -145,44 +145,19 @@ calculate, display—runs through the rest of this manual.
 
 == Installation
 
-Until Symbolica is published in Typst Universe, install it from a checkout. On
-Linux, place or symlink the repository root at:
+Import Symbolica from Typst Universe. Typst downloads and caches the package
+automatically:
 
 #raw(
-  "~/.local/share/typst/packages/local/symbolica/" + package-version,
-  lang: "text",
-  block: true,
-)
-
-Use the corresponding Typst data directory on macOS or Windows. The package
-root must contain `typst.toml`; its `symbolica` directory contains `lib.typ` and
-the joint `symbolica.wasm` engine.
-Then import:
-
-#raw(
-  "#import \"@local/symbolica:" + package-version + "\": *",
+  "#import \"@preview/symbolica:" + package-version + "\": *",
   lang: "typ",
   block: true,
 )
 
-From a source checkout, a document can instead import the library by relative
-path:
-
-```typst
-#import "path/to/symbolica-typst-plugin/symbolica/lib.typ": *
-```
-
-No build step is needed to use the package: everything required is already
-included in the checkout.
-
-#callout(
-  [Why `@local`?],
-  [
-    The examples use `@local` because this version is installed from the
-    repository. A future Typst Universe release will use its published
-    namespace instead.
-  ],
-)
+For development before publication, install the checkout in Typst's local
+package directory and use `@local` in place of `@preview`. A document inside
+the source checkout can also import `symbolica/lib.typ` by relative path.
+The repository checks register the checkout under both namespaces.
 
 == Create an engine
 

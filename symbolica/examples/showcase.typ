@@ -1,4 +1,4 @@
-#import "../lib.typ": *
+#import "@preview/symbolica:0.1.0": *
 
 #set document(title: "An exact polynomial-system case study")
 #set page(paper: "a4", margin: 22mm)

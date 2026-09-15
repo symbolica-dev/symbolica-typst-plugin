@@ -1,4 +1,4 @@
-#import "../lib.typ" as sym
+#import "@preview/symbolica:0.1.0" as sym
 
 #set page(width: 150mm, height: auto, margin: 16mm)
 #set text(size: 10.5pt)

@@ -63,7 +63,7 @@ work. No Symbolica license or license key is needed.
 Import Symbolica once to use algebra and integration together:
 
 ```typst
-#import "@local/symbolica:0.1.0" as sym
+#import "@preview/symbolica:0.1.0" as sym
 
 #let x = sym.math($x$)
 #let f = sym.math($x / (x + 1)$)
@@ -142,10 +142,10 @@ Each step contains:
 The array is ordered from the outer rewrite into nested integrals. Use the
 `depth` field to indent it, group it, or build a custom explanation layout.
 
-= Installation from this repository
+= Development installation
 
-Install the joint `symbolica` package. On Linux, expose the repository root
-as one local package:
+For development before publication, expose the repository root as one local
+package and use `@local` in place of `@preview`. On Linux:
 
 ```shell
 mkdir -p ~/.local/share/typst/packages/local/symbolica
