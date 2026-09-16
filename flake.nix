@@ -8,7 +8,7 @@
       eachSystem = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
       typstWithPackages = pkgs: pkgs.typst.withPackages (packages: [
         packages.cetz_0_5_2 packages.cetz-plot_0_1_4
-        packages.parsely_0_1_0 packages.tidy_0_4_3
+        packages.parsely_0_1_1 packages.tidy_0_4_3
       ]);
       typstCheckScript = ''
         for namespace in preview local; do

@@ -1,5 +1,5 @@
 // Maintainer regression coverage for Parsely and semantic metadata.
-#import "@preview/parsely:0.1.0"
+#import "@preview/parsely:0.1.1"
 #import "../lib.typ" as algebra
 
 // Minimal Parsely parse example matching the Symbolica grammar shape.
@@ -9,15 +9,21 @@
   mul: (infix: $$, prec: 2.5, assoc: true),
   "()": (match: $(#parsely.slot("expr*"))$),
   pow: (match: $#parsely.slot("base")^#parsely.slot("exp")$),
-  frac: math.frac,
+  frac: (match: math.frac),
   op-call: (match: $op(#parsely.slot("op"))(#parsely.slot("args*"))$),
-  op: math.op,
+  op: (match: math.op),
 )
 
 #let input = $((y^x + 1)^2)/(1/a + "some" + "thing")$
 
 #let parsed = parsely.parse(input, grammar)
 #metadata(repr(parsed)) <parsed>
+
+// Element match rules in Parsely 0.1.1 expose named slots. Check that those
+// slots still become the intended Symbolica expressions.
+#assert.eq(algebra.canonical(algebra.math($frac(3, 4)$)), algebra.canonical(algebra.div(3, 4)))
+#assert.eq(algebra.canonical(algebra.math($sqrt(9)$)), algebra.canonical(3))
+#assert.eq(algebra.canonical(algebra.math($root(3, 8)$)), algebra.canonical(2))
 
 // Metadata must bind before the empty implicit-multiplication operator.
 #let tagged = algebra.symbol("q", namespace: "model", tags: ("model::positive", "model::parameter"))
