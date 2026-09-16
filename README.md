@@ -209,12 +209,21 @@ runtime agreement is required. It also permits redistribution of the plugin
 and rebuilding unmodified Symbolica as part of it. It grants no additional
 rights to modify Symbolica itself or distribute modified Symbolica source.
 
-The original plugin source is under [MIT](LICENSE). Symbolica itself is covered
-by its [source-available license](LICENSE-SYMBOLICA.md), with the Typst permission
-taking precedence for the uses it grants. Use outside Typst retains the
-otherwise applicable Symbolica terms. Third-party components retain their own
-licenses; see [license texts](THIRD_PARTY_LICENSES.txt) and
-[source availability and rebuilding](REBUILDING.md).
+The original Typst interface and Rust adapter code are under [MIT](LICENSE).
+The `license = "MIT"` field in `typst.toml` describes that original plugin code.
+
+**The bundled `symbolica/symbolica.wasm` is built from components under multiple
+licenses and is not covered solely by MIT.** Symbolica's components are covered
+by its [source-available license](LICENSE-SYMBOLICA.md), with the
+[Symbolica Typst permission](LICENSE-SYMBOLICA-TYPST.md) taking precedence for
+the uses it grants. Use outside Typst retains the otherwise applicable
+Symbolica terms. Other dependencies retain their respective licenses,
+including LGPL and MPL terms where applicable.
+
+See the [third-party notices](THIRD_PARTY.md),
+[complete dependency license texts](THIRD_PARTY_LICENSES.txt), and
+[source locations and rebuilding instructions](REBUILDING.md). The MIT
+declaration does not relicense any bundled dependency.
 
 Thanks also to [Parsely](https://typst.app/universe/package/parsely/) for making
 native Typst-math parsing possible, and to
