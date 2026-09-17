@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ("typst.toml", "README.md", "LICENSE", "LICENSE-SYMBOLICA.md",
            "LICENSE-SYMBOLICA-TYPST.md", "THIRD_PARTY.md", "THIRD_PARTY_LICENSES.txt",
            "REBUILDING.md", "symbolica/lib.typ", "symbolica/render.typ",
-           "symbolica/symbolica.wasm")
+           "symbolica/symbolica-inflate.wasm", "symbolica/symbolica.wasm.zlib")
 DOCUMENTATION = ("CHANGELOG.md", "symbolica/manual.pdf",
                  *(f"symbolica/examples/{name}.typ" for name in
                    ("basic", "showcase", "expression-grid", "lotka-volterra",
@@ -31,6 +31,9 @@ def write_archive(destination, paths):
 
 
 def main():
+    for name in RUNTIME:
+        if name.endswith((".wasm", ".wasm.zlib")) and (ROOT / name).stat().st_size > 10 * 1024 * 1024:
+            raise RuntimeError(f"{name} exceeds our 10 MiB plugin asset budget")
     package = tomllib.loads((ROOT / "typst.toml").read_text())["package"]
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)

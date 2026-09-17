@@ -15,6 +15,7 @@ def cargo(*args):
 def main():
     metadata = json.loads(cargo("metadata", "--locked", "--format-version", "1"))
     tree = cargo("tree", "--locked", "--package", "symbolica-typst-plugin",
+                 "--package", "symbolica-typst-inflate-plugin",
                  "--target", "wasm32-unknown-unknown", "--no-default-features",
                  "--edges", "normal,build", "--prefix", "none", "--format", "{p}")
     keys = set(re.findall(r"^(\S+) v(\S+)", tree, re.MULTILINE))

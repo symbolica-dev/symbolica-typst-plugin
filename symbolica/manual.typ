@@ -167,8 +167,10 @@ ln -s /path/to/symbolica-typst-plugin \
   ~/.local/share/typst/packages/local/symbolica/0.1.0
 ```
 
-The package contains one uncompressed `symbolica.wasm`, loaded directly by
-Typst. Package downloads use archive compression.
+The package contains `symbolica.wasm.zlib` and a small
+`symbolica-inflate.wasm` plugin. Typst loads the inflater first, decompresses
+the engine in memory, then loads it. Together these assets are about 6.11 MiB;
+the engine expands to about 23.36 MiB in memory.
 
 == Create an engine
 

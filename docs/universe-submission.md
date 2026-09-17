@@ -41,11 +41,14 @@ do not remove the custom term merely to make validation pass.
 
 Size also needs a case-by-case decision under the
 [submission guidelines](https://github.com/typst/packages/blob/main/docs/README.md).
-The joint engine is about 23.36 MiB raw and the complete runtime archive is
-about 6 MiB compressed. It shares the algebra and integration implementation,
+The joint engine is shipped as about 6.08 MiB of zlib-compressed data plus a
+29 KiB inflater plugin. Typst loads the inflater first, decompresses the engine
+in memory, and then loads its original 23.36 MiB of Wasm. The raw engine is
+excluded from both the submission and runtime archive. It shares the algebra and integration implementation,
 uses compressed step metadata, removes unrelated C exports, and initializes
 rules through a cached Typst transition instead of a large Wizer snapshot.
-The repository's 10 MiB download budget is not a Universe limit.
+The repository enforces a 10 MiB budget for each plugin asset and the runtime
+archive; these are local checks, not a claim about Universe policy.
 
 The README retains the requested LaTeX equivalents. Universe's Markdown
 renderer differs from GitHub's; check their presentation in the submission
@@ -65,7 +68,8 @@ hand. This avoids error-prone copy-pasting and keeps displayed results in sync
 when equations or parameters change.
 
 This submission requests review of two exceptions: the custom Symbolica Typst
-permission and the approximately 23.36 MiB Wasm. The permission grants runtime
+permission and the engine's size (about 6.11 MiB of shipped assets, expanding
+to 23.36 MiB of Wasm in memory). The permission grants runtime
 use, redistribution through Universe and mirrors, and rebuilding unmodified
 Symbolica as part of the plugin. It grants no additional right to modify
 Symbolica's own source or distribute such modifications. The matching plugin

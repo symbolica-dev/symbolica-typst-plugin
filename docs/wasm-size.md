@@ -8,7 +8,44 @@ New Rust builds use Cargo's default release codegen-unit count, not one unit.
 The tables below record successive experiments; the current runtime
 initialization design supersedes the initial recommendation to retain Wizer.
 
-## Current distribution: one joint package
+## Current distribution: compressed joint package
+
+On 2026-09-17, the historical two-stage loader was restored for the joint
+engine. `symbolica-inflate.wasm` first expands `symbolica.wasm.zlib`, and Typst
+loads the returned bytes as the engine. The committed engine from `18e0491`
+was compressed without rebuilding or changing its Wasm instructions; the
+inflater and its source were restored from `734036c`.
+
+| Artifact | Bytes | MiB |
+| --- | ---: | ---: |
+| Original joint Wasm (build artifact only) | 24,494,932 | 23.36 |
+| Shipped zlib-compressed engine | 6,376,402 | 6.08 |
+| Shipped inflater | 29,244 | 0.03 |
+| Shipped engine assets together | 6,405,646 | 6.11 |
+
+The combined assets are 73.85% smaller than the raw engine. Compression uses
+the historical miniz_oxide 0.8.9 compressor at level 10, with an exact
+decompression round-trip check. The standard build now regenerates both
+assets and keeps the optimized raw Wasm under `target/` only. The manifest
+and distribution staging exclude the raw file. Build and packaging checks
+enforce our 10 MiB per-asset budget in addition to the existing archive budget.
+
+Compression changes the submitted file sizes, not the expanded engine or its
+runtime memory requirements. Integration still initializes on first use and
+uses the cached Typst transition. Custom `init(source: ...)` inputs remain
+uncompressed Wasm paths or bytes.
+
+Validation with Typst 0.14.2 passed all four regression fixtures, eight examples,
+the rebuilt manual, and integration using the extracted runtime archive.
+A Typst-side check also confirmed that the inflater returns the exact original
+Wasm bytes and that those bytes work as a custom `init(source: ...)` engine.
+The complete runtime archive is 6,494,512 bytes (6.19 MiB). The full Rust engine
+was not rebuilt for this change; the existing binary was compressed directly.
+
+The remaining sections are historical measurements, including the earlier
+decision to ship the raw joint engine and the policy review dated 2026-09-15.
+
+## Previous distribution: uncompressed joint package
 
 The adopted distribution is now the joint `symbolica` package. One
 `symbolica/symbolica.wasm` contains the core and integration bridges, with

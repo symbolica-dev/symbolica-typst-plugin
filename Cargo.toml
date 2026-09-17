@@ -25,6 +25,7 @@ wasm-minimal-protocol = "0.1"
 [workspace]
 members = [
   "crates/atom-payload",
+  "crates/inflate-plugin",
 ]
 resolver = "3"
 
