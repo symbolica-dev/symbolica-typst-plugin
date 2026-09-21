@@ -30,6 +30,11 @@ resolver = "3"
 
 [profile.release]
 lto = true
-opt-level = "z"
+opt-level = "s"
 panic = "abort"
 strip = true
+
+# Keep generated integration rule code compact while optimizing the shared
+# algebra engine and Typst bridge for faster rule preparation.
+[profile.release.package.symbolica-integrate]
+opt-level = "z"
