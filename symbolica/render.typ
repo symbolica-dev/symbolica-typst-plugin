@@ -278,6 +278,43 @@
   positive
 }
 
+// Classify exact real rational exponents without converting their digits to
+// Typst integers (which would truncate Symbolica's arbitrary precision range).
+#let _rational-exponent(node) = {
+  if _kind(node) != "number" { return none }
+  let source = _source(node)
+  if type(source) != str { return none }
+  let negative = source.starts-with("-")
+  let magnitude = if negative { source.slice(1) } else { source }
+  let parts = magnitude.split("/")
+  if parts.len() not in (1, 2) or not parts.all(part => part.match(regex("^[0-9]+$")) != none) {
+    return none
+  }
+  (
+    negative: negative,
+    numerator: parts.first(),
+    denominator: if parts.len() == 2 { parts.last() } else { "1" },
+    magnitude: (kind: "number", source: magnitude),
+  )
+}
+
+// Division is stored as multiplication by negative rational powers. Only
+// change presentation: keep the original base nodes and their exact metadata.
+#let _denominator-factor(node) = {
+  if _kind(node) != "power" { return none }
+  let exponent = _rational-exponent(_field(node, ("exponent", "exp", "rhs", "right")))
+  if exponent == none or not exponent.negative { return none }
+  let base = _field(node, ("base", "lhs", "left"))
+  if exponent.numerator == "1" and exponent.denominator == "1" { return base }
+  (kind: "power", base: base, exponent: exponent.magnitude)
+}
+
+#let _is-fraction-product(node) = {
+  _kind(node) == "product" and _as-array(_field(
+    node, ("factors", "arguments", "args", "children"), default: (),
+  )).any(factor => _denominator-factor(factor) != none)
+}
+
 #let _split-sign(node) = {
   let positive = _negative-number(node)
   if positive != none { return (negative: true, node: positive) }
@@ -325,7 +362,7 @@
     ()
   }
 
-  let render-node(node, exact: true) = {
+  let render-node(node, exact: true, roots: true) = {
     if type(node) != dictionary { panic("an Atom render-tree node must be a dictionary") }
     let kind = _kind(node)
 
@@ -423,7 +460,7 @@
       let arguments = _arguments(node)
       let visual-arguments = arguments.map(argument => render-node(argument, exact: false))
       let head = render-head(node, attach: false)
-      let default = () => math.op(head) + _parenthesize(visual-arguments.join($, $))
+      let default = () => math.op(head) + _parenthesize(visual-arguments.join(_math-body($, $)))
       let ctx = make-context(
         "function",
         arguments: arguments,
@@ -441,7 +478,7 @@
         } else {
           visual-arguments
         }
-        return math.op(render-head(node, attach: exact)) + _parenthesize(structural-arguments.join($, $))
+        return math.op(render-head(node, attach: exact)) + _parenthesize(structural-arguments.join(_math-body($, $)))
       }
       let visual = _invoke(renderer, ctx)
       return if exact { _annotate(annotate, _atom(node), visual, node) } else { visual }
@@ -451,18 +488,56 @@
       let base-node = _field(node, ("base", "lhs", "left"), default: none)
       let exponent-node = _field(node, ("exponent", "exp", "rhs", "right"), default: none)
       if base-node == none or exponent-node == none { panic("a power node needs a base and exponent") }
+      let exponent = _rational-exponent(exponent-node)
+      let reciprocal = exponent != none and exponent.negative
       let base = render-node(base-node, exact: exact)
-      if _kind(base-node) in ("sum", "product") { base = _parenthesize(base) }
-      return math.attach(base, t: render-node(exponent-node, exact: exact))
+      let visual = if roots and exponent != none and exponent.denominator != "1" {
+        // Symbolica prints standalone fractional powers as roots. Powers moved
+        // into a product's denominator retain their positive exponent instead.
+        let radical = if exponent.denominator == "2" {
+          math.sqrt(base)
+        } else {
+          math.root(_source-content(exponent.denominator), base)
+        }
+        if exponent.numerator == "1" { radical }
+        else { math.attach(radical, t: _source-content(exponent.numerator)) }
+      } else if reciprocal and exponent.numerator == "1" and exponent.denominator == "1" {
+        base
+      } else {
+        if _kind(base-node) in ("sum", "product", "power") or (
+          _kind(base-node) == "number" and (
+            _negative-number(base-node) != none or (
+              type(_source(base-node)) == str and _source(base-node).contains("/")
+            )
+          )
+        ) { base = _parenthesize(base) }
+        let power = if reciprocal { exponent.magnitude } else { exponent-node }
+        math.attach(base, t: render-node(power, exact: exact))
+      }
+      return if reciprocal { math.frac(_source-content("1"), visual) } else { visual }
     }
 
     if kind == "product" {
       let factors = _as-array(_field(node, ("factors", "arguments", "args", "children"), default: ()))
-      if factors.len() == 0 { return _source-content("1") }
-      return factors.map(factor => {
-        let visual = render-node(factor, exact: exact)
-        if _kind(factor) == "sum" { _parenthesize(visual) } else { visual }
-      }).join($ thin $)
+      let numerator = ()
+      let denominator = ()
+      for factor in factors {
+        let below = _denominator-factor(factor)
+        if below == none { numerator.push(factor) } else { denominator.push(below) }
+      }
+      let render-factors(factors, roots: true) = {
+        if factors.len() == 0 { return _source-content("1") }
+        let minus = factors.len() > 1 and _kind(factors.first()) == "number" and _source(factors.first()) == "-1"
+        let visible = if minus { factors.slice(1) } else { factors }
+        let body = visible.map(factor => {
+          let visual = render-node(factor, exact: exact, roots: roots)
+          if _kind(factor) == "sum" and factors.len() > 1 { _parenthesize(visual) } else { visual }
+        }).join([ ])
+        if minus { _math-body($-#body$) } else { body }
+      }
+      let above = render-factors(numerator)
+      if denominator.len() == 0 { return above }
+      return math.frac(above, render-factors(denominator, roots: false))
     }
 
     if kind == "sum" {
@@ -470,7 +545,10 @@
       if terms.len() == 0 { return _source-content("0") }
       let result = none
       for (index, term) in terms.enumerate() {
-        let signed = _split-sign(term)
+        // The printer keeps a fractional term's sign inside its numerator.
+        let signed = if _is-fraction-product(term) {
+          (negative: false, node: term)
+        } else { _split-sign(term) }
         let visual = render-node(signed.node, exact: exact)
         if index == 0 {
           result = if signed.negative { _math-body($- #visual$) } else { visual }

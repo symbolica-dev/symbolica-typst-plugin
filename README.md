@@ -179,6 +179,19 @@ the account's file and project limits.
 Once published on Universe, use `#import "@preview/symbolica:0.1.0" as sym`
 instead; the package is fetched without manually uploading its Wasm.
 
+## Development shell
+
+The repository's Nix flake provides Typst and its pinned package dependencies,
+plus the Rust and Wasm build tools:
+
+```sh
+nix develop
+typst compile --root . symbolica/tests/parsely-metadata.typ /tmp/parsely-metadata.pdf
+```
+
+Use `nix run .#typst -- <arguments>` to run Typst without entering the shell.
+Run `nix flake check` to validate the bundled plugin, examples, and manual.
+
 ## Documentation and examples
 
 - [User manual](symbolica/manual.pdf) — quickstart, concepts, recipes, symbolic

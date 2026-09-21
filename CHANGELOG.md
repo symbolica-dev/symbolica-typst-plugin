@@ -6,6 +6,15 @@ prepared.
 
 ## Unreleased
 
+- Match Symbolica's Typst fraction and rational-power layouts in the structured
+  renderer, including product spacing and signs. Custom notation and exact Atom
+  metadata remain available inside numerators, denominators, and roots.
+
+- Keep `to-typst` output in one inline equation by default, including fractional
+  products such as `math($1/3 x^2$)`. Remove nested equations from product and
+  function-argument separators, and normalize equation wrappers and explicit
+  spacing when parsing rendered atoms back into math.
+
 - Update Parsely to 0.1.1 and adopt its explicit element-match grammar syntax.
 - Preserve square roots when normalizing Typst math content for parsing.
 - Recognize Typst's π as Symbolica's built-in constant, so numerical evaluation

@@ -120,6 +120,12 @@
   if type(value) != content { return value }
 
   let kind = repr(value.func())
+  // Inline equations inserted by `to-typst` are transparent inside math.
+  // Parsely unwraps its outer equation, but not equations nested in a sequence.
+  if kind == "equation" { return _trim_math(value.body) }
+  // Explicit math spacing (including rendered product separators) is lexical
+  // whitespace, not a symbolic operand.
+  if kind == "h" { return [ ] }
   if kind != "sequence" and kind not in _content_positional_fields {
     return value
   }
@@ -317,7 +323,7 @@
       ),
     )
   }
-  if block { _typst_math.equation(body, block: true) } else { body }
+  _typst_math.equation(body, block: block)
 }
 #let _to_latex(engine, expr) = str(engine.plugin.to_latex(_payload_bytes(engine, expr)))
 

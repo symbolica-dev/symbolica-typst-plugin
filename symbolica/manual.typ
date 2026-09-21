@@ -323,6 +323,12 @@ content still carries the exact Atom.
 $ #to-typst(expression, notation: display) $
 ```
 
+For fractions and exact rational powers, `to-typst` follows the layout
+conventions of `to-typst-source`, while retaining custom notation and exact
+symbol metadata. For example, `to-typst(math($x^2/(1+x)$))` displays a fraction
+with numerator $x^2$ and denominator $1+x$. Notation overrides also apply
+inside its numerator and denominator.
+
 == Built-in functions such as sine and cosine
 
 Polynomials work with the imported top-level functions. For analytic functions
