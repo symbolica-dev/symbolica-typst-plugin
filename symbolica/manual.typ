@@ -349,6 +349,74 @@ so that differentiation and numerical evaluation recognize them:
 The worked pendulum example binds these functions to short local names so that
 the calculation remains readable.
 
+== Special functions beyond Typst's math library
+
+Symbolica's special functions are available even when Typst has no function
+with that name. Call `gamma`, `polygamma`, `polylog`, `zeta`, or one of the
+`bessel-j`, `bessel-y`, `bessel-i`, and `bessel-k` constructors directly. These
+are available both at the top level and in the dictionary returned by `init`.
+They always select Symbolica's built-in function, even when an engine uses a
+custom namespace for its arguments. Typst constructs the call and Symbolica
+performs the algebra or numerical evaluation.
+
+```worked
+#let x = symbol("x")
+#let expr = atom(polylog(2, x))
+
+$ #to-typst(expr) $
+$ #to-typst(derivative(expr, x)) $
+#let value = evaluate(polylog(2, div(1, 2)))
+#calc.round(value.re, digits: 8)
+```
+
+The derivative is $-ln(1-x)/x$ and the numerical result is approximately
+$0.58224053$. The constructor returns annotated math content, so it can also
+be interpolated into a larger expression as `math($#polylog(2, x) + 1$)`.
+`atom` converts a constructed call to an opaque Atom payload; algebra and
+evaluation functions also accept the constructed content directly.
+
+The direct constructors are:
+
+#table(
+  columns: (1fr, 1.5fr, 1.5fr),
+  inset: 6pt,
+  stroke: 0.35pt + rgb("#c9d3dd"),
+  table.header([*Function*], [*Constructor*], [*Meaning*]),
+  [Gamma], [`gamma(z)`], [$Gamma(z)$],
+  [Polygamma], [`polygamma(n, z)`], [Order $n$, with nonnegative integer $n$; $n=0$ is digamma.],
+  [Polylogarithm], [`polylog(s, z)`], [Order $s$, argument $z$.],
+  [Riemann zeta], [`zeta(s)`], [$zeta(s)$],
+  [Bessel], [`bessel-j(nu, z)`, `bessel-y(nu, z)`], [$J_nu(z)$ and $Y_nu(z)$.],
+  [Modified Bessel], [`bessel-i(nu, z)`, `bessel-k(nu, z)`], [$I_nu(z)$ and $K_nu(z)$.],
+)
+
+For example:
+
+```worked
+#to-typst(to-float(bessel-j(0, 1), decimal-prec: 8))
+#to-typst(to-float(zeta(3), decimal-prec: 8))
+```
+
+With a module import, call `sym.polylog(2, x)` or `sym.bessel-j(0, x)`.
+A module alias also keeps the constructor names separate from Typst's math
+glyphs, such as `gamma` and `zeta`.
+The generic `function(name, namespace: "symbolica")` constructor remains
+available for other built-ins. Its names use Symbolica's spelling, for example
+`"bessel_j"` with an underscore. Alternatively, use an operator head in native math:
+`math($op("polylog")(2, x)$, namespace: "symbolica")`.
+Use the same symbol namespace when constructing the differentiation variable;
+interpolating a `symbol` binding preserves that symbol's existing identity.
+
+A recognized built-in uses the normalization, derivative, series, and numerical
+rules implemented by the bundled Symbolica version. Availability of a named
+function does not imply every identity, derivative with respect to its order,
+or series at every point is implemented. An unrecognized name creates an
+ordinary symbolic function, without adding a numerical implementation.
+For numerical evaluation, supply values for free variables and numeric orders
+for functions such as polylogarithms and Bessel functions. Prefer exact inputs
+such as `div(1, 2)` before calling `evaluate` or `to-float`; the existing Wasm
+limitations for floating-point arguments also apply here.
+
 == Write equations as expressions equal to zero
 
 Solver inputs are expressions understood to equal zero. For example,
@@ -836,6 +904,10 @@ things up. The generated groups below cover the complete top-level API.
       "math", "atom", "symbol", "function", "wild", "array-tree", "canonical",
       "notation", "merge-notation", "to-typst-source", "to-typst", "to-latex", "to-float",
     ),
+  ),
+  (
+    title: [Built-in special functions],
+    names: ("gamma", "polygamma", "polylog", "zeta", "bessel-j", "bessel-y", "bessel-i", "bessel-k"),
   ),
   (
     title: [Algebra and calculus],

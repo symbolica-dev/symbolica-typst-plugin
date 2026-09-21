@@ -1,5 +1,9 @@
 # Wasm size investigation
 
+See [the 2026-09-21 mixed-profile measurements](wasm-optimization.md) for the
+updated build settings, runtime archive size, and initialization timings.
+The measurements below document the earlier size investigation.
+
 Measurements from 2026-09-15, starting at commit `c7d6848`, with Symbolica
 3.0.0, symbolica-integrate 2.0.1, Binaryen 130, Wizer 11.0.3, and Typst
 0.15.1. MiB means 1,048,576 bytes. Compressed sizes use this repository's

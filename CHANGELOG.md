@@ -6,6 +6,15 @@ prepared.
 
 ## Unreleased
 
+- Use a mixed Rust `s`/`z` release profile to reduce integration-rule
+  initialization time while keeping the compressed runtime archive below
+  8 MB. Retain the complete integration rule set and step explanations.
+
+- Expose `gamma`, `polygamma`, `polylog`, `zeta`, and `bessel-j/y/i/k` directly
+  at the top level and on `init()` engines. These annotated constructors retain
+  Symbolica's built-in function identity in any engine namespace. Document
+  special-function access and limitations with evaluated examples.
+
 - Match Symbolica's Typst fraction and rational-power layouts in the structured
   renderer, including product spacing and signs. Custom notation and exact Atom
   metadata remain available inside numerators, denominators, and roots.

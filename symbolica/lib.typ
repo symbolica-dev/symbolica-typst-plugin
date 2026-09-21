@@ -634,7 +634,9 @@
 /// The returned dictionary exposes Symbolica's parsing, algebra, evaluation,
 /// solving, integration, and matrix operations. Use `init` when you want to select a symbol
 /// namespace, plugin location, or parser grammar; ordinary calculations can
-/// use the imported top-level functions directly.
+/// use the imported top-level functions directly. Built-in special-function
+/// constructors always use Symbolica's function namespace; their arguments
+/// still use this engine's namespace and notation.
 ///
 /// ```example
 /// #let sym = init(namespace: "physics")
@@ -680,6 +682,14 @@
     atom: value => _expr_bytes(engine, value),
     symbol: (name, namespace: none, tags: ()) => _symbol(engine, name, namespace: namespace, tags: tags),
     function: (name, namespace: none, tags: ()) => _function(engine, name, namespace: namespace, tags: tags),
+    gamma: (z) => (_function(engine, "gamma", namespace: "symbolica"))(z),
+    polygamma: (n, z) => (_function(engine, "polygamma", namespace: "symbolica"))(n, z),
+    polylog: (s, z) => (_function(engine, "polylog", namespace: "symbolica"))(s, z),
+    zeta: (s) => (_function(engine, "zeta", namespace: "symbolica"))(s),
+    bessel-j: (nu, z) => (_function(engine, "bessel_j", namespace: "symbolica"))(nu, z),
+    bessel-y: (nu, z) => (_function(engine, "bessel_y", namespace: "symbolica"))(nu, z),
+    bessel-i: (nu, z) => (_function(engine, "bessel_i", namespace: "symbolica"))(nu, z),
+    bessel-k: (nu, z) => (_function(engine, "bessel_k", namespace: "symbolica"))(nu, z),
     wild: (name, level: 1, namespace: none) => _wild(engine, name, level: level, namespace: namespace),
     array-tree: (eqn, grammar: none) => _array_tree(engine, eqn, grammar: grammar),
     canonical: (expr, namespaces: false) => _canonical(engine, expr, namespaces: namespaces),
@@ -866,6 +876,13 @@
 /// prints that Atom, and attaches one metadata envelope to the complete call.
 /// Interpolate callable bindings inside math, for example `#f(x)`.
 ///
+/// Use `namespace: "symbolica"` for built-in special functions, even when
+/// Typst has no built-in function of that name. For example,
+/// `function("polylog", namespace: "symbolica")(2, x)` constructs a polylogarithm.
+/// Direct constructors are also available: `gamma`, `polygamma`, `polylog`,
+/// `zeta`, `bessel-j`, `bessel-y`, `bessel-i`, and `bessel-k`. Unknown names
+/// create ordinary symbolic functions; they do not acquire a numerical implementation.
+///
 /// ```example
 /// #let f = function("f", namespace: "model", tags: ("model::smooth",))
 /// #to-typst(math($#f(symbol("x")) + 1$))
@@ -883,6 +900,160 @@
   /// -> array
   tags: (),
 ) = (_default_engine().function)(name, namespace: namespace, tags: tags)
+
+/// Construct the built-in gamma function.
+///
+/// Returns exact annotated math content, usable directly inside equations or
+/// as input to algebra and evaluation. The head is always `symbolica::gamma`;
+/// arguments are converted like `atom`. Use `to-float` for an approximation.
+///
+/// ```example
+/// #to-typst(gamma(5))
+/// ```
+///
+/// -> content
+#let gamma(
+  /// Function argument.
+  /// -> bytes | content | int | float | str
+  z,
+) = (_default_engine().gamma)(z)
+
+/// Construct the built-in polygamma function of order `n`.
+///
+/// Returns exact annotated math content, usable directly inside equations or
+/// as input to algebra and evaluation. The head is always `symbolica::polygamma`;
+/// arguments are converted like `atom`. Use `to-float` for an approximation.
+///
+/// ```example
+/// #to-typst(polygamma(1, 1))
+/// ```
+///
+/// -> content
+#let polygamma(
+  /// Nonnegative integer order; zero gives the digamma function.
+  /// -> bytes | content | int | float | str
+  n,
+  /// Function argument.
+  /// -> bytes | content | int | float | str
+  z,
+) = (_default_engine().polygamma)(n, z)
+
+/// Construct the built-in polylogarithm of order `s`.
+///
+/// Returns exact annotated math content, usable directly inside equations or
+/// as input to algebra and evaluation. The head is always `symbolica::polylog`;
+/// arguments are converted like `atom`. Use `to-float` for an approximation.
+///
+/// ```example
+/// #to-typst(polylog(2, symbol("x")))
+/// ```
+///
+/// -> content
+#let polylog(
+  /// Polylogarithm order.
+  /// -> bytes | content | int | float | str
+  s,
+  /// Function argument.
+  /// -> bytes | content | int | float | str
+  z,
+) = (_default_engine().polylog)(s, z)
+
+/// Construct the built-in Riemann zeta function.
+///
+/// Returns exact annotated math content, usable directly inside equations or
+/// as input to algebra and evaluation. The head is always `symbolica::zeta`;
+/// arguments are converted like `atom`. Use `to-float` for an approximation.
+///
+/// ```example
+/// #to-typst(zeta(2))
+/// ```
+///
+/// -> content
+#let zeta(
+  /// Function argument.
+  /// -> bytes | content | int | float | str
+  s,
+) = (_default_engine().zeta)(s)
+
+/// Construct the built-in Bessel function of the first kind.
+///
+/// Returns exact annotated math content, usable directly inside equations or
+/// as input to algebra and evaluation. The head is always `symbolica::bessel_j`;
+/// arguments are converted like `atom`. Use `to-float` for an approximation.
+///
+/// ```example
+/// #to-typst(to-float(bessel-j(0, 1), decimal-prec: 8))
+/// ```
+///
+/// -> content
+#let bessel-j(
+  /// Bessel function order.
+  /// -> bytes | content | int | float | str
+  nu,
+  /// Function argument.
+  /// -> bytes | content | int | float | str
+  z,
+) = (_default_engine().bessel-j)(nu, z)
+
+/// Construct the built-in Bessel function of the second kind.
+///
+/// Returns exact annotated math content, usable directly inside equations or
+/// as input to algebra and evaluation. The head is always `symbolica::bessel_y`;
+/// arguments are converted like `atom`. Use `to-float` for an approximation.
+///
+/// ```example
+/// #to-typst(to-float(bessel-y(0, 1), decimal-prec: 8))
+/// ```
+///
+/// -> content
+#let bessel-y(
+  /// Bessel function order.
+  /// -> bytes | content | int | float | str
+  nu,
+  /// Function argument.
+  /// -> bytes | content | int | float | str
+  z,
+) = (_default_engine().bessel-y)(nu, z)
+
+/// Construct the built-in modified Bessel function of the first kind.
+///
+/// Returns exact annotated math content, usable directly inside equations or
+/// as input to algebra and evaluation. The head is always `symbolica::bessel_i`;
+/// arguments are converted like `atom`. Use `to-float` for an approximation.
+///
+/// ```example
+/// #to-typst(to-float(bessel-i(0, 1), decimal-prec: 8))
+/// ```
+///
+/// -> content
+#let bessel-i(
+  /// Bessel function order.
+  /// -> bytes | content | int | float | str
+  nu,
+  /// Function argument.
+  /// -> bytes | content | int | float | str
+  z,
+) = (_default_engine().bessel-i)(nu, z)
+
+/// Construct the built-in modified Bessel function of the second kind.
+///
+/// Returns exact annotated math content, usable directly inside equations or
+/// as input to algebra and evaluation. The head is always `symbolica::bessel_k`;
+/// arguments are converted like `atom`. Use `to-float` for an approximation.
+///
+/// ```example
+/// #to-typst(to-float(bessel-k(0, 1), decimal-prec: 8))
+/// ```
+///
+/// -> content
+#let bessel-k(
+  /// Bessel function order.
+  /// -> bytes | content | int | float | str
+  nu,
+  /// Function argument.
+  /// -> bytes | content | int | float | str
+  z,
+) = (_default_engine().bessel-k)(nu, z)
 
 /// Construct a Symbolica pattern wildcard.
 ///

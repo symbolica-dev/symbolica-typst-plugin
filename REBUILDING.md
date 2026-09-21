@@ -20,7 +20,11 @@ bash scripts/build-engine.sh
 
 Cargo downloads the locked dependencies. The result is
 `symbolica/symbolica.wasm`. The release profile uses the default 16 codegen
-units and no Wizer preinitialization.
+units, full LTO, and no Wizer preinitialization. Rust uses `opt-level = "s"`
+except for the generated `symbolica-integrate` rule code, which stays at `"z"`.
+Binaryen still applies `-Oz`. This mixed profile improves rule initialization
+while keeping the measured runtime archive below 8,000,000 bytes (8 MB).
+See [the optimization measurements](docs/wasm-optimization.md).
 
 To rebuild with a modified dependency whose license permits modification,
 add a Cargo `[patch.crates-io]` path override, update the lockfile as needed,

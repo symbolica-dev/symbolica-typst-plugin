@@ -297,3 +297,73 @@ Augment: #to-typst(augmented)
 Row-reduce rank: #reduced.rank; matrix: #to-typst(reduced.matrix)
 
 Matrix derivative: #to-typst(diagonal-prime)
+
+// Direct built-ins select Symbolica's function identity even when arguments
+// come from a custom namespace. Check the module and engine surfaces alike.
+#import "../lib.typ" as public
+#let direct-specials = (
+  gamma: public.gamma,
+  polygamma: public.polygamma,
+  polylog: public.polylog,
+  zeta: public.zeta,
+  bessel-j: public.bessel-j,
+  bessel-y: public.bessel-y,
+  bessel-i: public.bessel-i,
+  bessel-k: public.bessel-k,
+)
+#let special-cases = (
+  (name: "gamma", native: "gamma", orders: (), point: public.div(5, 6), value: 1.128787029908126),
+  (name: "polygamma", native: "polygamma", orders: (1,), point: 1, value: calc.pi * calc.pi / 6),
+  (name: "polylog", native: "polylog", orders: (2,), point: public.div(1, 2), value: calc.pi * calc.pi / 12 - calc.pow(calc.ln(2), 2) / 2),
+  (name: "zeta", native: "zeta", orders: (), point: 3, value: 1.202056903159594),
+  (name: "bessel-j", native: "bessel_j", orders: (0,), point: 1, value: 0.7651976865579666),
+  (name: "bessel-y", native: "bessel_y", orders: (0,), point: 1, value: 0.08825696421567696),
+  (name: "bessel-i", native: "bessel_i", orders: (0,), point: 1, value: 1.2660658777520084),
+  (name: "bessel-k", native: "bessel_k", orders: (0,), point: 1, value: 0.42102443824070833),
+)
+#for (api, namespace) in ((direct-specials, "typst"), (init(namespace: "special_model"), "special_model")) {
+  for case in special-cases {
+    let constructor = api.at(case.name)
+    let call = constructor(..case.orders, "x")
+    let arguments = (case.orders.map(str) + (namespace + "::x",)).join(",")
+    let expected = "symbolica::" + case.native + "(" + arguments + ")"
+    assert.eq(type(call), type([]))
+    assert.eq(canonical(call, namespaces: true), expected)
+    assert.eq(canonical(parse($#call$), namespaces: true), expected)
+    assert.eq(canonical(parse($#to-typst(call)$), namespaces: true), expected)
+    let value = evaluate(constructor(..case.orders, case.point))
+    assert(calc.abs(value.re - case.value) < 1e-10, message: case.name)
+    assert(calc.abs(value.im) < 1e-10, message: case.name)
+  }
+}
+
+#let special-x = symbol("x", namespace: "special_model")
+#let special-derivative = public.derivative(public.polylog(2, special-x), special-x)
+#assert.eq(
+  canonical(special-derivative, namespaces: true),
+  canonical(public.math($-log(1-#special-x)/#special-x$, namespace: "symbolica"), namespaces: true),
+)
+#assert.eq(canonical(public.gamma(5)), "24")
+#assert.eq(canonical(public.zeta(2)), canonical(public.math($pi^2/6$)))
+#assert.eq(canonical(public.polygamma(1, 1)), canonical(public.math($pi^2/6$)))
+
+// Engine notation and exact argument metadata are retained by the wrappers.
+#let special-engine = init(namespace: "special_model", notation: public.notation(
+  calls: ("symbolica::polylog": ctx => {
+    let (order, argument) = ctx.visual-arguments
+    $L_(#order)(#argument)$
+  }),
+))
+#let foreign-x = symbol("q", namespace: "external")
+#let styled-special = (special-engine.polylog)(2, foreign-x)
+#assert.eq(canonical(parse($#styled-special$), namespaces: true), "symbolica::polylog(2,external::q)")
+#assert.eq(
+  canonical((special-engine.polylog)(2, public.atom(foreign-x)), namespaces: true),
+  canonical(styled-special, namespaces: true),
+)
+#context {
+  let actual = measure($#styled-special$)
+  let expected = measure($L_2(q)$)
+  assert(calc.abs(actual.width - expected.width) < 0.01pt)
+  assert(calc.abs(actual.height - expected.height) < 0.01pt)
+}
