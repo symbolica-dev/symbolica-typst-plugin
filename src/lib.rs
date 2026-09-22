@@ -35,7 +35,7 @@ use symbolica::prelude::{
 };
 use symbolica_typst_atom_payload::{
     AttachmentSet, encode_atom as encode_shared_atom, encode_atom_from_set,
-    encode_atom_render_tree, parse_payload, typst_ast::AttachedAtom,
+    encode_atom_render_tree, parse_payload, prepare_typst_display, typst_ast::AttachedAtom,
 };
 use wasm_minimal_protocol::*;
 
@@ -984,10 +984,10 @@ fn render_matrix_typst(matrix: &PluginMatrix) -> Result<Vec<u8>, String> {
             if col > 0 {
                 out.push_str(", ");
             }
-            let atom = &entries[row * ncols + col];
+            let atom = prepare_typst_display(&entries[row * ncols + col])?;
             out.push_str(
                 &String::from_utf8(render_atom(
-                    atom,
+                    &atom,
                     PrintOptions::typst(),
                     FloatRenderStyle::Typst,
                 ))
@@ -1003,7 +1003,7 @@ fn render_payload_typst(input: &[u8]) -> Result<Vec<u8>, String> {
     if is_matrix_payload(input) {
         render_matrix_typst(&decode_matrix(input, "matrix")?)
     } else {
-        let expr = decode_atom(input, "expr")?;
+        let expr = prepare_typst_display(&decode_atom(input, "expr")?)?;
         Ok(render_atom(
             &expr,
             PrintOptions::typst(),
@@ -1776,6 +1776,52 @@ pub fn from_ast(ast: &[u8], namespace: &[u8]) -> Result<Vec<u8>, String> {
     };
     let parsed = attached_atom_from_ast(ast, &namespace, "ast")?;
     encode_attached_atom(&parsed.atom, &parsed.attachments)
+}
+
+/// Parse native Symbolica expression syntax independently of Typst math leaves.
+#[wasm_func]
+pub fn from_string(source: &[u8], namespace: &[u8]) -> Result<Vec<u8>, String> {
+    let source = match decode_cbor(source, "source")? {
+        Value::Text(source) => source,
+        other => return Err(format!("source must be text, got {other:?}")),
+    };
+    let namespace = match decode_cbor(namespace, "namespace")? {
+        Value::Text(namespace) => namespace,
+        other => return Err(format!("namespace must be text, got {other:?}")),
+    };
+    let atom = Atom::parse(
+        &source,
+        namespace,
+        symbolica::parser::ParseSettings::symbolica(),
+    )
+    .map_err(|error| format!("invalid Symbolica expression: {error}"))?;
+    encode_atom(&atom)
+}
+
+/// Register a complete Typst display tree as one literal symbolic variable.
+#[wasm_func]
+pub fn literal_from_ast(
+    ast: &[u8],
+    namespace: &[u8],
+    name: &[u8],
+    tags: &[u8],
+) -> Result<Vec<u8>, String> {
+    let value = decode_cbor(ast, "ast")?;
+    let namespace = match decode_cbor(namespace, "namespace")? {
+        Value::Text(namespace) => namespace,
+        other => return Err(format!("namespace must be text, got {other:?}")),
+    };
+    let name = match decode_cbor(name, "name")? {
+        Value::Null => None,
+        Value::Text(name) => Some(name),
+        other => return Err(format!("name must be text or none, got {other:?}")),
+    };
+    let tags = symbol_tags(tags)?;
+    let preflight =
+        symbolica_typst_atom_payload::typst_ast::preflight_display_payloads_from_value(&value)?;
+    let display = symbolica_typst_atom_payload::math_display::MathDisplay::from_ast(&value)?;
+    let symbol = display.register_literal(&namespace, name.as_deref(), tags)?;
+    encode_attached_atom(&Atom::var(symbol), &preflight.attachments)
 }
 
 #[wasm_func]
@@ -2854,6 +2900,301 @@ mod tests {
                 Value::Text(domain.to_owned()),
             ),
         ])
+    }
+
+    fn literal_ast_node(head: &str, args: Vec<Value>, slots: Vec<(&str, Value)>) -> Value {
+        Value::Map(vec![
+            (Value::Text("head".to_owned()), Value::Text(head.to_owned())),
+            (Value::Text("args".to_owned()), Value::Array(args)),
+            (
+                Value::Text("slots".to_owned()),
+                Value::Map(
+                    slots
+                        .into_iter()
+                        .map(|(key, value)| (Value::Text(key.to_owned()), value))
+                        .collect(),
+                ),
+            ),
+        ])
+    }
+
+    fn literal_test_payload(
+        value: Value,
+        namespace: &str,
+        name: Option<&str>,
+        tags: &[&str],
+    ) -> Vec<u8> {
+        literal_from_ast(
+            &encode_cbor(value).unwrap(),
+            &cbor_text(namespace),
+            &encode_cbor(name.map_or(Value::Null, |name| Value::Text(name.to_owned()))).unwrap(),
+            &cbor_tags(tags),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn literal_registration_keeps_arithmetic_labels_opaque() {
+        let ast = literal_ast_node(
+            "add",
+            vec![Value::Text("x".to_owned()), Value::Text("1".to_owned())],
+            vec![],
+        );
+        let payload = literal_test_payload(ast.clone(), "literal_arithmetic", None, &[]);
+        let literal = decode_atom(&payload, "literal variable").unwrap();
+        assert!(matches!(literal.as_view(), AtomView::Var(_)));
+        let algebra =
+            from_ast(&encode_cbor(ast).unwrap(), &cbor_text("literal_arithmetic")).unwrap();
+        assert_ne!(
+            literal,
+            decode_atom(&algebra, "algebra expression").unwrap()
+        );
+        assert_eq!(
+            decode_atom(&expand(&payload).unwrap(), "expanded literal").unwrap(),
+            literal
+        );
+    }
+
+    #[test]
+    fn literal_registration_reuses_simple_and_automatic_indexed_identities() {
+        let namespace = "literal_identity_compatibility";
+        let literal = literal_test_payload(Value::Text("x".to_owned()), namespace, None, &[]);
+        let ordinary = symbol(&cbor_text("x"), &cbor_text(namespace), &cbor_tags(&[])).unwrap();
+        assert_eq!(
+            decode_atom(&literal, "literal x").unwrap(),
+            decode_atom(&ordinary, "symbol x").unwrap()
+        );
+
+        let indexed = literal_ast_node(
+            "attach",
+            vec![],
+            vec![
+                ("base", Value::Text("a".to_owned())),
+                ("b", Value::Text("i".to_owned())),
+            ],
+        );
+        let literal = literal_test_payload(indexed.clone(), namespace, None, &[]);
+        let automatic = from_ast(&encode_cbor(indexed).unwrap(), &cbor_text(namespace)).unwrap();
+        assert_eq!(
+            decode_atom(&literal, "literal index").unwrap(),
+            decode_atom(&automatic, "automatic index").unwrap()
+        );
+    }
+
+    #[test]
+    fn literal_registration_supports_named_identities_tags_and_portable_export() {
+        use symbolica_typst_atom_payload::math_display::{
+            MATH_DISPLAY_SCHEMA, MATH_DISPLAY_VERSION, MathDisplay,
+        };
+        let ast = literal_ast_node(
+            "attach",
+            vec![],
+            vec![
+                ("base", Value::Text("C".to_owned())),
+                ("tr", Value::Text("i".to_owned())),
+            ],
+        );
+        let first = literal_test_payload(
+            ast.clone(),
+            "literal_named",
+            Some("first"),
+            &["model::tensor"],
+        );
+        let second = literal_test_payload(ast, "literal_named", Some("second"), &["model::tensor"]);
+        let atom = decode_atom(&first, "first literal").unwrap();
+        let other = decode_atom(&second, "second literal").unwrap();
+        assert_ne!(atom, other);
+        let symbol = atom.get_symbol().unwrap();
+        assert_eq!(symbol.get_name(), "literal_named::first");
+        assert_eq!(symbol.get_tags(), &["model::tensor"]);
+        let display = MathDisplay::from_symbol(symbol).unwrap().unwrap();
+        assert_eq!(
+            display,
+            MathDisplay::from_symbol(other.get_symbol().unwrap())
+                .unwrap()
+                .unwrap()
+        );
+        let key = AttachmentKey::new(
+            MATH_DISPLAY_SCHEMA,
+            MATH_DISPLAY_VERSION,
+            symbol.get_name().as_bytes(),
+        )
+        .unwrap();
+        assert!(parse_payload(&first).unwrap().attachment(&key).is_some());
+
+        let reexported = encode_atom(&atom).unwrap();
+        let imported = decode_atom(&reexported, "reexported literal").unwrap();
+        assert_eq!(imported, atom);
+        assert_eq!(
+            MathDisplay::from_symbol(imported.get_symbol().unwrap()).unwrap(),
+            Some(display)
+        );
+        assert!(
+            parse_payload(&reexported)
+                .unwrap()
+                .attachment(&key)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn literal_registration_preflights_all_display_payloads_and_validates_options() {
+        let key = test_attachment_key(b"literal-label");
+        let index = symbol_atom("i", "literal_preflight_embedded").unwrap();
+        let label = literal_ast_node(
+            "vec",
+            vec![],
+            vec![(
+                "children",
+                Value::Array(vec![Value::Bytes(attached_test_atom(
+                    &index, &key, b"first",
+                ))]),
+            )],
+        );
+        let valid = literal_test_payload(label, "literal_display_preflight", None, &[]);
+        assert_payload_attachment(&valid, &key, b"first");
+
+        let conflict = literal_ast_node(
+            "vec",
+            vec![],
+            vec![(
+                "children",
+                Value::Array(vec![
+                    Value::Bytes(attached_test_atom(&index, &key, b"first")),
+                    Value::Bytes(attached_test_atom(&index, &key, b"second")),
+                ]),
+            )],
+        );
+        let namespace = cbor_text("literal_display_preflight");
+        let no_name = encode_cbor(Value::Null).unwrap();
+        assert!(
+            literal_from_ast(
+                &encode_cbor(conflict).unwrap(),
+                &namespace,
+                &no_name,
+                &cbor_tags(&[])
+            )
+            .unwrap_err()
+            .contains("conflicting data")
+        );
+        let ast = cbor_text("x");
+        assert!(
+            literal_from_ast(
+                &ast,
+                &namespace,
+                &encode_cbor(Value::Bool(false)).unwrap(),
+                &cbor_tags(&[])
+            )
+            .unwrap_err()
+            .contains("name must be text or none")
+        );
+        assert!(
+            literal_from_ast(&ast, &namespace, &no_name, &cbor_tags(&["invalid-tag"]))
+                .unwrap_err()
+                .contains("canonical namespaced tag")
+        );
+    }
+
+    #[test]
+    fn native_string_parser_reads_arithmetic_without_changing_literal_leaves() {
+        let namespace = "native_string_arithmetic";
+        let source = "x^2/(1+x)";
+        let payload = from_string(&cbor_text(source), &cbor_text(namespace)).unwrap();
+        let parsed = decode_atom(&payload, "parsed expression").unwrap();
+        let x = symbol_atom("x", namespace).unwrap();
+        assert_eq!(parsed, x.clone().pow(Atom::num(2)) / (Atom::num(1) + x));
+        assert!(parsed.get_symbol().is_none());
+
+        // The same text is still one Typst math leaf, whose name validation
+        // rejects expression syntax instead of silently parsing arithmetic.
+        assert!(from_ast(&cbor_text(source), &cbor_text(namespace)).is_err());
+        let leaf = from_ast(&cbor_text("x"), &cbor_text(namespace)).unwrap();
+        assert_eq!(
+            decode_atom(&leaf, "literal math leaf").unwrap(),
+            symbol_atom("x", namespace).unwrap()
+        );
+    }
+
+    #[test]
+    fn native_string_parser_keeps_fractions_and_large_integers_exact() {
+        let namespace = cbor_text("native_string_exact_numbers");
+        let fraction = from_string(&cbor_text("1/3+1/6"), &namespace).unwrap();
+        assert_eq!(
+            decode_atom(&fraction, "fraction").unwrap(),
+            Atom::num((1, 2))
+        );
+
+        let integer =
+            from_string(&cbor_text("1267650600228229401496703205376"), &namespace).unwrap();
+        let integer = decode_atom(&integer, "large integer").unwrap();
+        assert_eq!(integer, Atom::num(2).pow(Atom::num(100)));
+        assert_eq!(
+            String::from_utf8(
+                canonical(
+                    &encode_atom(&integer).unwrap(),
+                    &encode_cbor(Value::Bool(false)).unwrap()
+                )
+                .unwrap()
+            )
+            .unwrap(),
+            "1267650600228229401496703205376",
+        );
+    }
+
+    #[test]
+    fn native_string_parser_preserves_namespaces_and_recognizes_builtins() {
+        let namespace = "native_string_namespaces";
+        let source = "sin(x)+native_string_other::x+gamma(5)+pi";
+        let payload = from_string(&cbor_text(source), &cbor_text(namespace)).unwrap();
+        let parsed = decode_atom(&payload, "namespaced expression").unwrap();
+        assert_eq!(
+            parsed,
+            Symbol::SIN.call(symbol_atom("x", namespace).unwrap())
+                + symbol_atom("native_string_other::x", "unused").unwrap()
+                + Atom::num(24)
+                + Atom::var(Symbol::PI),
+        );
+        let custom = from_string(
+            &cbor_text("native_string_other::sin(x)"),
+            &cbor_text(namespace),
+        )
+        .unwrap();
+        let custom = decode_atom(&custom, "qualified custom function").unwrap();
+        assert_eq!(
+            custom,
+            Symbol::parse("native_string_other::sin", "unused")
+                .unwrap()
+                .call(symbol_atom("x", namespace).unwrap()),
+        );
+        assert_ne!(
+            custom,
+            Symbol::SIN.call(symbol_atom("x", namespace).unwrap())
+        );
+    }
+
+    #[test]
+    fn native_string_parser_reports_malformed_input_and_wrong_argument_types() {
+        let namespace = cbor_text("native_string_errors");
+        for source in ["x+", "(x+1", "f(x,,y)"] {
+            assert!(
+                from_string(&cbor_text(source), &namespace)
+                    .unwrap_err()
+                    .contains("invalid Symbolica expression"),
+                "malformed source was accepted: {source}",
+            );
+        }
+        let integer = encode_cbor(Value::Integer(3.into())).unwrap();
+        assert!(
+            from_string(&integer, &namespace)
+                .unwrap_err()
+                .contains("source must be text")
+        );
+        assert!(
+            from_string(&cbor_text("x"), &integer)
+                .unwrap_err()
+                .contains("namespace must be text")
+        );
+        assert!(from_string(b"not CBOR", &namespace).is_err());
     }
 
     #[test]

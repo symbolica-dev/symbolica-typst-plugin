@@ -12,5 +12,7 @@ native = ["symbolica/integer-gmp", "symbolica/float-mpfr"]
 wasm = ["symbolica/wasm"]
 
 [dependencies]
+blake3 = "1"
 ciborium = "0.2.2"
-symbolica = { version = "3.0.0", default-features = false }
+# Let the embedding workspace select the same Atom ABI as its other bindings.
+symbolica = { version = "3.0", default-features = false }

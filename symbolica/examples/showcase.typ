@@ -13,11 +13,11 @@ hyperbola $x y = 2$. This small problem combines exact polynomial solving,
 factorization, symbolic matrices, and substitution in one reproducible Typst
 document.
 
-#let x = symbol("x")
-#let y = symbol("y")
+#let x = literal("x")
+#let y = literal("y")
 #let system = (
-  math($x^2 + y^2 - 5$),
-  math($x y - 2$),
+  parse($x^2 + y^2 - 5$),
+  parse($x y - 2$),
 )
 
 The equations passed to `solve` are expressions understood as equal to
@@ -31,7 +31,7 @@ $
 Eliminating $y$ gives a univariate polynomial whose exact factorization makes
 the four possible $x$ coordinates visible:
 
-#let eliminant = math($x^4 - 5 x^2 + 4$)
+#let eliminant = parse($x^4 - 5 x^2 + 4$)
 
 $ #to-typst(eliminant) = #to-typst(factor(eliminant)). $
 
@@ -63,7 +63,7 @@ The `values` in each solution follow the requested variable order `(x, y)`.
 The Jacobian of the two left-hand sides is
 
 #let jacobian = matrix($mat(2 x, 2 y; y, x)$)
-#let jacobian-det = det(jacobian)
+#let jacobian-det = determinant(jacobian)
 
 $ J(x, y) = #to-typst(jacobian), quad det J = #to-typst(jacobian-det). $
 

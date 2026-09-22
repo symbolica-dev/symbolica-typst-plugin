@@ -9,7 +9,7 @@ chunks are not copied into the submission directory.
 
 Publish the matching plugin source revision, lockfile, and build scripts and
 link them from the binary release. `REBUILDING.md` describes those sources and
-the exact crates.io dependency sources listed in `THIRD_PARTY_LICENSES.txt`.
+the locked crates.io and Git dependency sources listed in `THIRD_PARTY_LICENSES.txt`.
 Source may be hosted on other servers under GPLv3 Section 6(d), provided there
 are clear directions beside the binary and equivalent access is maintained.
 A separate archive is not mandatory. `python3 scripts/prepare-source.py`

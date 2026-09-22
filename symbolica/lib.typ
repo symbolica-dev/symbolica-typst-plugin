@@ -1,6 +1,18 @@
 #import "@preview/parsely:0.1.1"
 #import "render.typ" as atom-render
 
+#let _is-call-head(head) = {
+  if type(head) != content or head.func() != math.attach { return true }
+  let fields = head.fields()
+  let top = fields.at("t", default: none)
+  if top == [] { return true }
+  if type(top) == content {
+    let text = top.fields().at("text", default: none)
+    if type(text) == str and text.trim() == "" { return true }
+  }
+  ("b", "tl", "tr", "bl", "br").any(slot => fields.at(slot, default: none) != none)
+}
+
 #let _default_grammar = (
   arg: (infix: $,$, assoc: true, prec: 4),
   add: (infix: $+$, prec: 1, assoc: true),
@@ -13,47 +25,100 @@
   semantic-metadata: (postfix: metadata, prec: 5),
   mul: (infix: $$, prec: 2.5, assoc: true),
   "()": (match: $(#parsely.slot("expr*"))$),
-  pow: (match: $#parsely.slot("base")^#parsely.slot("exp")$),
   union: (infix: $union$, prec: 1),
   inter: (infix: $inter$, prec: 1),
+  // Calls must match before their decorated heads are consumed as attachments.
+  // A bare superscript remains a power followed by multiplication.
+  attached-call: (
+    match: $#parsely.slot("fn") #parsely.tight #parsely.slot("tail", guard: value => {
+      (type(value) == content and value.func() == math.attach and
+        parsely.match($(#parsely.slot("body*"))$, value.base) != false)
+    })$,
+    guard: slots => _is-call-head(slots.fn),
+    rewrite: node => {
+      // Typst stores h'(c)^2 as h' followed by attach((c), t:2).
+      // Rebuild the complete call beneath the unchanged attachment slots.
+      let fields = node.slots.tail.fields()
+      fields.base = node.slots.fn + fields.base
+      (head: "attach", args: (), slots: fields)
+    },
+  ),
+  op-call: (match: $op(#parsely.slot("op"))(#parsely.slot("args*"))$),
+  call: (
+    match: $#parsely.slot("fn") #parsely.tight (#parsely.slot("body*"))$,
+    guard: slots => _is-call-head(slots.fn),
+  ),
+  // A power-shaped pattern matches a subset of attachment fields and would
+  // discard the subscript in a_i^2. Preserve the complete native element.
   attach: (match: math.attach),
+  primes: (match: math.primes),
+  accent: (match: math.accent),
+  cancel: (match: math.cancel),
+  cases: (match: math.cases),
+  class: (match: math.class),
   frac: (match: math.frac),
+  limits: (match: math.limits),
   lr: (match: math.lr),
   mat: (match: math.mat),
+  mid: (match: math.mid),
+  overbrace: (match: math.overbrace),
+  overbracket: (match: math.overbracket),
+  overline: (match: math.overline),
+  overparen: (match: math.overparen),
+  overshell: (match: math.overshell),
   vec: (match: math.vec),
   root: (match: math.root),
-  op-call: (match: $op(#parsely.slot("op"))(#parsely.slot("args*"))$),
-  call: (match: $#parsely.slot("fn") #parsely.tight (#parsely.slot("body*"))$),
+  scripts: (match: math.scripts),
+  stretch: (match: math.stretch),
+  underbrace: (match: math.underbrace),
+  underbracket: (match: math.underbracket),
+  underline: (match: math.underline),
+  underparen: (match: math.underparen),
+  undershell: (match: math.undershell),
   op: (match: math.op),
 )
 #let _typst_math = math
 
-#let _leaf(value) = {
+#let _leaf(value, parse-content: none, display: false, strict: false) = {
   if type(value) == dictionary {
     value
   } else if type(value) == array {
-    value.map(_leaf)
-  } else if type(value) == str {
+    value.map(item => {
+      if type(item) == content and parse-content != none {
+        parse-content(item)
+      } else {
+        _leaf(item, parse-content: parse-content, display: display, strict: strict)
+      }
+    })
+  } else if type(value) in (str, int, float, bool, bytes) or value == none {
     value
   } else if type(value) == content {
     let fields = value.fields()
-    if "text" in fields {
-      fields.text
+    if repr(value.func()) == "styled" and "child" in fields {
+      if parse-content != none { parse-content(fields.child) }
+      else { _leaf(fields.child, display: display, strict: strict) }
+    } else if "text" in fields {
+      // Typst exposes quoted labels as text and math identifiers as symbols.
+      // Numeric text also represents ordinary numeric literals, so retain the
+      // existing numeric interpretation for that indistinguishable case.
+      if (display and repr(value.func()) == "text" and fields.text.trim() != "" and
+        fields.text.match(regex("^[0-9]+([.][0-9]+)?([eE][+-]?[0-9]+)?$")) == none) {
+        (head: "text", args: (fields.text,), slots: (:))
+      } else { fields.text }
     } else if "children" in fields {
       fields.children.map(_leaf).join("")
+    } else if strict {
+      panic("literal: unsupported standalone element " + repr(value.func()) +
+        "; Atom metadata must follow its visible label")
     } else {
       repr(value)
     }
+  } else if strict {
+    panic("literal: unsupported value of type " + repr(type(value)))
   } else {
     repr(value)
   }
 }
-
-#let _node_to_ast(node) = (
-  head: node.head,
-  args: node.args,
-  slots: node.slots,
-)
 
 #let _with-semantic-metadata(grammar) = {
   let enhanced = (
@@ -90,6 +155,12 @@
   let kind = repr(fn)
   if kind == "sequence" and "children" in fields {
     return fields.children.join()
+  }
+  if kind == "vec" or kind == "cases" {
+    return fn(..fields.remove("children"), ..fields)
+  }
+  if kind == "mat" {
+    return fn(..fields.remove("rows"), ..fields)
   }
   if kind == "root" and "index" not in fields {
     return _typst_math.sqrt(fields.remove("radicand"), ..fields)
@@ -140,15 +211,84 @@
 #let _namespace(engine, namespace) = if namespace == none { engine.namespace } else { namespace }
 #let _namespace_bytes(engine, namespace: none) = cbor.encode(_namespace(engine, namespace))
 
-#let _ast_bytes(eqn, grammar) = {
-  let parsed = parsely.parse(_trim_math(eqn), _with-semantic-metadata(grammar))
-  let tree = parsely.walk(parsed.tree, post: _node_to_ast, leaf: _leaf)
-  cbor.encode(tree)
+#let _empty-literal-label(value) = {
+  if value == none { return true }
+  if type(value) == array { return value.all(_empty-literal-label) }
+  if type(value) == content {
+    let kind = repr(value.func())
+    if kind == "equation" { return _empty-literal-label(value.body) }
+    if kind == "sequence" { return value.children.all(_empty-literal-label) }
+    if kind == "space" { return true }
+    if kind in ("text", "symbol") { return value.text.trim() == "" }
+  }
+  false
+}
+
+// Parsely recursively parses content slots before the leaf encoder runs.
+// An explicit empty text leaf keeps an empty attachment present and avoids
+// Parsely's whitespace-only slot failure. Keep algebra grammar rewrites out
+// of literal labels, while retaining the display grammar's call handling.
+#let _literal-grammar() = _default_grammar.pairs().map(((name, rule)) => {
+  let original = rule.at("rewrite", default: node => node)
+  let normalize(value) = if type(value) == content and _empty-literal-label(value) {
+    text("")
+  } else { value }
+  rule.insert("rewrite", node => {
+    let node = original(node)
+    if type(node) != dictionary { return node }
+    node.args = node.args.map(normalize)
+    node.slots = node.slots.pairs().map(((key, value)) => (key, normalize(value))).to-dict()
+    node
+  })
+  (name, rule)
+}).to-dict()
+
+#let _ast_bytes(eqn, grammar, display: false, complete: false) = {
+  let encode-tree(value, display: false) = {
+    let encode-node(node, display: false) = {
+      if type(node) != dictionary or "head" not in node {
+        return _leaf(node, display: display, strict: complete, parse-content: encode-tree.with(display: display))
+      }
+      (
+        head: node.head,
+        args: node.args.map(child => encode-node(child, display: display)),
+        slots: node.slots.pairs().map(((slot, child)) => (
+          slot,
+          encode-node(child, display: display or (node.head == "attach" and slot != "t")),
+        )).to-dict(),
+      )
+    }
+    if display and _empty-literal-label(value) { return none }
+    let parsed = parsely.parse(_trim_math(value), _with-semantic-metadata(grammar))
+    if complete and parsed.rest != none and parsed.rest != [] {
+      panic("literal: unparsed content in the display label; use a named literal with notation(...) for custom rendering")
+    }
+    encode-node(parsed.tree, display: display)
+  }
+  cbor.encode(encode-tree(eqn, display: display))
 }
 
 #let _from_math(engine, eqn, grammar: none, namespace: none) = {
   let grammar = if grammar == none { engine.grammar } else { grammar }
   engine.plugin.from_ast(_ast_bytes(eqn, grammar), _namespace_bytes(engine, namespace: namespace))
+}
+
+#let _parse(engine, input, grammar: none, namespace: none) = {
+  if type(input) == content {
+    return _from_math(engine, input, grammar: grammar, namespace: namespace)
+  }
+  if grammar != none {
+    panic("parse: grammar applies only to Typst math content; strings use Symbolica syntax and numbers or Atom payloads need no grammar")
+  }
+  if type(input) == str {
+    engine.plugin.from_string(cbor.encode(input), _namespace_bytes(engine, namespace: namespace))
+  } else if type(input) == bytes {
+    input
+  } else if type(input) in (int, float) {
+    engine.plugin.from_ast(cbor.encode(input), _namespace_bytes(engine, namespace: namespace))
+  } else {
+    panic("parse: expected Typst math content, a Symbolica expression string, a number, or an Atom payload; found " + repr(type(input)))
+  }
 }
 
 #let _array_tree(engine, eqn, grammar: none) = {
@@ -213,15 +353,90 @@
     }
   }
 }
-#let _symbol(engine, name, namespace: none, tags: ()) = {
-  if type(name) != str { panic("symbol name must be a string") }
+// Portable literal labels accept only fields represented by MathDisplay.
+// Validate the original content before Parsely can unwrap styles or discard
+// fields. Equation block layout and ordinary whitespace are presentation only.
+#let _literal-fields = (
+  equation: ("body", "block"), sequence: ("children",),
+  symbol: ("text",), text: ("text",), space: (),
+  attach: ("base", "t", "b", "tl", "tr", "bl", "br"),
+  primes: ("count",), frac: ("num", "denom"), root: ("index", "radicand"),
+  lr: ("body",), vec: ("children",), mat: ("rows",), cases: ("children",),
+  accent: ("base", "accent"), op: ("text",), class: ("class", "body"),
+  cancel: ("body",), limits: ("body",), scripts: ("body",),
+  stretch: ("body",), mid: ("body",), overline: ("body",), underline: ("body",),
+  overbrace: ("body", "annotation"), underbrace: ("body", "annotation"),
+  overbracket: ("body", "annotation"), underbracket: ("body", "annotation"),
+  overparen: ("body", "annotation"), underparen: ("body", "annotation"),
+  overshell: ("body", "annotation"), undershell: ("body", "annotation"),
+)
+#let _validate-literal-content(value, location: "literal label") = {
+  let unsupported(detail) = panic("literal: " + detail + " in " + location +
+    "; use a named literal with notation(...) for custom rendering")
+  if type(value) == array {
+    for (index, item) in value.enumerate() {
+      _validate-literal-content(item, location: location + " item " + str(index + 1))
+    }
+  } else if type(value) == content {
+    let kind = repr(value.func())
+    let fields = value.fields()
+    if kind == "metadata" {
+      let envelope = fields.at("value", default: none)
+      if (type(envelope) != dictionary or envelope.at("protocol", default: none) != "symbolica" or
+        envelope.at("kind", default: none) != "atom") {
+        unsupported("unsupported metadata")
+      }
+      return
+    }
+    if kind not in _literal-fields { unsupported("unsupported element " + kind) }
+    let allowed = _literal-fields.at(kind)
+    for (key, field) in fields {
+      if key not in allowed { unsupported("unsupported field " + kind + "." + key) }
+      let child-location = key + " of " + kind
+      if kind == "attach" and key != "base" {
+        let slot = (t: "top", b: "bottom", tl: "top-left", tr: "top-right", bl: "bottom-left", br: "bottom-right").at(key)
+        let base = fields.base
+        let label = base.fields().at("text", default: "attach")
+        child-location = slot + " attachment of " + label
+      }
+      _validate-literal-content(field, location: child-location + " in " + location)
+    }
+  } else if value != none and type(value) not in (str, int, float, bool) {
+    unsupported("unsupported value of type " + repr(type(value)))
+  }
+}
+#let _ordinary-name(name, constructor) = {
+  if type(name) != str or name == "" {
+    panic(constructor + ": name must be a nonempty string")
+  }
+  if name != name.trim() {
+    panic(constructor + ": name must not contain surrounding whitespace")
+  }
+  if name.ends-with("_") {
+    panic(constructor + ": names must not end with an underscore; use wild(...) for pattern placeholders")
+  }
+}
+#let _symbol(engine, input, name: none, namespace: none, tags: ()) = {
   _validate-tags(tags)
-
   let namespace = _namespace(engine, namespace)
-  let atom = _symbol-atom(engine, name, namespace: namespace, tags: tags)
+  let atom = if type(input) == str {
+    if name != none { panic("literal: name is only available for content labels") }
+    _ordinary-name(input, "literal")
+    _symbol-atom(engine, input, namespace: namespace, tags: tags)
+  } else if type(input) == content {
+    if name != none { _ordinary-name(name, "literal") }
+    _validate-literal-content(input)
+    if _empty-literal-label(input) { panic("literal: label must contain visible content") }
+    engine.plugin.literal_from_ast(
+      _ast_bytes(input, _literal-grammar(), display: true, complete: true),
+      cbor.encode(namespace), cbor.encode(name), cbor.encode(tags),
+    )
+  } else {
+    panic("literal: expected a symbol-name string or portable Typst math/text content")
+  }
   _annotated-atom(engine, atom, (
     kind: "symbol",
-    name: name,
+    name: if type(input) == str { input } else { name },
     namespace: namespace,
     tags: tags,
   ))
@@ -244,7 +459,7 @@
   engine.plugin.from_ast(cbor.encode(tree), cbor.encode(namespace))
 }
 #let _function(engine, name, namespace: none, tags: ()) = {
-  if type(name) != str { panic("function name must be a string") }
+  if type(name) != str { panic("function-head: name must be a string") }
   _validate-tags(tags)
 
   let namespace = _namespace(engine, namespace)
@@ -267,6 +482,10 @@
   }
 }
 #let _wild(engine, name, level: 1, namespace: none) = {
+  _ordinary-name(name, "wild")
+  if type(level) != int or level < 1 {
+    panic("wild: level must be a positive integer; use literal(...) for ordinary symbols")
+  }
   let suffix = ""
   for _ in range(level) { suffix += "_" }
   _symbol-atom(engine, name + suffix, namespace: namespace)
@@ -639,16 +858,16 @@
 /// still use this engine's namespace and notation.
 ///
 /// ```example
-/// #let sym = init(namespace: "physics")
-/// #let symbol = sym.symbol
-/// #let render = sym.canonical
-/// #raw(render(symbol("x"), namespaces: true))
+/// #let engine = init(namespace: "physics")
+/// #let literal = engine.literal
+/// #let render = engine.canonical
+/// #raw(render(literal("x"), namespaces: true))
 /// ```
 ///
 /// -> dictionary
 #let init(
   /// Default namespace for symbols parsed from Typst math or strings. A
-  /// per-call `namespace` passed to `math` or `symbol` takes precedence.
+  /// per-call `namespace` passed to `parse` or `literal` takes precedence.
   /// -> str
   namespace: "typst",
   /// WebAssembly plugin path or bytes passed to Typst's `plugin` constructor.
@@ -656,8 +875,8 @@
   /// Wasm module; relative paths are resolved by Typst from this source file.
   /// -> str | bytes | none
   source: none,
-  /// Parser grammar used by `math` and `array-tree` unless they receive an
-  /// explicit override.
+  /// Typst content grammar used by `parse` and `array-tree` unless they receive
+  /// an explicit override. Expression strings always use Symbolica syntax.
   /// -> dictionary
   grammar: _default_grammar,
   /// Default document-side notation used by `to-typst`. Build one with
@@ -678,14 +897,13 @@
   )
 
   let api = (
-    math: (eqn, grammar: none, namespace: none) => _from_math(engine, eqn, grammar: grammar, namespace: namespace),
-    atom: value => _expr_bytes(engine, value),
-    symbol: (name, namespace: none, tags: ()) => _symbol(engine, name, namespace: namespace, tags: tags),
-    function: (name, namespace: none, tags: ()) => _function(engine, name, namespace: namespace, tags: tags),
-    gamma: (z) => (_function(engine, "gamma", namespace: "symbolica"))(z),
+    parse: (input, grammar: none, namespace: none) => _parse(engine, input, grammar: grammar, namespace: namespace),
+    literal: (input, name: none, namespace: none, tags: ()) => _symbol(engine, input, name: name, namespace: namespace, tags: tags),
+    function-head: (name, namespace: none, tags: ()) => _function(engine, name, namespace: namespace, tags: tags),
+    gamma-function: (z) => (_function(engine, "gamma", namespace: "symbolica"))(z),
     polygamma: (n, z) => (_function(engine, "polygamma", namespace: "symbolica"))(n, z),
     polylog: (s, z) => (_function(engine, "polylog", namespace: "symbolica"))(s, z),
-    zeta: (s) => (_function(engine, "zeta", namespace: "symbolica"))(s),
+    zeta-function: (s) => (_function(engine, "zeta", namespace: "symbolica"))(s),
     bessel-j: (nu, z) => (_function(engine, "bessel_j", namespace: "symbolica"))(nu, z),
     bessel-y: (nu, z) => (_function(engine, "bessel_y", namespace: "symbolica"))(nu, z),
     bessel-i: (nu, z) => (_function(engine, "bessel_i", namespace: "symbolica"))(nu, z),
@@ -701,12 +919,12 @@
     simplify: expr => _simplify(engine, expr),
     expand: expr => _expand(engine, expr),
     together: expr => _together(engine, expr),
-    cancel: expr => _cancel(engine, expr),
+    cancel-factors: expr => _cancel(engine, expr),
     apart: (expr, var) => _apart(engine, expr, var),
     collect: (expr, variables) => _collect(engine, expr, variables),
     coefficient: (expr, monomial) => _coefficient(engine, expr, monomial),
     coefficient-list: (expr, variables) => _coefficient_list(engine, expr, variables),
-    terms: expr => _terms(engine, expr),
+    summands: expr => _terms(engine, expr),
     indeterminates: (expr, enter-functions: true) => _indeterminates(engine, expr, enter-functions: enter-functions),
     contains: (expr, subexpression) => _contains(engine, expr, subexpression),
     is-constant: expr => _is_constant(engine, expr),
@@ -728,7 +946,7 @@
     nsolve: (expr, var, init, prec: 1e-4, max-iterations: 1000) => _nsolve(engine, expr, var, init, prec: prec, max-iterations: max-iterations),
     nsolve-system: (system, variables, init, prec: 1e-4, max-iterations: 1000) => _nsolve_system(engine, system, variables, init, prec: prec, max-iterations: max-iterations),
     matrix: value => _matrix(engine, value),
-    vec: values => _vec(engine, values),
+    vector: values => _vec(engine, values),
     identity: n => _identity(engine, n),
     eye: diag => _eye(engine, diag),
     matrix-add: (lhs, rhs) => _matrix_add(engine, lhs, rhs),
@@ -736,7 +954,7 @@
     matrix-mul: (lhs, rhs) => _matrix_mul(engine, lhs, rhs),
     matrix-div-scalar: (lhs, rhs) => _matrix_div_scalar(engine, lhs, rhs),
     transpose: matrix => _transpose(engine, matrix),
-    det: matrix => _det(engine, matrix),
+    determinant: matrix => _det(engine, matrix),
     inv: matrix => _inv(engine, matrix),
     matrix-solve: (A, b) => _matrix_solve(engine, A, b),
     matrix-solve-any: (A, b) => _matrix_solve_any(engine, A, b),
@@ -744,7 +962,7 @@
     augment: (lhs, rhs) => _augment(engine, lhs, rhs),
     split-col: (matrix, index) => _split_col(engine, matrix, index),
     primitive-part: matrix => _primitive_part(engine, matrix),
-    content: matrix => _content(engine, matrix),
+    matrix-content: matrix => _content(engine, matrix),
     matrix-at: (matrix, row, col) => _matrix_at(engine, matrix, row, col),
     matrix-shape: matrix => _matrix_shape(engine, matrix),
     matrix-is-zero: matrix => _matrix_is_zero(engine, matrix),
@@ -753,14 +971,34 @@
     add: (..terms) => _add(engine, ..terms),
     mul: (..factors) => _mul(engine, ..factors),
     neg: expr => _neg(engine, expr),
-    sub: (lhs, rhs) => _sub(engine, lhs, rhs),
-    div: (lhs, rhs) => _div(engine, lhs, rhs),
+    subtract: (lhs, rhs) => _sub(engine, lhs, rhs),
+    divide: (lhs, rhs) => _div(engine, lhs, rhs),
     pow: (base, exp) => _pow(engine, base, exp),
   )
   api
 }
 
 #let _default_engine() = init()
+
+/// Draw the Symbolica logo inline with text.
+///
+/// The default size follows the surrounding font size. The logo is a vector
+/// image and stays sharp when enlarged.
+///
+/// ```example
+/// Calculated with #logo() Symbolica.\
+/// #logo(size: 2em)
+/// ```
+///
+/// -> content
+#let logo(
+  /// Width and height of the logo.
+  /// -> length
+  size: 1em,
+) = box(
+  baseline: 15%,
+  image("assets/symbolica-logo.svg", width: size, height: size, alt: "Symbolica logo"),
+)
 
 /// Build a document-side Atom notation layer.
 ///
@@ -795,80 +1033,103 @@
 /// -> dictionary
 #let merge-notation(..layers) = atom-render.merge-notation(..layers)
 
-/// Parse Typst math content into an opaque Symbolica atom payload.
+/// Convert math content, an expression string, or a number into an Atom payload.
 ///
 /// Arithmetic, fractions, powers, roots, absolute values, calls, and common
 /// Typst math structures are translated through the configured grammar. Matrix-valued
 /// `mat(...)` and `vec(...)` content must instead be passed to `matrix` or
-/// `vec`. Keep the returned bytes opaque and use this module's functions to
+/// `vector`. Keep the returned bytes opaque and use this module's functions to
 /// inspect or transform them. Decimal literals remain floating-point
 /// coefficients; write a fraction when you need exact input.
+/// Integers become exact numbers, floats keep their floating-point value, and
+/// existing Atom payload bytes pass through unchanged. A namespace override
+/// does not rename symbols in an existing payload. Matrix payloads belong in
+/// the matrix APIs and are not scalar expressions.
+///
+/// Strings use Symbolica expression syntax, for example `"x^2/(1+x)"` or
+/// `"f(x, y)"`. They are passed directly to Symbolica without evaluating Typst
+/// source. Symbolica recognizes built-in names such as `sin`, `gamma`, and
+/// `pi`; other unqualified names use the requested namespace.
+/// A `grammar` override applies only to Typst content and is rejected
+/// for other inputs. The engine's configured grammar also affects only content.
+/// String arguments passed directly to algebra operations accept single
+/// leaves: numbers or valid symbol names. They do not parse arithmetic
+/// expressions, and invalid symbol names are rejected. Use `parse("x+1")` to
+/// read an expression from a string.
+///
+/// Subscripts, primes, and corner attachments identify decorated symbols. Their
+/// contents retain display order: `C_(i j)` differs from `C_(j i)`. Superscripts
+/// remain algebraic powers, including `a_0^2`. Decoration is opaque to algebra:
+/// replacing `i` does not modify the label in `C_(i j)`, and `h'(c)` names a
+/// decorated function without implying a derivative. Use `h_(i)(c)` to keep a
+/// subscript separate from the function arguments.
 ///
 /// ```example
-/// #let expr = math($x + 1$)
+/// #let expr = parse($x + 1$)
 /// #to-typst(expr)
+/// #to-typst(parse("x^2/(1+x)"))
 /// ```
 ///
 /// -> bytes
-#let math(
-  /// Math content, normally written as `$...$`.
-  /// -> content
-  eqn,
-  /// Parser grammar override. `none` uses the default engine grammar.
+#let parse(
+  /// Math content (`$...$`), a Symbolica expression string, a number, or an
+  /// existing Atom payload.
+  /// -> bytes | content | int | float | str
+  input,
+  /// Typst content grammar override. `none` uses the engine grammar. An explicit
+  /// grammar is rejected for strings, numbers, and existing payloads.
   /// -> dictionary | none
   grammar: none,
   /// Namespace for parsed symbols. `none` uses the engine namespace (`"typst"`
   /// for the top-level function).
   /// -> str | none
   namespace: none,
-) = (_default_engine().math)(eqn, grammar: grammar, namespace: namespace)
+) = (_default_engine().parse)(input, grammar: grammar, namespace: namespace)
 
-/// Convert a supported Typst value or math expression into an atom payload.
+/// Construct an ordinary Symbolica symbol with an optional portable label.
 ///
-/// Existing atom bytes pass through unchanged. Content is parsed like `math`;
-/// integers become exact numbers and floats remain floating-point
-/// coefficients. Strings are parsed as leaf values: numeric strings become
-/// numbers and other strings become symbols in the engine's namespace. Matrix
-/// payloads are not atom payloads and should not be passed to atom-only algebra
-/// functions.
+/// A string supplies the symbol name. Math or text content supplies an opaque
+/// label stored in Symbolica symbol data: `literal($x+y$)` is one variable,
+/// while `parse($x+y$)` is a sum. Replacing `x` does not change that label.
+/// Labels retain ordered attachments and are grouped when needed for display.
+///
+/// Equivalent labels in one namespace share an identity. `literal($x$)` equals
+/// `literal("x")`, and `literal($a_0$)` equals `parse($a_0$)`. With `name`, the
+/// supplied name determines identity; different names may share one label.
+/// Declare a named label before using that name elsewhere. Conflicting labels
+/// or tags for the same name are rejected.
+///
+/// The returned content carries exact Atom metadata, so interpolation and
+/// reparsing `to-typst` retain the whole symbol. Plain `to-typst-source` output
+/// preserves its appearance but carries no semantic metadata.
+///
+/// Portable labels support math elements and plain text. Unsupported styling,
+/// layout, contextual content, or element fields produce an error. Use a named
+/// string literal and a document-side `notation` renderer for custom content.
+/// Names ending with `_` are reserved for `wild` and are rejected here.
 ///
 /// ```example
-/// #to-typst(atom("x"))
-/// ```
-///
-/// -> bytes
-#let atom(
-  /// Value to convert.
-  /// -> bytes | content | int | float | str
-  value,
-) = (_default_engine().atom)(value)
-
-/// Construct a named Symbolica symbol with semantic Typst metadata.
-///
-/// Unlike `wild`, this is an ordinary mathematical symbol and therefore does
-/// not capture subexpressions during pattern matching. The returned content
-/// can be interpolated into native Typst math; `math` reads its name and
-/// namespace from versioned metadata instead of guessing from its appearance.
-/// Tags travel with that metadata for higher-level notation layers but do not
-/// change Symbolica's algebraic behavior.
-///
-/// ```example
-/// #let x = symbol("x", namespace: "model", tags: ("model::positive",))
-/// #to-typst(math($#x^2 + 1$))
+/// #let label = literal($x+y$)
+/// #to-typst(pow(label, 2))
+/// #let x = literal("x", namespace: "model", tags: ("model::positive",))
+/// #to-typst(parse($#x^2 + 1$))
 /// ```
 ///
 /// -> content
-#let symbol(
-  /// Symbol name without a namespace prefix or wildcard suffix.
-  /// -> str
-  name,
+#let literal(
+  /// Symbol-name string or opaque mathematical/text label.
+  /// -> str | content
+  input,
+  /// Explicit identity for a content label; `none` derives identity from it.
+  /// -> str | none
+  name: none,
   /// Namespace override. `none` uses the engine namespace.
   /// -> str | none
   namespace: none,
-  /// Portable semantic labels retained in the attached metadata.
+  /// Portable semantic labels retained in Symbolica symbol data.
   /// -> array
   tags: (),
-) = (_default_engine().symbol)(name, namespace: namespace, tags: tags)
+) = (_default_engine().literal)(input, name: name, namespace: namespace, tags: tags)
 
 /// Construct a callable Symbolica function with semantic Typst metadata.
 ///
@@ -878,18 +1139,20 @@
 ///
 /// Use `namespace: "symbolica"` for built-in special functions, even when
 /// Typst has no built-in function of that name. For example,
-/// `function("polylog", namespace: "symbolica")(2, x)` constructs a polylogarithm.
-/// Direct constructors are also available: `gamma`, `polygamma`, `polylog`,
-/// `zeta`, `bessel-j`, `bessel-y`, `bessel-i`, and `bessel-k`. Unknown names
+/// `function-head("polylog", namespace: "symbolica")(2, x)` constructs a polylogarithm.
+/// Direct constructors are also available: `gamma-function`, `polygamma`, `polylog`,
+/// `zeta-function`, `bessel-j`, `bessel-y`, `bessel-i`, and `bessel-k`. Unknown names
 /// create ordinary symbolic functions; they do not acquire a numerical implementation.
 ///
 /// ```example
-/// #let f = function("f", namespace: "model", tags: ("model::smooth",))
-/// #to-typst(math($#f(symbol("x")) + 1$))
+/// #let f = function-head(
+///   "f", namespace: "model", tags: ("model::smooth",),
+/// )
+/// #to-typst(parse($#f(literal("x")) + 1$))
 /// ```
 ///
 /// -> function
-#let function(
+#let function-head(
   /// Function-head name.
   /// -> str
   name,
@@ -899,30 +1162,34 @@
   /// Portable semantic labels retained in the attached metadata.
   /// -> array
   tags: (),
-) = (_default_engine().function)(name, namespace: namespace, tags: tags)
+) = (_default_engine().function-head)(name, namespace: namespace, tags: tags)
 
 /// Construct the built-in gamma function.
 ///
 /// Returns exact annotated math content, usable directly inside equations or
 /// as input to algebra and evaluation. The head is always `symbolica::gamma`;
-/// arguments are converted like `atom`. Use `to-float` for an approximation.
+/// arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. Use `evaluate` for a numerical value,
+/// or `to-float` for an approximate symbolic expression.
 ///
 /// ```example
-/// #to-typst(gamma(5))
+/// #to-typst(gamma-function(5))
 /// ```
 ///
 /// -> content
-#let gamma(
+#let gamma-function(
   /// Function argument.
   /// -> bytes | content | int | float | str
   z,
-) = (_default_engine().gamma)(z)
+) = (_default_engine().gamma-function)(z)
 
 /// Construct the built-in polygamma function of order `n`.
 ///
 /// Returns exact annotated math content, usable directly inside equations or
 /// as input to algebra and evaluation. The head is always `symbolica::polygamma`;
-/// arguments are converted like `atom`. Use `to-float` for an approximation.
+/// arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. Use `evaluate` for a numerical value,
+/// or `to-float` for an approximate symbolic expression.
 ///
 /// ```example
 /// #to-typst(polygamma(1, 1))
@@ -942,10 +1209,12 @@
 ///
 /// Returns exact annotated math content, usable directly inside equations or
 /// as input to algebra and evaluation. The head is always `symbolica::polylog`;
-/// arguments are converted like `atom`. Use `to-float` for an approximation.
+/// arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. Use `evaluate` for a numerical value,
+/// or `to-float` for an approximate symbolic expression.
 ///
 /// ```example
-/// #to-typst(polylog(2, symbol("x")))
+/// #to-typst(polylog(2, literal("x")))
 /// ```
 ///
 /// -> content
@@ -962,27 +1231,32 @@
 ///
 /// Returns exact annotated math content, usable directly inside equations or
 /// as input to algebra and evaluation. The head is always `symbolica::zeta`;
-/// arguments are converted like `atom`. Use `to-float` for an approximation.
+/// arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. Use `evaluate` for a numerical value,
+/// or `to-float` for an approximate symbolic expression.
 ///
 /// ```example
-/// #to-typst(zeta(2))
+/// #to-typst(zeta-function(2))
 /// ```
 ///
 /// -> content
-#let zeta(
+#let zeta-function(
   /// Function argument.
   /// -> bytes | content | int | float | str
   s,
-) = (_default_engine().zeta)(s)
+) = (_default_engine().zeta-function)(s)
 
 /// Construct the built-in Bessel function of the first kind.
 ///
 /// Returns exact annotated math content, usable directly inside equations or
 /// as input to algebra and evaluation. The head is always `symbolica::bessel_j`;
-/// arguments are converted like `atom`. Use `to-float` for an approximation.
+/// arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. Use `evaluate` for a numerical value,
+/// or `to-float` for an approximate symbolic expression.
 ///
 /// ```example
-/// #to-typst(to-float(bessel-j(0, 1), decimal-prec: 8))
+/// #let value = evaluate(bessel-j(0, 1))
+/// $ J_0(1) approx #calc.round(value.re, digits: 8) $
 /// ```
 ///
 /// -> content
@@ -999,10 +1273,13 @@
 ///
 /// Returns exact annotated math content, usable directly inside equations or
 /// as input to algebra and evaluation. The head is always `symbolica::bessel_y`;
-/// arguments are converted like `atom`. Use `to-float` for an approximation.
+/// arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. Use `evaluate` for a numerical value,
+/// or `to-float` for an approximate symbolic expression.
 ///
 /// ```example
-/// #to-typst(to-float(bessel-y(0, 1), decimal-prec: 8))
+/// #let value = evaluate(bessel-y(0, 1))
+/// $ Y_0(1) approx #calc.round(value.re, digits: 8) $
 /// ```
 ///
 /// -> content
@@ -1019,10 +1296,13 @@
 ///
 /// Returns exact annotated math content, usable directly inside equations or
 /// as input to algebra and evaluation. The head is always `symbolica::bessel_i`;
-/// arguments are converted like `atom`. Use `to-float` for an approximation.
+/// arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. Use `evaluate` for a numerical value,
+/// or `to-float` for an approximate symbolic expression.
 ///
 /// ```example
-/// #to-typst(to-float(bessel-i(0, 1), decimal-prec: 8))
+/// #let value = evaluate(bessel-i(0, 1))
+/// $ I_0(1) approx #calc.round(value.re, digits: 8) $
 /// ```
 ///
 /// -> content
@@ -1039,10 +1319,13 @@
 ///
 /// Returns exact annotated math content, usable directly inside equations or
 /// as input to algebra and evaluation. The head is always `symbolica::bessel_k`;
-/// arguments are converted like `atom`. Use `to-float` for an approximation.
+/// arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. Use `evaluate` for a numerical value,
+/// or `to-float` for an approximate symbolic expression.
 ///
 /// ```example
-/// #to-typst(to-float(bessel-k(0, 1), decimal-prec: 8))
+/// #let value = evaluate(bessel-k(0, 1))
+/// $ K_0(1) approx #calc.round(value.re, digits: 8) $
 /// ```
 ///
 /// -> content
@@ -1057,13 +1340,14 @@
 
 /// Construct a Symbolica pattern wildcard.
 ///
-/// This creates the symbol `name` followed by `level` underscores. A wildcard
-/// is a pattern placeholder used by `rule`, `replace`, and
-/// `replace-wildcards`; it is not an ordinary unknown for algebra or solving.
-/// Use `symbol` for an ordinary mathematical symbol.
+/// A wildcard captures part of a matching expression. Repeating the same
+/// wildcard in a pattern requires equal captures. Its Symbolica name is `name`
+/// followed by `level` underscores; use `literal` for an algebraic variable.
 ///
 /// ```example
-/// #raw(canonical(wild("a")))
+/// #let a = to-typst(wild("a"))
+/// #let pattern = parse($f(#a, #a)$)
+/// #to-typst(replace(parse($f(x, x) + f(x, y)$), pattern, 1))
 /// ```
 ///
 /// -> bytes
@@ -1071,9 +1355,8 @@
   /// Base name of the wildcard, without trailing underscores.
   /// -> str
   name,
-  /// Number of underscore levels to append. `1` creates a conventional single
-  /// wildcard such as `a_`; `0` appends no underscore and therefore creates an
-  /// ordinary symbol instead.
+  /// Positive number of underscore levels to append. `1` creates a conventional
+  /// single wildcard such as `a_`. Zero is rejected; use `literal` for a symbol.
   /// -> int
   level: 1,
   /// Namespace override. `none` uses the engine namespace.
@@ -1083,7 +1366,7 @@
 
 /// Render the parse tree for a Typst math expression.
 ///
-/// This is a diagnostic view of the tree consumed by `math`; it does not create
+/// This is a diagnostic view of the tree consumed by `parse`; it does not create
 /// a Symbolica atom.
 ///
 /// ```example
@@ -1103,13 +1386,13 @@
 /// Render an atom or matrix payload as Symbolica source text.
 ///
 /// ```example
-/// #raw(canonical(math($x + 1$)))
+/// #raw(canonical(parse($x + 1$)))
 /// ```
 ///
 /// -> str
 #let canonical(
   /// Atom or matrix payload. Other supported expression values are first
-  /// converted as by `atom`.
+  /// converted to expressions; strings represent numbers or symbol names.
   /// -> bytes | content | int | float | str
   expr,
   /// Include symbol namespaces in the output.
@@ -1120,7 +1403,7 @@
 /// Render an atom or matrix payload as Typst math source.
 ///
 /// ```example
-/// #raw(to-typst-source(math($x + 1$)))
+/// #raw(to-typst-source(parse($x + 1$)))
 /// ```
 ///
 /// -> str
@@ -1139,7 +1422,7 @@
 /// Matrix output remains display-only.
 ///
 /// ```example
-/// #to-typst(math($x + 1$))
+/// #to-typst(parse($x + 1$))
 /// ```
 ///
 /// -> content
@@ -1159,7 +1442,7 @@
 /// Render an atom or matrix payload as LaTeX source.
 ///
 /// ```example
-/// #raw(to-latex(math($x^2 + 1$)))
+/// #raw(to-latex(parse($x^2 + 1$)))
 /// ```
 ///
 /// -> str
@@ -1169,13 +1452,15 @@
   expr,
 ) = (_default_engine().to-latex)(expr)
 
-/// Re-import and re-export an atom in Symbolica's canonical internal form.
+/// Validate and normalize an expression payload.
 ///
-/// This operation does not perform algebraic simplification; it currently acts
-/// as a normalization and validation round-trip for atom payloads.
+/// Parsing and algebra operations already combine equal terms and remove
+/// factors of one. `simplify` does not search for a shorter equivalent formula:
+/// use `expand`, `factor`, or `cancel-factors` for those transformations.
 ///
 /// ```example
-/// #to-typst(simplify(math($x + 0$)))
+/// #let expr = parse($(x + 1)^2$)
+/// #to-typst(simplify(expr))
 /// ```
 ///
 /// -> bytes
@@ -1185,10 +1470,15 @@
   expr,
 ) = (_default_engine().simplify)(expr)
 
-/// Expand an expression through Symbolica's polynomial expansion.
+/// Multiply out products and nonnegative integer powers of sums.
+///
+/// Use expansion to compare polynomial expressions: expand their difference
+/// and check whether the result is zero.
 ///
 /// ```example
-/// #to-typst(expand(math($(x + 1)^2$)))
+/// #let factored = parse($(x - 1)(x + 1)$)
+/// #let expanded = parse($x^2 - 1$)
+/// #to-typst(expand(subtract(factored, expanded)))
 /// ```
 ///
 /// -> bytes
@@ -1198,10 +1488,14 @@
   expr,
 ) = (_default_engine().expand)(expr)
 
-/// Factor an expression exactly.
+/// Write a polynomial as a product of exact factors.
+///
+/// By default, factors have rational coefficients: $x^2+1$ stays irreducible.
+/// `complex: true` also permits rational multiples of the imaginary unit.
 ///
 /// ```example
-/// #to-typst(factor(math($x^2 + 2 x + 1$)))
+/// #let expr = parse($x^4 - 1$)
+/// #to-typst(factor(expr))
 /// ```
 ///
 /// -> bytes
@@ -1224,7 +1518,7 @@
 /// Write a rational expression over a common denominator.
 ///
 /// ```example
-/// #to-typst(together(math($1/x + 1/y$)))
+/// #to-typst(together(parse($1/x + 1/y$)))
 /// ```
 ///
 /// -> bytes
@@ -1236,27 +1530,27 @@
 
 /// Cancel common factors between numerators and denominators.
 ///
-/// Parts of the expression without a cancellation are left alone. Remember
-/// that canceling a factor can hide a point excluded by the original formula.
+/// Parts of the expression without a cancellation are unchanged. Canceling
+/// a factor can hide a point excluded by the original formula.
 ///
 /// ```example
-/// #to-typst(cancel(math($(x^2 - 1)/(x - 1)$)))
+/// #to-typst(cancel-factors(parse($(x^2 - 1)/(x - 1)$)))
 /// ```
 ///
 /// -> bytes
-#let cancel(
+#let cancel-factors(
   /// Rational expression in which to cancel common factors.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine().cancel)(expr)
+) = (_default_engine().cancel-factors)(expr)
 
 /// Decompose a rational expression into partial fractions.
 ///
 /// Denominators are decomposed in the given indeterminate.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #to-typst(apart(math($(2 x + 3)/((x + 1)(x + 2))$), x))
+/// #let x = literal("x")
+/// #to-typst(apart(parse($(2 x + 3)/((x + 1)(x + 2))$), x))
 /// ```
 ///
 /// -> bytes
@@ -1269,11 +1563,15 @@
   var,
 ) = (_default_engine().apart)(expr, var)
 
-/// Collect terms by powers of one or more variables or functions.
+/// Group terms with the same powers of selected variables or functions.
+///
+/// Other symbols remain in the coefficients. For example, collecting in $x$
+/// writes $a x+b x$ as $(a+b)x$ without assigning values to $a$ or $b$.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #to-typst(collect(math($5 x + x y + x^2 + 5$), x))
+/// #let x = literal("x")
+/// #let expr = parse($a x + b x + a x^2 + b x^2$)
+/// #to-typst(collect(expr, x))
 /// ```
 ///
 /// -> bytes
@@ -1288,12 +1586,12 @@
 
 /// Extract the coefficient of a literal monomial or subexpression.
 ///
-/// For example, asking for the coefficient of `x^2` in
-/// $5x+x y+x^2+y x^2$ returns $1+y$.
+/// The result may depend on other symbols. Expand first when the desired
+/// monomial is still inside a product or power.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #to-typst(coefficient(math($5 x + x y + x^2 + y x^2$), pow(x, 2)))
+/// #let expr = expand(parse($(x + y)^3$))
+/// #to-typst(coefficient(expr, parse($x^2$)))
 /// ```
 ///
 /// -> bytes
@@ -1313,9 +1611,11 @@
 /// A coefficient that vanishes only through a deeper identity may remain.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #let pairs = coefficient-list(math($x^2 + 5 x + 7$), x)
-/// #pairs.map(pair => [#to-typst(pair.at(0)): #to-typst(pair.at(1))]).join[, ]
+/// #let x = literal("x")
+/// #let pairs = coefficient-list(parse($x^2 + 5 x + 7$), x)
+/// #pairs.map(
+///   pair => [#to-typst(pair.at(0)): #to-typst(pair.at(1))],
+/// ).join[, ]
 /// ```
 ///
 /// -> array
@@ -1334,22 +1634,22 @@
 /// a one-element array.
 ///
 /// ```example
-/// #terms(math($x^2 + 2 x + 1$)).map(to-typst).join[, ]
+/// #summands(parse($x^2 + 2 x + 1$)).map(to-typst).join[, ]
 /// ```
 ///
 /// -> array
-#let terms(
+#let summands(
   /// Expression to split into top-level summands.
   /// -> bytes | content | int | float | str
   expr,
-) = (_default_engine().terms)(expr)
+) = (_default_engine().summands)(expr)
 
 /// Return the variables and function expressions that act as indeterminates.
 ///
 /// Results are sorted in Symbolica's internal order.
 ///
 /// ```example
-/// #indeterminates(math($f(x) + y$)).map(to-typst).join[, ]
+/// #indeterminates(parse($f(x) + y$)).map(to-typst).join[, ]
 /// ```
 ///
 /// -> array
@@ -1368,7 +1668,7 @@
 /// contains `x`, but does not contain the regrouped product `x*y` as a node.
 ///
 /// ```example
-/// #contains(math($x y z$), symbol("x"))
+/// #contains(parse($x y z$), literal("x"))
 /// ```
 ///
 /// -> bool
@@ -1387,7 +1687,7 @@
 /// all of their arguments are constant.
 ///
 /// ```example
-/// #is-constant(math($cos(2) + 1/3$))
+/// #is-constant(parse($cos(2) + 1/3$))
 /// ```
 ///
 /// -> bool
@@ -1404,18 +1704,14 @@
 /// you need a numerical value rather than a symbolic display form. Expressions
 /// containing built-in calls with very large numeric arguments remain exact.
 ///
-/// ```example
-/// #to-typst(to-float(math($1/3$), decimal-prec: 6))
-/// ```
-///
-/// Exact rational arguments to Symbolica built-ins can be approximated too:
+/// For decimal output, use `canonical` or `to-typst-source`. The structured
+/// `to-typst` renderer can currently omit digits or misplace the decimal point.
 ///
 /// ```example
-/// #let sym = init(namespace: "symbolica")
-/// #let parse = sym.math
-/// #let approximate = sym.to-float
-/// #let render = sym.to-typst
-/// #render(approximate(parse($cos(1/2)$), decimal-prec: 6))
+/// #let (parse, to-float) = init(namespace: "symbolica")
+/// #let expr = parse($x + pi$)
+/// #let approximate = to-float(expr, decimal-prec: 6)
+/// #raw(canonical(approximate))
 /// ```
 ///
 /// -> bytes
@@ -1428,11 +1724,14 @@
   decimal-prec: 16,
 ) = (_default_engine().to-float)(expr, decimal-prec: decimal-prec)
 
-/// Differentiate an expression exactly with respect to an indeterminate.
+/// Differentiate with respect to one variable, holding other symbols constant.
+///
+/// Apply `derivative` again for a higher derivative or a mixed partial derivative.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #to-typst(derivative(math($(x + 1)^2$), x))
+/// #let x = literal("x")
+/// #let f = parse($x^3 y + y^2$)
+/// $ (partial f)/(partial x) = #to-typst(derivative(f, x)) $
 /// ```
 ///
 /// -> bytes
@@ -1440,7 +1739,7 @@
   /// Expression to differentiate.
   /// -> bytes | content | int | float | str
   expr,
-  /// Symbolica indeterminate, normally created with `symbol`.
+  /// Symbolica indeterminate, normally created with `literal`.
   /// -> bytes | content | str
   var,
 ) = (_default_engine().derivative)(expr, var)
@@ -1452,12 +1751,9 @@
 /// measured from the lowest order encountered in the expression.
 ///
 /// ```example
-/// #let sym = init(namespace: "symbolica")
-/// #let m = sym.math
-/// #let v = sym.symbol
-/// #let ser = sym.series
-/// #let render = sym.to-typst
-/// #render(ser(m($cos(x)/(x + 1)$), v("x"), 0, 3))
+/// #let x = literal("x")
+/// #let approximation = series(parse($sin(x)$), x, 0, 5)
+/// #to-typst(approximation)
 /// ```
 ///
 /// -> bytes
@@ -1465,7 +1761,7 @@
   /// Expression to expand.
   /// -> bytes | content | int | float | str
   expr,
-  /// Expansion variable, normally created with `symbol`.
+  /// Expansion variable, normally created with `literal`.
   /// -> bytes | content | str
   var,
   /// Point about which to expand.
@@ -1486,13 +1782,13 @@
 
 /// Build a reusable replacement rule for `replace-multiple`.
 ///
-/// `pattern` and `rhs` may contain symbols created with `wild`. The returned
-/// dictionary contains opaque atom payloads plus the matching options; pass it
-/// to `replace-multiple` rather than editing it manually.
+/// Captures from `pattern` are substituted into `rhs`. Store rules in an array
+/// to apply the same definitions to several expressions.
 ///
 /// ```example
-/// #let r = rule(math($f("a_")$), math($g("a_")$))
-/// #to-typst(replace-multiple(math($f(x)$), (r,)))
+/// #let square = rule(parse("f(a_)"), parse("a_^2"))
+/// #let shift = rule(parse("g(a_)"), parse("a_+1"))
+/// #to-typst(replace-multiple(parse($f(x) + g(y)$), (square, shift)))
 /// ```
 ///
 /// -> dictionary
@@ -1539,13 +1835,18 @@
 
 /// Replace subexpressions matching `pattern` with `rhs`.
 ///
-/// By default all non-overlapping outermost matches are replaced once.
-/// `repeat: true` reapplies the rule until the expression stops changing; rules
-/// that cycle therefore do not terminate. Use `rule` plus `replace-multiple`
-/// when several patterns must be considered together.
+/// A literal pattern replaces that exact expression, including occurrences
+/// inside function arguments. Add wildcards when the rule should also match
+/// related expressions. Matching uses the stored structure: expand first to
+/// find terms hidden inside a power such as $(x+1)^2$.
+///
+/// By default, non-overlapping outermost matches are replaced once.
+/// `repeat: true` reapplies the rule until nothing changes; cyclic rules do not
+/// terminate. Use `replace-multiple` to apply several rules together.
 ///
 /// ```example
-/// #to-typst(replace(math($f(x, y)$), math($f("a_", "b_")$), math($g("b_", "a_")$)))
+/// #let x = literal("x")
+/// #to-typst(replace(parse($x^2 + f(x)$), x, parse($y + 1$)))
 /// ```
 ///
 /// -> bytes
@@ -1607,9 +1908,9 @@
 /// rule sets do not terminate.
 ///
 /// ```example
-/// #let r1 = rule(math($f("a_")$), math($h("a_")$))
-/// #let r2 = rule(symbol("x"), symbol("z"))
-/// #to-typst(replace-multiple(math($f(x) + x$), (r1, r2)))
+/// #let r1 = rule(parse($f("a_")$), parse($h("a_")$))
+/// #let r2 = rule(literal("x"), literal("z"))
+/// #to-typst(replace-multiple(parse($f(x) + x$), (r1, r2)))
 /// ```
 ///
 /// -> bytes
@@ -1642,7 +1943,10 @@
 /// requires each key in `replacements` to be a wildcard symbol.
 ///
 /// ```example
-/// #to-typst(replace-wildcards(math($k("a_")$), ((wild("a"), math($x + 1$)),)))
+/// #to-typst(replace-wildcards(
+///   parse($k("a_")$),
+///   ((wild("a"), parse($x + 1$)),),
+/// ))
 /// ```
 ///
 /// -> bytes
@@ -1657,15 +1961,19 @@
 
 /// Evaluate one expression numerically with optional substitutions.
 ///
-/// `values` maps atom keys to real numbers or complex dictionaries of the form
-/// `(re: number, im: number)`. Evaluation must eliminate every unsupported
-/// symbolic quantity. The result always has the exact shape
-/// `(re: float, im: float)`, even when it is real.
+/// Supply a value for each unresolved variable or function call. Values may
+/// be real numbers or complex dictionaries `(re: number, im: number)`.
+/// A function-call key assigns a value to that call, not a definition for the
+/// function. Use `replace` to substitute a symbolic definition first.
+///
+/// The result is always `(re: float, im: float)`. Read `.re` for a known real
+/// result; use `to-float` instead if some variables should remain symbolic.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #let y = symbol("y")
-/// #repr(evaluate(math($x^2 + y$), values: ((x, 2.0), (y, 3.0))))
+/// #let x = literal("x")
+/// #let value = evaluate(parse($x^2 + f(2)$),
+///   values: ((x, 3.0), (parse($f(2)$), 4.0)))
+/// #repr(value)
 /// ```
 ///
 /// -> dictionary
@@ -1710,10 +2018,11 @@
 /// dictionary per expression in expression order.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #let y = symbol("y")
-/// #let rows = evaluate-many((math($x + y$), math($x y$)), (x, y), ((1, 2), (3, 4)))
-/// #repr(rows)
+/// #let x = literal("x")
+/// #let f = parse($x^3 - x$)
+/// #let slope = derivative(f, x)
+/// #let rows = evaluate-many((f, slope), x, (0, 1, 2))
+/// #repr(rows.map(row => row.map(value => value.re)))
 /// ```
 ///
 /// -> array
@@ -1740,9 +2049,12 @@
 /// `(re: float, im: float)` dictionary per expression.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #let y = symbol("y")
-/// #let grid = evaluate-grid(math($x^2 + y$), (x, y), (domain(-1, 1, samples: 3), domain(0, 1, samples: 2)))
+/// #let x = literal("x")
+/// #let y = literal("y")
+/// #let grid = evaluate-grid(
+///   parse($x^2 + y$), (x, y),
+///   (domain(-1, 1, samples: 3), domain(0, 1, samples: 2)),
+/// )
 /// shape: #repr(grid.shape); values: #repr(grid.values)
 /// ```
 ///
@@ -1763,8 +2075,8 @@
 /// Solve a linear or supported polynomial nonlinear system exactly.
 ///
 /// Each expression in `system` is understood to equal zero. Polynomial systems
-/// are solved exactly through Symbolica's Gröbner-basis and algebraic-root
-/// machinery; coefficients may contain symbolic parameters when Symbolica can
+/// are solved exactly using Gröbner bases and algebraic roots;
+/// coefficients may contain symbolic parameters when Symbolica can
 /// treat them rationally. `domain` may be `"complex"`, `"real"`, `"rational"`,
 /// or `"integer"`.
 /// The domain also supplies local assumptions for unrestricted external
@@ -1793,10 +2105,16 @@
 /// free variables.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #let y = symbol("y")
-/// #let solutions = solve((math($x^2 - 1$), math($y - x$)), (x, y), domain: "real")
-/// #repr(solutions.branches.map(solution => solution.values.map(canonical)))
+/// #let x = literal("x")
+/// #let y = literal("y")
+/// #let solutions = solve(
+///   ($x^2 + y^2 - 5$, $y - 2x$).map(parse),
+///   (x, y), domain: "real",
+/// )
+/// #for branch in solutions.branches {
+///   let (x, y) = branch.values.map(to-typst)
+///   $ x = #x, quad y = #y $
+/// }
 /// ```
 ///
 /// -> dictionary
@@ -1819,8 +2137,8 @@
 /// within `max-iterations` produces an error.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #repr(nsolve(math($x^2 - 2$), x, 1.0))
+/// #let x = literal("x")
+/// #repr(nsolve(parse($x^2 - 2$), x, 1.0))
 /// ```
 ///
 /// -> float
@@ -1828,7 +2146,7 @@
   /// Expression understood to equal zero.
   /// -> bytes | content | int | float | str
   expr,
-  /// Real solve variable, normally created with `symbol`.
+  /// Real solve variable, normally created with `literal`.
   /// -> bytes | content | str
   var,
   /// Initial real guess.
@@ -1850,9 +2168,12 @@
 /// Convergence is local and is not guaranteed for an arbitrary initial guess.
 ///
 /// ```example
-/// #let x = symbol("x")
-/// #let y = symbol("y")
-/// #repr(nsolve-system((math($x^2 + y - 3$), math($x - y$)), (x, y), (1.0, 1.0)))
+/// #let x = literal("x")
+/// #let y = literal("y")
+/// #repr(nsolve-system(
+///   (parse($x^2 + y - 3$), parse($x - y$)),
+///   (x, y), (1.0, 1.0),
+/// ))
 /// ```
 ///
 /// -> array
@@ -1900,15 +2221,15 @@
 /// is accepted directly; existing matrix bytes pass through unchanged.
 ///
 /// ```example
-/// #to-typst(vec((1, 2)))
+/// #to-typst(vector((1, 2)))
 /// ```
 ///
 /// -> bytes
-#let vec(
+#let vector(
   /// Vector entries, Typst `vec(...)` content, or an existing matrix payload.
   /// -> array | content | bytes
   values,
-) = (_default_engine().vec)(values)
+) = (_default_engine().vector)(values)
 
 /// Create an `n` by `n` identity matrix payload.
 ///
@@ -2033,15 +2354,15 @@
 /// The result is an atom payload rather than a matrix payload.
 ///
 /// ```example
-/// #to-typst(det(matrix(((1, 2), (3, 4)))))
+/// #to-typst(determinant(matrix(((1, 2), (3, 4)))))
 /// ```
 ///
 /// -> bytes
-#let det(
+#let determinant(
   /// Square matrix.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine().det)(matrix)
+) = (_default_engine().determinant)(matrix)
 
 /// Compute the exact inverse of an invertible square matrix.
 ///
@@ -2066,7 +2387,7 @@
 ///
 /// ```example
 /// #let A = matrix($mat(2, 1; 1, -1)$)
-/// #let b = vec((5, 1))
+/// #let b = vector((5, 1))
 /// #to-typst(matrix-solve(A, b))
 /// ```
 ///
@@ -2087,7 +2408,7 @@
 ///
 /// ```example
 /// #let A = matrix($mat(2, 1; 1, -1)$)
-/// #let b = vec((5, 1))
+/// #let b = vector((5, 1))
 /// #to-typst(matrix-solve-any(A, b))
 /// ```
 ///
@@ -2168,7 +2489,7 @@
 /// The result is the primitive matrix whose coefficient GCD has been removed.
 ///
 /// ```example
-/// #let x = symbol("x")
+/// #let x = literal("x")
 /// #let P = matrix(((mul(2, x), mul(4, x)), (mul(6, x), mul(8, x))))
 /// #to-typst(primitive-part(P))
 /// ```
@@ -2186,17 +2507,17 @@
 /// payload.
 ///
 /// ```example
-/// #let x = symbol("x")
+/// #let x = literal("x")
 /// #let P = matrix(((mul(2, x), mul(4, x)), (mul(6, x), mul(8, x))))
-/// #to-typst(content(P))
+/// #to-typst(matrix-content(P))
 /// ```
 ///
 /// -> bytes
-#let content(
+#let matrix-content(
   /// Matrix whose entries are rational polynomials.
   /// -> bytes | content | array | int | float | str
   matrix,
-) = (_default_engine().content)(matrix)
+) = (_default_engine().matrix-content)(matrix)
 
 /// Read one matrix entry as an atom payload using zero-based indices.
 ///
@@ -2267,7 +2588,7 @@
 /// Differentiate every matrix entry with respect to an indeterminate.
 ///
 /// ```example
-/// #let x = symbol("x")
+/// #let x = literal("x")
 /// #to-typst(matrix-derivative(matrix(((pow(x, 2), x), (1, 0))), x))
 /// ```
 ///
@@ -2283,8 +2604,9 @@
 
 /// Construct an exact sum from expression values.
 ///
-/// Arguments are converted as by `atom`. With no arguments, the result is the
-/// additive identity zero.
+/// Arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. With no arguments, the result is
+/// the additive identity zero.
 ///
 /// ```example
 /// #to-typst(add("x", 1, "y"))
@@ -2299,8 +2621,9 @@
 
 /// Construct an exact product from expression values.
 ///
-/// Arguments are converted as by `atom`. With no arguments, the result is the
-/// multiplicative identity one.
+/// Arguments accept numbers, math content, expression payloads, or single-name
+/// strings. Use `parse` for expression strings. With no arguments, the result is
+/// the multiplicative identity one.
 ///
 /// ```example
 /// #to-typst(mul(2, "x", "y"))
@@ -2329,34 +2652,34 @@
 /// Subtract `rhs` from `lhs` exactly.
 ///
 /// ```example
-/// #to-typst(sub("x", "y"))
+/// #to-typst(subtract("x", "y"))
 /// ```
 ///
 /// -> bytes
-#let sub(
+#let subtract(
   /// Minuend.
   /// -> bytes | content | int | float | str
   lhs,
   /// Subtrahend.
   /// -> bytes | content | int | float | str
   rhs,
-) = (_default_engine().sub)(lhs, rhs)
+) = (_default_engine().subtract)(lhs, rhs)
 
 /// Construct the exact quotient `lhs / rhs`.
 ///
 /// ```example
-/// #to-typst(div(1, "x"))
+/// #to-typst(divide(1, "x"))
 /// ```
 ///
 /// -> bytes
-#let div(
+#let divide(
   /// Numerator.
   /// -> bytes | content | int | float | str
   lhs,
   /// Denominator.
   /// -> bytes | content | int | float | str
   rhs,
-) = (_default_engine().div)(lhs, rhs)
+) = (_default_engine().divide)(lhs, rhs)
 
 /// Construct the exact power `base ^ exp`.
 ///
@@ -2385,7 +2708,7 @@
 /// reuse them. Restarting the compiler or clearing its cache repeats this setup.
 ///
 /// ```example
-/// #to-typst(integrate(math($x^2$), symbol("x")))
+/// #to-typst(integrate(parse($x^2$), literal("x")))
 /// ```
 ///
 /// -> bytes

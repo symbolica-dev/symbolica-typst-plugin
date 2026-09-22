@@ -24,7 +24,8 @@ def main():
                          "LICENSE-SYMBOLICA.md", "LICENSE-SYMBOLICA-TYPST.md",
                          "THIRD_PARTY.md", "THIRD_PARTY_LICENSES.txt", "CHANGELOG.md"):
             shutil.copyfile(ROOT / filename, source / filename)
-        for directory in ("src", "crates", "scripts", "docs/license-sources"):
+        for directory in ("src", "crates", "scripts", "docs/license-sources",
+                          "docs/manual-assets", "symbolica/assets"):
             shutil.copytree(ROOT / directory, source / directory,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         for path in (ROOT / "symbolica").rglob("*.typ"):
@@ -51,7 +52,7 @@ def main():
                         with path.open("rb") as file:
                             tar.addfile(info, file)
         print(f"Corresponding source: {archive} ({archive.stat().st_size:,} bytes)")
-        print("Optional offline archive; source access may instead use the matching repository revision and crates.io.")
+        print("Optional offline archive; source access may instead use the matching plugin revision and locked registry or Git sources.")
 
 
 if __name__ == "__main__":

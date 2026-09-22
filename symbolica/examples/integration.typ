@@ -1,15 +1,15 @@
-#import "@preview/symbolica:0.1.0" as sym
+#import "@preview/symbolica:0.1.0": *
 
 #set page(width: 150mm, height: auto, margin: 16mm)
 #set text(size: 10.5pt)
 
 = Symbolica integration with Rubi steps
 
-#let x = sym.math($x$)
-#let integrand = sym.math($x / (x + 1)$)
-#let primitive = sym.integrate(integrand, x)
-#let explanation = sym.integrate-with-steps(integrand, x)
-#let step-notation = sym.notation(
+#let x = parse($x$)
+#let integrand = parse($x / (x + 1)$)
+#let primitive = integrate(integrand, x)
+#let explanation = integrate-with-steps(integrand, x)
+#let step-notation = notation(
   calls: (
     "symbolica_integrate::rubi_int": ctx => {
       let (body, variable) = ctx.visual-arguments
@@ -17,10 +17,10 @@
     },
   ),
 )
-#let show-step(expression) = sym.to-typst(expression, notation: step-notation)
+#let show-step(expression) = to-typst(expression, notation: step-notation)
 
-$ integral #sym.to-typst(integrand) dif x
-  = #sym.to-typst(primitive) + C $
+$ integral #to-typst(integrand) dif x
+  = #to-typst(primitive) + C $
 
 #for step in explanation.steps [
   #h(step.depth * 1.2em)

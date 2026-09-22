@@ -1,70 +1,72 @@
 // Maintainer regression coverage for the public core API.
 #import "../lib.typ": init
 
-#let sym = init()
-#assert("integrate" in sym)
-#assert("integrate-with-steps" in sym)
-#assert("symbol" in sym)
-#assert("function" in sym)
-#assert("var" not in sym)
-#let parse = sym.math
-#let symbol = sym.symbol
-#let symbolic-function = sym.function
-#let wild = sym.wild
-#let to-typst = sym.to-typst
-#let to-float = sym.to-float
-#let canonical = sym.canonical
-#let add = sym.add
-#let mul = sym.mul
-#let sub = sym.sub
-#let expand = sym.expand
-#let factor = sym.factor
-#let together = sym.together
-#let cancel = sym.cancel
-#let apart = sym.apart
-#let collect = sym.collect
-#let coefficient = sym.coefficient
-#let coefficient-list = sym.coefficient-list
-#let terms = sym.terms
-#let indeterminates = sym.indeterminates
-#let contains = sym.contains
-#let is-constant = sym.is-constant
-#let replace = sym.replace
-#let replace-wildcards = sym.replace-wildcards
-#let series = sym.series
-#let evaluate = sym.evaluate
-#let pi-value = evaluate((sym.math)($pi^2 + sin(pi / 4)$))
+#let engine = init()
+#assert("integrate" in engine)
+#assert("integrate-with-steps" in engine)
+#assert("literal" in engine)
+#assert("function-head" in engine)
+#assert("parse" in engine)
+#assert("atom" not in engine)
+#assert("var" not in engine)
+#let parse = engine.parse
+#let literal = engine.literal
+#let symbolic-function = engine.function-head
+#let wild = engine.wild
+#let to-typst = engine.to-typst
+#let to-float = engine.to-float
+#let canonical = engine.canonical
+#let add = engine.add
+#let mul = engine.mul
+#let subtract = engine.subtract
+#let expand = engine.expand
+#let factor = engine.factor
+#let together = engine.together
+#let cancel-factors = engine.cancel-factors
+#let apart = engine.apart
+#let collect = engine.collect
+#let coefficient = engine.coefficient
+#let coefficient-list = engine.coefficient-list
+#let summands = engine.summands
+#let indeterminates = engine.indeterminates
+#let contains = engine.contains
+#let is-constant = engine.is-constant
+#let replace = engine.replace
+#let replace-wildcards = engine.replace-wildcards
+#let series = engine.series
+#let evaluate = engine.evaluate
+#let pi-value = evaluate((engine.parse)($pi^2 + sin(pi / 4)$))
 #assert(calc.abs(pi-value.re - (calc.pi * calc.pi + calc.sin(calc.pi / 4))) < 1e-12)
 #assert.eq(pi-value.im, 0.0)
-#let domain = sym.domain
-#let evaluate-many = sym.evaluate-many
-#let evaluate-grid = sym.evaluate-grid
-#let solve = sym.solve
-#let nsolve = sym.nsolve
-#let nsolve-system = sym.nsolve-system
-#let matrix = sym.matrix
-#let make-vec = sym.vec
-#let identity = sym.identity
-#let eye = sym.eye
-#let matrix-solve = sym.matrix-solve
-#let matrix-sub = sym.matrix-sub
-#let matrix-mul = sym.matrix-mul
-#let det = sym.det
-#let inv = sym.inv
-#let transpose = sym.transpose
-#let augment = sym.augment
-#let row-reduce = sym.row-reduce
-#let matrix-at = sym.matrix-at
-#let matrix-shape = sym.matrix-shape
-#let matrix-is-zero = sym.matrix-is-zero
-#let matrix-is-diagonal = sym.matrix-is-diagonal
-#let matrix-derivative = sym.matrix-derivative
+#let domain = engine.domain
+#let evaluate-many = engine.evaluate-many
+#let evaluate-grid = engine.evaluate-grid
+#let solve = engine.solve
+#let nsolve = engine.nsolve
+#let nsolve-system = engine.nsolve-system
+#let matrix = engine.matrix
+#let vector = engine.vector
+#let identity = engine.identity
+#let eye = engine.eye
+#let matrix-solve = engine.matrix-solve
+#let matrix-sub = engine.matrix-sub
+#let matrix-mul = engine.matrix-mul
+#let determinant = engine.determinant
+#let inv = engine.inv
+#let transpose = engine.transpose
+#let augment = engine.augment
+#let row-reduce = engine.row-reduce
+#let matrix-at = engine.matrix-at
+#let matrix-shape = engine.matrix-shape
+#let matrix-is-zero = engine.matrix-is-zero
+#let matrix-is-diagonal = engine.matrix-is-diagonal
+#let matrix-derivative = engine.matrix-derivative
 
-#let x = symbol("x")
-#let y = symbol("y")
-#let xp = symbol("x", namespace: "physics")
+#let x = literal("x")
+#let y = literal("y")
+#let xp = literal("x", namespace: "physics")
 #let namespaced = add(xp, x)
-#let tagged = symbol("q", namespace: "model", tags: ("model::positive", "model::parameter"))
+#let tagged = literal("q", namespace: "model", tags: ("model::positive", "model::parameter"))
 #let tagged-expression = parse($#tagged + x$)
 #let f = symbolic-function("f", namespace: "model")
 #let function-expression = parse($#f(tagged) + x$)
@@ -90,14 +92,14 @@
 #let x2-coefficient = coefficient(polynomial, parse($x^2$))
 #let coefficients = coefficient-list(polynomial, x)
 #let rebuilt = add(..coefficients.map(pair => mul(pair.at(0), pair.at(1))))
-#assert.eq(canonical(expand(sub(collected, polynomial))), "0")
-#assert.eq(canonical(sub(x2-coefficient, 1)), "0")
-#assert.eq(canonical(expand(sub(rebuilt, polynomial))), "0")
+#assert.eq(canonical(expand(subtract(collected, polynomial))), "0")
+#assert.eq(canonical(subtract(x2-coefficient, 1)), "0")
+#assert.eq(canonical(expand(subtract(rebuilt, polynomial))), "0")
 #assert.eq(
   canonical(collect(parse($(1 + x)^2 x + (1 + y)^100$), x)),
   canonical(parse($x + 2 x^2 + x^3 + (1 + y)^100$)),
 )
-#assert.eq(terms(polynomial).len(), 4)
+#assert.eq(summands(polynomial).len(), 4)
 #assert.eq(indeterminates(polynomial).len(), 2)
 #assert(contains(polynomial, x))
 #assert(not contains(parse($x y z$), parse($x y$)))
@@ -106,15 +108,15 @@
 #let decimal-third = to-float(parse($1/3$), decimal-prec: 6)
 
 #let rational = parse($((x + 3) (2 x + 5)) / (x^3 + 6 x^2 + 11 x + 6)$)
-#let rational-reduced = cancel(rational)
+#let rational-reduced = cancel-factors(rational)
 #let rational-modes = apart(rational-reduced, x)
-#assert.eq(canonical(together(sub(rational-modes, rational-reduced))), "0")
-#assert.eq(canonical(expand(sub(factor(parse($x^2 + 1$), complex: true), parse($x^2 + 1$)))), "0")
-#assert.eq(canonical(expand(sub(factor(parse($(x^2 - 1)^2$), square-free: true), parse($(x^2 - 1)^2$)))), "0")
+#assert.eq(canonical(together(subtract(rational-modes, rational-reduced))), "0")
+#assert.eq(canonical(expand(subtract(factor(parse($x^2 + 1$), complex: true), parse($x^2 + 1$)))), "0")
+#assert.eq(canonical(expand(subtract(factor(parse($(x^2 - 1)^2$), square-free: true), parse($(x^2 - 1)^2$)))), "0")
 
 #let builtin = init(namespace: "symbolica")
-#let bparse = builtin.math
-#let bsymbol = builtin.symbol
+#let bparse = builtin.parse
+#let bsymbol = builtin.literal
 #let bseries = builtin.series
 #let bto-typst = builtin.to-typst
 #let bto-float = builtin.to-float
@@ -218,7 +220,7 @@
 #let roots = nsolve-system((parse($x^2 + y - 3$), parse($x - y$)), (x, y), (1.0, 1.0))
 
 #let A = matrix($mat(2, 1; 1, -1)$)
-#let b = make-vec($vec(5, 1)$)
+#let b = vector($vec(5, 1)$)
 #let B = matrix(((1, 2), (3, 4)))
 #let solved = matrix-solve(A, b)
 #let reduced = row-reduce(A)
@@ -282,7 +284,7 @@ A shape: #repr(matrix-shape(A)); A[0, 1]: #to-typst(matrix-at(A, 0, 1))
 
 Solve A x = b: #to-typst(solved)
 
-Det: #to-typst(det(A))
+Det: #to-typst(determinant(A))
 
 Inverse: #to-typst(inv(A))
 
@@ -302,20 +304,20 @@ Matrix derivative: #to-typst(diagonal-prime)
 // come from a custom namespace. Check the module and engine surfaces alike.
 #import "../lib.typ" as public
 #let direct-specials = (
-  gamma: public.gamma,
+  gamma-function: public.gamma-function,
   polygamma: public.polygamma,
   polylog: public.polylog,
-  zeta: public.zeta,
+  zeta-function: public.zeta-function,
   bessel-j: public.bessel-j,
   bessel-y: public.bessel-y,
   bessel-i: public.bessel-i,
   bessel-k: public.bessel-k,
 )
 #let special-cases = (
-  (name: "gamma", native: "gamma", orders: (), point: public.div(5, 6), value: 1.128787029908126),
+  (name: "gamma-function", native: "gamma", orders: (), point: public.divide(5, 6), value: 1.128787029908126),
   (name: "polygamma", native: "polygamma", orders: (1,), point: 1, value: calc.pi * calc.pi / 6),
-  (name: "polylog", native: "polylog", orders: (2,), point: public.div(1, 2), value: calc.pi * calc.pi / 12 - calc.pow(calc.ln(2), 2) / 2),
-  (name: "zeta", native: "zeta", orders: (), point: 3, value: 1.202056903159594),
+  (name: "polylog", native: "polylog", orders: (2,), point: public.divide(1, 2), value: calc.pi * calc.pi / 12 - calc.pow(calc.ln(2), 2) / 2),
+  (name: "zeta-function", native: "zeta", orders: (), point: 3, value: 1.202056903159594),
   (name: "bessel-j", native: "bessel_j", orders: (0,), point: 1, value: 0.7651976865579666),
   (name: "bessel-y", native: "bessel_y", orders: (0,), point: 1, value: 0.08825696421567696),
   (name: "bessel-i", native: "bessel_i", orders: (0,), point: 1, value: 1.2660658777520084),
@@ -337,15 +339,15 @@ Matrix derivative: #to-typst(diagonal-prime)
   }
 }
 
-#let special-x = symbol("x", namespace: "special_model")
+#let special-x = literal("x", namespace: "special_model")
 #let special-derivative = public.derivative(public.polylog(2, special-x), special-x)
 #assert.eq(
   canonical(special-derivative, namespaces: true),
-  canonical(public.math($-log(1-#special-x)/#special-x$, namespace: "symbolica"), namespaces: true),
+  canonical(public.parse($-log(1-#special-x)/#special-x$, namespace: "symbolica"), namespaces: true),
 )
-#assert.eq(canonical(public.gamma(5)), "24")
-#assert.eq(canonical(public.zeta(2)), canonical(public.math($pi^2/6$)))
-#assert.eq(canonical(public.polygamma(1, 1)), canonical(public.math($pi^2/6$)))
+#assert.eq(canonical(public.gamma-function(5)), "24")
+#assert.eq(canonical(public.zeta-function(2)), canonical(public.parse($pi^2/6$)))
+#assert.eq(canonical(public.polygamma(1, 1)), canonical(public.parse($pi^2/6$)))
 
 // Engine notation and exact argument metadata are retained by the wrappers.
 #let special-engine = init(namespace: "special_model", notation: public.notation(
@@ -354,11 +356,11 @@ Matrix derivative: #to-typst(diagonal-prime)
     $L_(#order)(#argument)$
   }),
 ))
-#let foreign-x = symbol("q", namespace: "external")
+#let foreign-x = literal("q", namespace: "external")
 #let styled-special = (special-engine.polylog)(2, foreign-x)
 #assert.eq(canonical(parse($#styled-special$), namespaces: true), "symbolica::polylog(2,external::q)")
 #assert.eq(
-  canonical((special-engine.polylog)(2, public.atom(foreign-x)), namespaces: true),
+  canonical((special-engine.polylog)(2, public.parse(foreign-x)), namespaces: true),
   canonical(styled-special, namespaces: true),
 )
 #context {

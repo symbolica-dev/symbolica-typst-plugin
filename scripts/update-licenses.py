@@ -12,6 +12,23 @@ def cargo(*args):
     return subprocess.check_output(["cargo", *args], cwd=ROOT, text=True)
 
 
+def source_notice(package):
+    source = package["source"]
+    if source.startswith("git+"):
+        repository, separator, revision = source[4:].rpartition("#")
+        if not separator or not revision:
+            raise RuntimeError(f"Git source has no locked revision: {source}")
+        repository = repository.split("?", 1)[0].removesuffix(".git")
+        notice = f"Source: {source}\nRevision: {revision}\n"
+        if repository.startswith("https://github.com/"):
+            notice += f"Source archive: {repository}/archive/{revision}.tar.gz\n"
+        else:
+            notice += f"Source repository: {repository}\n"
+        return notice
+    return (f"Source archive: https://crates.io/api/v1/crates/"
+            f"{package['name']}/{package['version']}/download\n")
+
+
 def main():
     metadata = json.loads(cargo("metadata", "--locked", "--format-version", "1"))
     tree = cargo("tree", "--locked", "--package", "symbolica-typst-plugin",
@@ -55,13 +72,13 @@ def main():
         output.append("\n" + "=" * 72 + f"\n{name} {package['version']}\n"
                       + f"License: {package.get('license') or package.get('license_file')}\n"
                       + f"Repository: {package.get('repository') or ''}\n"
-                      + f"Source archive: https://crates.io/api/v1/crates/{name}/{package['version']}/download\n")
+                      + source_notice(package))
         for title, text in texts:
             output.append(f"\n--- {title} ---\n{text.rstrip()}\n")
     combined = "".join(output)
     (ROOT / "THIRD_PARTY_LICENSES.txt").write_text(
         "\n".join(line.rstrip() for line in combined.splitlines()) + "\n")
-    print(f"Collected license texts for {len(packages)} registry crates")
+    print(f"Collected license texts for {len(packages)} dependencies")
 
 
 if __name__ == "__main__":

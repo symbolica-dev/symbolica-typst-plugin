@@ -1,6 +1,6 @@
 // Inspired by TimeTravelPenguin/symbolic-eval:
 // https://github.com/TimeTravelPenguin/symbolic-eval/blob/79c6588351603b85b11b6c92b1fbff3faf478215/examples/eval_multiple_exprs.typ
-#import "@preview/symbolica:0.1.0": init
+#import "@preview/symbolica:0.1.0": *
 
 #set document(title: "Batched evaluation of several expressions")
 #set page(paper: "a4", margin: 18mm)
@@ -23,15 +23,15 @@ them at every requested point. Here the definitions
 are evaluated together. The last expression is the expanded form of
 $f(x,y)+g(x)$ for $f(x,y)=x^2+y^2$ and $g(x)=x sin(x)$.
 
-#let sym = init(namespace: "symbolica")
-#let parse = sym.math
-#let symbol = sym.symbol
-#let evaluate-many = sym.evaluate-many
+#let engine = init(namespace: "symbolica")
+#let parse = engine.parse
+#let literal = engine.literal
+#let evaluate-many = engine.evaluate-many
 
-#let x = symbol("x")
-#let y = symbol("y")
-#let p = symbol("p")
-#let q = symbol("q")
+#let x = literal("x")
+#let y = literal("y")
+#let p = literal("p")
+#let q = literal("q")
 #let expressions = (
   parse($x^2 + 2 y + 1$),
   parse($sin(p x) + cos(y - q)$),

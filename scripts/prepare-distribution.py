@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ("typst.toml", "README.md", "LICENSE", "LICENSE-SYMBOLICA.md",
            "LICENSE-SYMBOLICA-TYPST.md", "THIRD_PARTY.md", "THIRD_PARTY_LICENSES.txt",
            "REBUILDING.md", "symbolica/lib.typ", "symbolica/render.typ",
-           "symbolica/symbolica.wasm")
+           "symbolica/symbolica.wasm", "symbolica/assets/symbolica-logo.svg",
+           "symbolica/assets/README.md")
 DOCUMENTATION = ("CHANGELOG.md", "symbolica/manual.pdf",
                  *(f"symbolica/examples/{name}.typ" for name in
                    ("basic", "showcase", "expression-grid", "lotka-volterra",

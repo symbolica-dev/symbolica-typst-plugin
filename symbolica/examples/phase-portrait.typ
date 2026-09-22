@@ -1,6 +1,6 @@
 // Inspired by TimeTravelPenguin/symbolic-eval:
 // https://github.com/TimeTravelPenguin/symbolic-eval/blob/79c6588351603b85b11b6c92b1fbff3faf478215/examples/phase_portrait.typ
-#import "@preview/symbolica:0.1.0": init
+#import "@preview/symbolica:0.1.0": *
 
 #set document(title: "A complex-function phase portrait")
 #set page(paper: "a4", margin: 18mm)
@@ -17,13 +17,13 @@ The hue below records the phase of
 while lightness records its magnitude. All complex values are evaluated in one
 batch; Typst then turns the returned grid into coloured cells.
 
-#let sym = init(namespace: "symbolica")
-#let parse = sym.math
-#let symbol = sym.symbol
-#let evaluate-many = sym.evaluate-many
+#let engine = init(namespace: "symbolica")
+#let parse = engine.parse
+#let literal = engine.literal
+#let evaluate-many = engine.evaluate-many
 
-#let z = symbol("z")
-#let imaginary-unit = symbol("i")
+#let z = literal("z")
+#let imaginary-unit = literal("i")
 #let expression = parse($(z^2 - 1 - i) / (z^2 + 1 + i)$)
 
 #let x-min = -calc.pi

@@ -5,8 +5,8 @@
 
 = Local package smoke test
 
-#let x = symbol("x")
-#let polynomial = math($x^4 - 5 x^2 + 4$)
+#let x = literal("x")
+#let polynomial = parse($x^4 - 5 x^2 + 4$)
 
 $ f(x) = #to-typst(polynomial) $
 

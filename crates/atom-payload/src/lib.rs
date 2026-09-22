@@ -10,8 +10,10 @@ use std::{
     fmt,
     io::Cursor,
     str,
+    sync::LazyLock,
 };
 
+pub mod math_display;
 pub mod typst_ast;
 
 use ciborium::value::Value;
@@ -41,7 +43,13 @@ pub const MAX_ATTACHMENT_DATA_BYTES: usize = 256 * 1024;
 pub const MAX_TOTAL_ATTACHMENT_BYTES: usize = 1024 * 1024;
 
 const SYMBOLICA_MAGIC: u32 = 0x3787_1367;
-const SYMBOLICA_EXPORT_FORMAT_VERSION: u16 = 5;
+// Follow the linked Symbolica backend: its binary format can change between
+// releases, and accepting another backend's version would admit incompatible
+// atoms before consumers have inspected their attachments.
+static SYMBOLICA_EXPORT_FORMAT_VERSION: LazyLock<u16> = LazyLock::new(|| {
+    let export = export_raw_atom(&Atom::Zero).expect("exporting zero to memory cannot fail");
+    u16::from_le_bytes(export[4..6].try_into().expect("Symbolica export version"))
+});
 const SYMBOLICA_HEADER_BYTES: usize = size_of::<u32>() + size_of::<u16>();
 // Permit redundant records to be merged without letting their wire count grow
 // without bound. MAX_ATTACHMENTS applies to unique keys.
@@ -367,6 +375,7 @@ pub enum PayloadError {
     UnsupportedEnvelopeVersion(u16),
     InvalidEnvelope(&'static str),
     InvalidAttachment(&'static str),
+    InvalidMathDisplay(String),
     ConflictingAttachment(AttachmentKey),
     Cbor(String),
     Export(std::io::Error),
@@ -385,6 +394,7 @@ impl fmt::Display for PayloadError {
             }
             Self::InvalidEnvelope(reason) => write!(formatter, "invalid Atom envelope: {reason}"),
             Self::InvalidAttachment(reason) => write!(formatter, "invalid attachment: {reason}"),
+            Self::InvalidMathDisplay(reason) => write!(formatter, "invalid math display: {reason}"),
             Self::ConflictingAttachment(key) => write!(
                 formatter,
                 "conflicting data for attachment {} version {} (identity is {} bytes)",
@@ -457,7 +467,7 @@ fn preflight_raw_atom(input: &[u8]) -> Result<(), PayloadError> {
         ));
     }
     let version = u16::from_le_bytes(header[4..].try_into().expect("two-byte slice"));
-    if version != SYMBOLICA_EXPORT_FORMAT_VERSION {
+    if version != *SYMBOLICA_EXPORT_FORMAT_VERSION {
         return Err(PayloadError::InvalidEnvelope(
             "Atom export uses an unsupported Symbolica format version",
         ));
@@ -560,6 +570,7 @@ fn encode_exported_atom_from_set(
 /// Wrap already-exported native Symbolica Atom bytes in the current envelope.
 ///
 /// This function does not import or otherwise interpret `atom_bytes`.
+#[cfg(test)]
 fn encode_exported_atom(
     atom_bytes: &[u8],
     attachments: impl IntoIterator<Item = Attachment>,
@@ -573,7 +584,7 @@ pub fn encode_atom_with_attachments(
     atom: &Atom,
     attachments: impl IntoIterator<Item = Attachment>,
 ) -> Result<Vec<u8>, PayloadError> {
-    encode_exported_atom(&export_raw_atom(atom)?, attachments)
+    encode_atom_from_set(atom, &AttachmentSet::from_attachments(attachments)?)
 }
 
 /// Export an Atom and attach a reusable owned set.
@@ -581,12 +592,160 @@ pub fn encode_atom_from_set(
     atom: &Atom,
     attachments: &AttachmentSet,
 ) -> Result<Vec<u8>, PayloadError> {
-    encode_exported_atom_from_set(&export_raw_atom(atom)?, attachments)
+    let attachments = with_math_displays(atom, attachments)?;
+    encode_exported_atom_from_set(&export_raw_atom(atom)?, &attachments)
 }
 
-/// Export one Atom in a versioned envelope with no attachments.
+/// Export one Atom, including portable declarations for its decorated symbols.
 pub fn encode_atom(atom: &Atom) -> Result<Vec<u8>, PayloadError> {
     encode_atom_with_attachments(atom, std::iter::empty())
+}
+
+fn with_math_displays(
+    atom: &Atom,
+    attachments: &AttachmentSet,
+) -> Result<AttachmentSet, PayloadError> {
+    let mut merged = attachments.clone();
+    let mut pending: Vec<_> = atom.get_all_symbols(true).into_iter().collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut displays = Vec::new();
+    while let Some(symbol) = pending.pop() {
+        if !seen.insert(symbol) {
+            continue;
+        }
+        if let Some(display) = math_display::MathDisplay::from_symbol(symbol)
+            .map_err(PayloadError::InvalidMathDisplay)?
+        {
+            // Merge every supplied declaration before generating any new one.
+            // An outer symbol can carry the original declaration of an inner
+            // symbol, independent of global symbol traversal order.
+            merged.merge(
+                &display
+                    .embedded_attachments()
+                    .map_err(PayloadError::InvalidMathDisplay)?,
+            )?;
+            let mut embedded = Default::default();
+            symbol.get_data().get_symbols(&mut embedded);
+            pending.extend(embedded);
+            displays.push((symbol, display));
+        }
+    }
+    for (symbol, display) in displays {
+        let generated = display
+            .attachment(symbol)
+            .map_err(PayloadError::InvalidMathDisplay)?;
+        if let Some(original) = merged.get(&generated.key) {
+            if original != generated.data {
+                // Native Atom exports use session-local symbol IDs. A display
+                // reconstructed after import can therefore serialize different
+                // bytes despite retaining exactly the same semantic Atom. Only
+                // validate this known regenerated schema semantically; all
+                // input attachment merging remains strictly byte-based.
+                let mut cursor = Cursor::new(original);
+                let value: Value = ciborium::from_reader(&mut cursor)
+                    .map_err(|error| PayloadError::InvalidMathDisplay(error.to_string()))?;
+                if cursor.position() != original.len() as u64 {
+                    return Err(PayloadError::InvalidMathDisplay(
+                        "trailing bytes in math-display declaration".to_owned(),
+                    ));
+                }
+                let declared = math_display::MathDisplay::from_value(&value)
+                    .map_err(PayloadError::InvalidMathDisplay)?;
+                if declared != display {
+                    return Err(PayloadError::ConflictingAttachment(generated.key));
+                }
+            }
+            // Preserve the declaration bytes supplied by the originating
+            // runtime, including any nested native Atom export.
+        } else {
+            merged.insert(generated)?;
+        }
+    }
+    Ok(merged)
+}
+
+static DISPLAY_PRINT_WRAPPER: LazyLock<Symbol> = LazyLock::new(|| {
+    symbolica::symbol!(
+        "symbolica_typst::display_print",
+        print = |view, options, state| {
+            if !options.mode.is_typst() {
+                return None;
+            }
+            let AtomView::Fun(wrapper) = view else {
+                return None;
+            };
+            let inner = wrapper.iter().next()?;
+            let symbol = inner.get_symbol()?;
+            let display = math_display::MathDisplay::from_symbol(symbol).ok()??;
+            let source = display.to_symbol_typst_source();
+            match inner {
+                AtomView::Var(_) => Some(source),
+                AtomView::Fun(function) => {
+                    let mut output = String::new();
+                    function
+                        .format(Some(&format!("op({source})")), &mut output, options, *state)
+                        .ok()?;
+                    Some(output)
+                }
+                _ => None,
+            }
+        }
+    )
+});
+
+/// Prepare a temporary display-only expression for Symbolica's Typst printer.
+///
+/// Display symbols themselves have no custom callbacks, so native export/import
+/// remains independent of the runtime that created them. Only this temporary
+/// wrapper uses a callback; it must never be exported as an algebraic result.
+pub fn prepare_typst_display(atom: &Atom) -> Result<Atom, String> {
+    Ok(prepare_typst_display_if_needed(atom)?.unwrap_or_else(|| atom.clone()))
+}
+
+fn prepare_typst_display_if_needed(atom: &Atom) -> Result<Option<Atom>, String> {
+    let symbols = atom
+        .get_all_symbols(true)
+        .into_iter()
+        .filter_map(
+            |symbol| match math_display::MathDisplay::from_symbol(symbol) {
+                Ok(Some(_)) => Some(Ok(symbol)),
+                Ok(None) => None,
+                Err(error) => Some(Err(error)),
+            },
+        )
+        .collect::<Result<std::collections::HashSet<_>, String>>()?;
+    if symbols.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(atom.replace_map_bottom_up(|view, _, out| {
+        if view
+            .get_symbol()
+            .is_some_and(|symbol| symbols.contains(&symbol))
+        {
+            **out = DISPLAY_PRINT_WRAPPER.call(view);
+        }
+    })))
+}
+
+fn unwrap_display_print(view: AtomView<'_>) -> Option<AtomView<'_>> {
+    if let AtomView::Fun(function) = view
+        && function.get_symbol() == *DISPLAY_PRINT_WRAPPER
+    {
+        return function.iter().next();
+    }
+    None
+}
+
+/// Remove temporary printer callbacks from every nested semantic payload.
+fn semantic_render_atom(view: AtomView<'_>, display_wrapped: bool) -> Atom {
+    if !display_wrapped {
+        return view.to_owned();
+    }
+    view.replace_map_bottom_up(|view, _, out| {
+        if let Some(inner) = unwrap_display_print(view) {
+            **out = inner.to_owned();
+        }
+    })
 }
 
 fn render_tree_map(entries: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
@@ -641,6 +800,17 @@ fn builtin_typst_symbol_source(symbol: Symbol) -> String {
     }
 }
 
+fn typst_symbol_source(symbol: Symbol) -> Result<String, PayloadError> {
+    Ok(
+        match math_display::MathDisplay::from_symbol(symbol)
+            .map_err(PayloadError::InvalidMathDisplay)?
+        {
+            Some(display) => display.to_symbol_typst_source(),
+            None => builtin_typst_symbol_source(symbol),
+        },
+    )
+}
+
 fn symbol_render_tree_value(symbol: Symbol) -> Value {
     render_tree_map([
         ("name", Value::Text(symbol.get_name().to_owned())),
@@ -675,7 +845,11 @@ fn symbol_render_tree_value(symbol: Symbol) -> Value {
 fn atom_render_node_value(
     view: AtomView<'_>,
     attachments: &AttachmentSet,
+    display_wrapped: bool,
 ) -> Result<Value, PayloadError> {
+    if display_wrapped && let Some(inner) = unwrap_display_print(view) {
+        return atom_render_node_value(inner, attachments, true);
+    }
     match view {
         AtomView::Num(_) => {
             // Numeric nodes intentionally carry no exact Atom payload. They
@@ -688,12 +862,12 @@ fn atom_render_node_value(
             ]))
         }
         AtomView::Var(variable) => {
-            let atom = view.to_owned();
+            let atom = semantic_render_atom(view, display_wrapped);
             let symbol = variable.get_symbol();
             Ok(render_tree_map([
                 ("kind", Value::Text("variable".to_owned())),
                 ("symbol", symbol_render_tree_value(symbol)),
-                ("source", Value::Text(builtin_typst_symbol_source(symbol))),
+                ("source", Value::Text(typst_symbol_source(symbol)?)),
                 (
                     "atom",
                     Value::Bytes(encode_atom_from_set(&atom, attachments)?),
@@ -701,17 +875,17 @@ fn atom_render_node_value(
             ]))
         }
         AtomView::Fun(function) => {
-            let atom = view.to_owned();
+            let atom = semantic_render_atom(view, display_wrapped);
             let symbol = function.get_symbol();
             let head = Atom::var(symbol);
             let arguments = function
                 .iter()
-                .map(|argument| atom_render_node_value(argument, attachments))
+                .map(|argument| atom_render_node_value(argument, attachments, display_wrapped))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(render_tree_map([
                 ("kind", Value::Text("function".to_owned())),
                 ("symbol", symbol_render_tree_value(symbol)),
-                ("source", Value::Text(builtin_typst_symbol_source(symbol))),
+                ("source", Value::Text(typst_symbol_source(symbol)?)),
                 (
                     "head-atom",
                     Value::Bytes(encode_atom_from_set(&head, attachments)?),
@@ -725,11 +899,32 @@ fn atom_render_node_value(
         }
         AtomView::Pow(power) => {
             let (base, exponent) = power.get_base_exp();
-            Ok(render_tree_map([
+            let atom = semantic_render_atom(view, display_wrapped);
+            let mut fields = vec![
                 ("kind", Value::Text("power".to_owned())),
-                ("base", atom_render_node_value(base, attachments)?),
-                ("exponent", atom_render_node_value(exponent, attachments)?),
-            ]))
+                (
+                    "base",
+                    atom_render_node_value(base, attachments, display_wrapped)?,
+                ),
+                (
+                    "exponent",
+                    atom_render_node_value(exponent, attachments, display_wrapped)?,
+                ),
+                (
+                    "atom",
+                    Value::Bytes(encode_atom_from_set(&atom, attachments)?),
+                ),
+            ];
+            if symbolica::domains::rational::Rational::try_from(exponent)
+                .is_ok_and(|value| value.numerator() < 0)
+            {
+                let reciprocal = atom.pow(-1);
+                fields.push((
+                    "reciprocal-atom",
+                    Value::Bytes(encode_atom_from_set(&reciprocal, attachments)?),
+                ));
+            }
+            Ok(render_tree_map(fields))
         }
         AtomView::Mul(product) => Ok(render_tree_map([
             ("kind", Value::Text("product".to_owned())),
@@ -738,7 +933,7 @@ fn atom_render_node_value(
                 Value::Array(
                     product
                         .iter()
-                        .map(|factor| atom_render_node_value(factor, attachments))
+                        .map(|factor| atom_render_node_value(factor, attachments, display_wrapped))
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
             ),
@@ -749,7 +944,7 @@ fn atom_render_node_value(
                 "terms",
                 Value::Array(
                     sum.iter()
-                        .map(|term| atom_render_node_value(term, attachments))
+                        .map(|term| atom_render_node_value(term, attachments, display_wrapped))
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
             ),
@@ -762,12 +957,25 @@ fn atom_render_node_value(
 /// Algebraic structure and Symbolica symbol metadata are exposed without any
 /// package-specific interpretation. Variable nodes carry an exact portable
 /// Atom payload; function nodes carry exact payloads for both the complete call
-/// and its variable head. Every exact payload receives the complete supplied
+/// and its variable head. Power nodes also carry exact payloads so a renderer
+/// can preserve semantics when merging native Typst attachment positions.
+/// Negative rational powers include their reciprocal for denominator layout.
+/// Every exact payload receives the complete supplied
 /// attachment set, including attachment schemas unknown to this crate.
 pub fn atom_render_tree_value(
     atom: &Atom,
     attachments: &AttachmentSet,
 ) -> Result<Value, PayloadError> {
+    let attachments = with_math_displays(atom, attachments)?;
+    let prepared = if attachments
+        .iter()
+        .any(|attachment| attachment.schema() == math_display::MATH_DISPLAY_SCHEMA)
+    {
+        prepare_typst_display_if_needed(atom).map_err(PayloadError::InvalidMathDisplay)?
+    } else {
+        None
+    };
+    let visual_atom = prepared.as_ref().unwrap_or(atom);
     let attachment_values = attachments
         .iter()
         .map(|attachment| {
@@ -790,7 +998,10 @@ pub fn atom_render_tree_value(
             Value::Integer(i64::from(RENDER_TREE_VERSION).into()),
         ),
         ("kind", Value::Text(RENDER_TREE_KIND.to_owned())),
-        ("root", atom_render_node_value(atom.as_view(), attachments)?),
+        (
+            "root",
+            atom_render_node_value(visual_atom.as_view(), &attachments, prepared.is_some())?,
+        ),
         ("attachments", Value::Array(attachment_values)),
     ]))
 }
@@ -967,11 +1178,14 @@ mod tests {
     use symbolica::prelude::{Coefficient, Complex, Float};
     use symbolica::{function, parse, symbol};
 
-    const OPAQUE_ATOM_EXPORT: &[u8] = &[
-        0x67, 0x13, 0x87, 0x37, // Symbolica magic, little endian
-        0x05, 0x00, // Symbolica export format, little endian
-        b'o', b'p', b'a', b'q', b'u', b'e',
-    ];
+    static OPAQUE_ATOM_EXPORT: LazyLock<Vec<u8>> = LazyLock::new(|| {
+        // Symbolica magic, little endian.
+        let mut bytes = SYMBOLICA_MAGIC.to_le_bytes().to_vec();
+        // Symbolica export format, little endian, matching the linked backend.
+        bytes.extend_from_slice(&SYMBOLICA_EXPORT_FORMAT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(b"opaque");
+        bytes
+    });
 
     fn key(schema: &str, version: u32, identity: &[u8]) -> AttachmentKey {
         AttachmentKey::new(schema, version, identity.to_vec()).unwrap()
@@ -1049,7 +1263,7 @@ mod tests {
     fn envelope_supports_two_stage_inspection_without_import() {
         let attachment_key = key("org.symbolica.test", 1, b"namespace::f");
         let payload = encode_exported_atom(
-            OPAQUE_ATOM_EXPORT,
+            &OPAQUE_ATOM_EXPORT,
             [Attachment::new(attachment_key.clone(), b"metadata".to_vec()).unwrap()],
         )
         .unwrap();
@@ -1060,16 +1274,16 @@ mod tests {
             parsed.attachment(&attachment_key),
             Some(b"metadata".as_slice())
         );
-        assert_eq!(parsed.atom_bytes(), OPAQUE_ATOM_EXPORT);
+        assert_eq!(parsed.atom_bytes(), OPAQUE_ATOM_EXPORT.as_slice());
     }
 
     #[test]
     fn encoding_is_deterministic_and_merges_identical_entries() {
         let a = attachment("org.symbolica.a", 1, b"a", b"first");
         let b = attachment("org.symbolica.b", 2, b"b", b"second");
-        let forward = encode_exported_atom(OPAQUE_ATOM_EXPORT, [a.clone(), b.clone()]).unwrap();
+        let forward = encode_exported_atom(&OPAQUE_ATOM_EXPORT, [a.clone(), b.clone()]).unwrap();
         let reversed_with_duplicate =
-            encode_exported_atom(OPAQUE_ATOM_EXPORT, [b, a.clone(), a]).unwrap();
+            encode_exported_atom(&OPAQUE_ATOM_EXPORT, [b, a.clone(), a]).unwrap();
 
         assert_eq!(forward, reversed_with_duplicate);
         let parsed = parse_payload(&forward).unwrap();
@@ -1105,9 +1319,9 @@ mod tests {
         );
         assert_eq!(left.iter().count(), 3);
 
-        let encoded = left.encode_exported_atom(OPAQUE_ATOM_EXPORT).unwrap();
+        let encoded = left.encode_exported_atom(&OPAQUE_ATOM_EXPORT).unwrap();
         let parsed = parse_payload(&encoded).unwrap();
-        assert_eq!(parsed.atom_bytes(), OPAQUE_ATOM_EXPORT);
+        assert_eq!(parsed.atom_bytes(), OPAQUE_ATOM_EXPORT.as_slice());
         assert_eq!(parsed.attachment_set(), left);
     }
 
@@ -1121,7 +1335,7 @@ mod tests {
         .unwrap();
         assert_eq!(set.len(), 1);
 
-        let encoded = encode_exported_atom(OPAQUE_ATOM_EXPORT, [repeated]).unwrap();
+        let encoded = encode_exported_atom(&OPAQUE_ATOM_EXPORT, [repeated]).unwrap();
         let repeated_on_wire = repeat_last_entry(encoded, (MAX_ATTACHMENTS + 1) as u16);
         assert_eq!(
             parse_payload(&repeated_on_wire)
@@ -1208,11 +1422,11 @@ mod tests {
         let first = attachment("org.symbolica.test", 1, b"same", b"one");
         let second = attachment("org.symbolica.test", 1, b"same", b"two");
         assert!(matches!(
-            encode_exported_atom(OPAQUE_ATOM_EXPORT, [first.clone(), second]),
+            encode_exported_atom(&OPAQUE_ATOM_EXPORT, [first.clone(), second]),
             Err(PayloadError::ConflictingAttachment(_))
         ));
 
-        let encoded = encode_exported_atom(OPAQUE_ATOM_EXPORT, [first]).unwrap();
+        let encoded = encode_exported_atom(&OPAQUE_ATOM_EXPORT, [first]).unwrap();
         assert_eq!(
             parse_payload(&duplicate_last_entry(encoded.clone(), false))
                 .unwrap()
@@ -1229,7 +1443,7 @@ mod tests {
     #[test]
     fn incompatible_symbolica_headers_are_rejected_during_parse() {
         let payload = encode_exported_atom(
-            OPAQUE_ATOM_EXPORT,
+            &OPAQUE_ATOM_EXPORT,
             [attachment("org.symbolica.test", 1, b"id", b"data")],
         )
         .unwrap();
@@ -1251,7 +1465,7 @@ mod tests {
 
         let mut wrong_format = payload;
         wrong_format[FIXED_HEADER_BYTES + 4..FIXED_HEADER_BYTES + 6]
-            .copy_from_slice(&4_u16.to_le_bytes());
+            .copy_from_slice(&(*SYMBOLICA_EXPORT_FORMAT_VERSION ^ 1).to_le_bytes());
         assert!(matches!(
             parse_payload(&wrong_format),
             Err(PayloadError::InvalidEnvelope(
@@ -1263,7 +1477,7 @@ mod tests {
     #[test]
     fn truncated_envelopes_are_always_rejected() {
         let payload = encode_exported_atom(
-            OPAQUE_ATOM_EXPORT,
+            &OPAQUE_ATOM_EXPORT,
             [attachment("org.symbolica.test", 1, b"id", b"data")],
         )
         .unwrap();
@@ -1278,7 +1492,7 @@ mod tests {
 
     #[test]
     fn malformed_envelopes_are_rejected() {
-        let payload = encode_exported_atom(OPAQUE_ATOM_EXPORT, []).unwrap();
+        let payload = encode_exported_atom(&OPAQUE_ATOM_EXPORT, []).unwrap();
 
         let mut unsupported_version = payload.clone();
         unsupported_version[8..10].copy_from_slice(&(PAYLOAD_VERSION + 1).to_be_bytes());
@@ -1332,14 +1546,14 @@ mod tests {
             Err(PayloadError::LimitExceeded)
         ));
 
-        let mut payload = encode_exported_atom(OPAQUE_ATOM_EXPORT, []).unwrap();
+        let mut payload = encode_exported_atom(&OPAQUE_ATOM_EXPORT, []).unwrap();
         payload.push(0);
         assert!(matches!(
             parse_payload(&payload),
             Err(PayloadError::TrailingBytes)
         ));
 
-        let mut too_many_records = encode_exported_atom(OPAQUE_ATOM_EXPORT, []).unwrap();
+        let mut too_many_records = encode_exported_atom(&OPAQUE_ATOM_EXPORT, []).unwrap();
         too_many_records[12..14].copy_from_slice(
             &u16::try_from(MAX_ENCODED_ATTACHMENT_RECORDS + 1)
                 .unwrap()
@@ -1352,10 +1566,290 @@ mod tests {
     }
 
     #[test]
+    fn native_export_format_matches_the_linked_backend() {
+        let raw = export_raw_atom(&Atom::Zero).unwrap();
+        let payload = encode_atom(&Atom::Zero).unwrap();
+        let parsed = parse_payload(&payload).unwrap();
+        assert_eq!(parsed.atom_bytes(), raw);
+        assert_eq!(parsed.import_atom().unwrap(), Atom::Zero);
+
+        // A neighboring format is still incompatible, even when this backend
+        // happens to have adopted the next version since the payload release.
+        let mut foreign = payload;
+        let version = u16::from_le_bytes(raw[4..6].try_into().unwrap());
+        foreign[FIXED_HEADER_BYTES + 4..FIXED_HEADER_BYTES + 6]
+            .copy_from_slice(&(version ^ 1).to_le_bytes());
+        assert!(matches!(
+            parse_payload(&foreign),
+            Err(PayloadError::InvalidEnvelope(
+                "Atom export uses an unsupported Symbolica format version"
+            ))
+        ));
+    }
+
+    fn render_order_display_variable() -> Atom {
+        use crate::math_display::MathDisplay;
+        let mut slots = std::array::from_fn(|_| None);
+        slots[1] = Some(Box::new(MathDisplay::Symbol("i".to_owned())));
+        Atom::var(
+            MathDisplay::Attach {
+                base: Box::new(MathDisplay::Symbol("a".to_owned())),
+                slots,
+            }
+            .register("render_order_display_test")
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn display_render_tree_uses_the_typst_printers_factor_and_term_order() {
+        let literal = render_order_display_variable();
+        let z = Atom::var(Symbol::parse("z", "render_order_display_test").unwrap());
+        for (atom, kind, children) in [
+            (literal.clone() * z.clone(), "product", "factors"),
+            (literal.clone() + z, "sum", "terms"),
+        ] {
+            let prepared = prepare_typst_display(&atom).unwrap();
+            let source = prepared.printer(PrintOptions::typst()).to_string();
+            let tree = atom_render_tree_value(&atom, &AttachmentSet::new()).unwrap();
+            let root = find_node(&tree, kind).unwrap();
+            let Some(Value::Array(nodes)) = value_field(root, children) else {
+                panic!("missing children")
+            };
+            let positions = nodes
+                .iter()
+                .map(|node| {
+                    let Value::Map(node) = node else {
+                        panic!("expected variable node")
+                    };
+                    assert_eq!(
+                        value_field(node, "kind"),
+                        Some(&Value::Text("variable".to_owned()))
+                    );
+                    let Some(Value::Text(leaf_source)) = value_field(node, "source") else {
+                        panic!("missing variable source")
+                    };
+                    source
+                        .find(leaf_source)
+                        .unwrap_or_else(|| panic!("{leaf_source} missing from {source}"))
+                })
+                .collect::<Vec<_>>();
+            assert!(
+                positions.windows(2).all(|pair| pair[0] < pair[1]),
+                "tree disagrees with source order: {source}"
+            );
+        }
+    }
+
+    fn assert_no_print_wrappers_in_tree_payloads(value: &Value) {
+        match value {
+            Value::Map(fields) => {
+                for (key, value) in fields {
+                    if matches!(key, Value::Text(key) if matches!(key.as_str(), "atom" | "head-atom" | "reciprocal-atom"))
+                    {
+                        let Value::Bytes(bytes) = value else {
+                            panic!("exact payload is not bytes")
+                        };
+                        let atom = decode_atom(bytes).unwrap();
+                        assert!(!atom.get_all_symbols(true).contains(&*DISPLAY_PRINT_WRAPPER));
+                    }
+                    assert_no_print_wrappers_in_tree_payloads(value);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    assert_no_print_wrappers_in_tree_payloads(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn display_render_payloads_strip_wrappers_and_preserve_power_reciprocals() {
+        let literal = render_order_display_variable();
+        for exponent in [
+            Atom::num(2),
+            Atom::num(-2),
+            Atom::num((1, 2)),
+            Atom::num((-2, 3)),
+        ] {
+            let power = literal.clone().pow(exponent.clone());
+            let tree = atom_render_tree_value(&power, &AttachmentSet::new()).unwrap();
+            let node = find_node(&tree, "power").unwrap();
+            let Some(Value::Bytes(bytes)) = value_field(node, "atom") else {
+                panic!("power lacks exact payload")
+            };
+            assert_eq!(decode_atom(bytes).unwrap(), power);
+            if exponent
+                .printer(PrintOptions::typst())
+                .to_string()
+                .starts_with('-')
+            {
+                let Some(Value::Bytes(bytes)) = value_field(node, "reciprocal-atom") else {
+                    panic!("negative power lacks reciprocal payload")
+                };
+                assert_eq!(decode_atom(bytes).unwrap(), literal.clone().pow(-exponent));
+            } else {
+                assert!(value_field(node, "reciprocal-atom").is_none());
+            }
+            assert_no_print_wrappers_in_tree_payloads(&tree);
+        }
+        let f = Symbol::parse("f", "render_order_display_test").unwrap();
+        let call = f.call(literal.clone().pow(2) + literal.pow(-2));
+        let tree = atom_render_tree_value(&call, &AttachmentSet::new()).unwrap();
+        let node = find_node(&tree, "function").unwrap();
+        let Some(Value::Bytes(bytes)) = value_field(node, "atom") else {
+            panic!("call lacks exact payload")
+        };
+        assert_eq!(decode_atom(bytes).unwrap(), call);
+        assert_no_print_wrappers_in_tree_payloads(&tree);
+    }
+
+    #[test]
+    fn display_regeneration_preserves_equivalent_original_declaration_bytes() {
+        use crate::math_display::MathDisplay;
+        let embedded = Atom::var(Symbol::parse("x", "display_wire_preservation").unwrap());
+        let display = MathDisplay::Atom {
+            atom: embedded,
+            attachments: AttachmentSet::new(),
+        };
+        let symbol = display.register("display_wire_preservation").unwrap();
+        let generated = display.attachment(symbol).unwrap();
+        // The same nested-Atom declaration in a different legal CBOR encoding.
+        // Real cross-runtime exports also differ in native symbol ID bytes.
+        assert_eq!(generated.data[0], 0x82);
+        let mut original = vec![0x9f];
+        original.extend_from_slice(&generated.data[1..]);
+        original.push(0xff);
+        let supplied = AttachmentSet::from_attachments([Attachment::new(
+            generated.key.clone(),
+            original.clone(),
+        )
+        .unwrap()])
+        .unwrap();
+        let payload = encode_atom_from_set(&Atom::var(symbol), &supplied).unwrap();
+        let parsed = parse_payload(&payload).unwrap();
+        assert_eq!(parsed.attachment(&generated.key), Some(original.as_slice()));
+        assert_eq!(parsed.import_atom().unwrap(), Atom::var(symbol));
+
+        // An outer symbol supplies an inner declaration even when the inner
+        // symbol also appears independently in the expression.
+        let outer = MathDisplay::Atom {
+            atom: Atom::var(symbol),
+            attachments: supplied,
+        }
+        .register("display_wire_preservation_outer")
+        .unwrap();
+        let payload = encode_atom(&(Atom::var(outer) + Atom::var(symbol))).unwrap();
+        assert_eq!(
+            parse_payload(&payload).unwrap().attachment(&generated.key),
+            Some(original.as_slice())
+        );
+    }
+
+    #[test]
+    fn display_regeneration_rejects_semantic_conflicts_without_weakening_merge() {
+        use crate::math_display::MathDisplay;
+        let original = MathDisplay::Symbol("x".to_owned());
+        let symbol = original.register("display_wire_conflicts").unwrap();
+        let declaration = original.attachment(symbol).unwrap();
+        let mut different = Vec::new();
+        ciborium::into_writer(
+            &MathDisplay::Symbol("y".to_owned()).to_value(),
+            &mut different,
+        )
+        .unwrap();
+        let supplied =
+            AttachmentSet::from_attachments([
+                Attachment::new(declaration.key.clone(), different).unwrap()
+            ])
+            .unwrap();
+        assert!(matches!(
+            encode_atom_from_set(&Atom::var(symbol), &supplied),
+            Err(PayloadError::ConflictingAttachment(key)) if key == declaration.key,
+        ));
+
+        let mut equivalent = vec![0x9f];
+        equivalent.extend_from_slice(&declaration.data[1..]);
+        equivalent.push(0xff);
+        let mut strict = AttachmentSet::from_attachments([declaration.clone()]).unwrap();
+        let before = strict.clone();
+        let incoming =
+            AttachmentSet::from_attachments(
+                [Attachment::new(declaration.key, equivalent).unwrap()],
+            )
+            .unwrap();
+        assert!(matches!(
+            strict.merge(&incoming),
+            Err(PayloadError::ConflictingAttachment(_))
+        ));
+        assert_eq!(strict, before);
+    }
+
+    #[test]
+    fn decorated_symbols_render_after_native_import() {
+        use crate::math_display::{MATH_DISPLAY_SCHEMA, MathDisplay};
+        let display = MathDisplay::Attach {
+            base: Box::new(MathDisplay::Symbol("h".to_owned())),
+            slots: std::array::from_fn(|i| (i == 3).then(|| Box::new(MathDisplay::Primes(2)))),
+        };
+        let head = display.register("display_render_test").unwrap();
+        let variable = Atom::var(head);
+        let call = head.call(variable.clone() + Atom::num(1));
+        let payload = encode_atom(&call).unwrap();
+        let parsed = parse_payload(&payload).unwrap();
+        assert!(
+            parsed
+                .attachments()
+                .iter()
+                .any(|a| a.schema() == MATH_DISPLAY_SCHEMA)
+        );
+        let imported = parsed.import_atom().unwrap();
+        assert_eq!(imported, call);
+        assert!(head.get_print_function().is_none());
+        let nested = MathDisplay::Atom {
+            atom: variable,
+            attachments: AttachmentSet::new(),
+        }
+        .register("display_render_nested_test")
+        .unwrap();
+        let nested_payload = encode_atom(&Atom::var(nested)).unwrap();
+        assert_eq!(
+            parse_payload(&nested_payload).unwrap().attachments().len(),
+            2
+        );
+        let prepared = prepare_typst_display(&imported).unwrap();
+        let source = prepared.printer(PrintOptions::typst()).to_string();
+        assert!(source.contains("op(attach(h,tr:primes(#2)))"), "{source}");
+        assert_eq!(source.matches("attach(h,tr:primes(#2))").count(), 2);
+        assert!(!source.contains("display_print") && !source.contains("__math_display_"));
+        let tree = atom_render_tree_value(&imported, &AttachmentSet::new()).unwrap();
+        let Value::Map(tree) = tree else {
+            panic!("tree")
+        };
+        let Value::Map(root) = &tree
+            .iter()
+            .find(|(k, _)| k == &Value::Text("root".into()))
+            .unwrap()
+            .1
+        else {
+            panic!("root")
+        };
+        assert_eq!(
+            root.iter()
+                .find(|(k, _)| k == &Value::Text("source".into()))
+                .unwrap()
+                .1,
+            Value::Text("attach(h,tr:primes(#2))".into())
+        );
+    }
+
+    #[test]
     fn native_atoms_round_trip() {
         // A restricted Symbolica build permits one instance per process. Keep
-        // all native Atom operations in one test thread; the other tests only
-        // inspect the deliberately opaque exported bytes.
+        // this test's nonzero Atom operations in one thread; the other tests
+        // inspect opaque bytes or export zero to discover the backend version.
         let atom = parse!("f(x)^2+1/3");
         let payload = encode_atom_with_attachments(
             &atom,

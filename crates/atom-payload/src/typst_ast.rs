@@ -2,7 +2,7 @@
 
 use std::io::Cursor;
 
-use crate::{AttachmentSet, parse_payload};
+use crate::{AttachmentSet, math_display::MathDisplay, parse_payload};
 use ciborium::value::Value;
 use symbolica::prelude::{Atom, AtomCore, Symbol};
 
@@ -69,6 +69,17 @@ pub fn attachments_from_value(value: &Value) -> Result<AttachmentSet, String> {
 pub fn preflight_payloads_from_value(value: &Value) -> Result<AstPayloadPreflight, String> {
     let mut preflight = AstPayloadPreflight::default();
     inspect_value_attachments(value, &mut preflight)?;
+    Ok(preflight)
+}
+
+/// Inspect every payload in a display tree without applying algebra semantics.
+///
+/// Display labels can contain ordered sequences, matrices, or layout slots that
+/// are not scalar algebra operands. Validate their complete attachment set
+/// before importing any of their embedded atoms.
+pub fn preflight_display_payloads_from_value(value: &Value) -> Result<AstPayloadPreflight, String> {
+    let mut preflight = AstPayloadPreflight::default();
+    inspect_display_attachments(value, &mut preflight)?;
     Ok(preflight)
 }
 
@@ -162,6 +173,82 @@ fn inspect_values_attachments(
     Ok(())
 }
 
+/// Display labels retain their syntax rather than following the algebraic
+/// grammar. Ordered juxtaposition and matrix-valued labels must not be
+/// interpreted as scalar multiplication during payload preflight.
+fn inspect_display_attachments(
+    value: &Value,
+    preflight: &mut AstPayloadPreflight,
+) -> Result<(), String> {
+    match value {
+        Value::Bytes(bytes) => {
+            inspect_payload_attachments(bytes, "embedded display Atom payload", preflight)
+        }
+        Value::Array(values) => {
+            for value in values {
+                inspect_display_attachments(value, preflight)?;
+            }
+            Ok(())
+        }
+        Value::Map(map) => {
+            if map_text(map, "head").ok() == Some("semantic-metadata") {
+                let args = map_array(map, "args")?;
+                let slots = map_map(map, "slots")?;
+                if let Some(Value::Map(payload)) = map_get(slots, "value")
+                    && map_get(payload, "protocol") == Some(&Value::Text("symbolica".to_owned()))
+                    && map_text(payload, "kind")? == "atom"
+                {
+                    return inspect_semantic_metadata_attachments(args, slots, preflight);
+                }
+                return inspect_display_attachments(
+                    args.first()
+                        .ok_or_else(|| "semantic-metadata missing argument 0".to_owned())?,
+                    preflight,
+                );
+            }
+            for (_, value) in map {
+                inspect_display_attachments(value, preflight)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn has_display_attachment(slots: &[(Value, Value)]) -> bool {
+    ["b", "tl", "tr", "bl", "br"]
+        .iter()
+        .any(|key| map_get(slots, key).is_some_and(|value| !matches!(value, Value::Null)))
+        || map_get(slots, "t")
+            .filter(|value| !matches!(value, Value::Null))
+            .is_some_and(is_empty_display)
+}
+
+/// An explicit empty top slot is layout information, not an empty exponent.
+fn is_empty_display(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Text(text) => text.trim().is_empty(),
+        Value::Array(values) => values.iter().all(is_empty_display),
+        Value::Map(map) => match map_text(map, "head").ok() {
+            Some("sequence" | "mul") => {
+                map_array(map, "args").is_ok_and(|values| values.iter().all(is_empty_display))
+            }
+            Some("text") => map_map(map, "slots")
+                .ok()
+                .and_then(|slots| map_get(slots, "text"))
+                .or_else(|| map_array(map, "args").ok().and_then(|args| args.first()))
+                .is_some_and(is_empty_display),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn attachment_exponent(slots: &[(Value, Value)]) -> Option<&Value> {
+    map_get(slots, "t").filter(|value| !is_empty_display(value))
+}
+
 fn inspect_arg_attachment(
     args: &[Value],
     index: usize,
@@ -241,8 +328,12 @@ fn inspect_node_attachments(
         }
         "lr" => inspect_slot_or_arg_attachment(slots, "body", args, 0, head, preflight),
         "attach" => {
-            inspect_slot_or_arg_attachment(slots, "base", args, 0, head, preflight)?;
-            if let Some(value) = map_get(slots, "t") {
+            if has_display_attachment(slots) {
+                inspect_display_attachments(&without_attachment_exponent(map), preflight)?;
+            } else {
+                inspect_slot_or_arg_attachment(slots, "base", args, 0, head, preflight)?;
+            }
+            if let Some(value) = attachment_exponent(slots) {
                 inspect_value_attachments(value, preflight)?;
             }
             Ok(())
@@ -288,7 +379,7 @@ fn inspect_node_attachments(
             if !matches!(function, Value::Text(_))
                 && !matches!(function, Value::Map(map) if map_text(map, "head").ok() == Some("op"))
             {
-                inspect_value_attachments(function, preflight)?;
+                inspect_function_head_attachments(function, preflight)?;
             }
             if let Some(body) = map_get(slots, "body") {
                 if let Value::Map(map) = body
@@ -306,7 +397,7 @@ fn inspect_node_attachments(
             if !matches!(op, Value::Text(_))
                 && !matches!(op, Value::Map(map) if map_text(map, "head").ok() == Some("op"))
             {
-                inspect_value_attachments(op, preflight)?;
+                inspect_function_head_attachments(op, preflight)?;
             }
             if let Some(values) = map_get(slots, "args") {
                 if let Value::Map(map) = values
@@ -320,10 +411,64 @@ fn inspect_node_attachments(
             Ok(())
         }
         "mat" | "vec" => Err(format!(
-            "{head} is matrix-valued; use matrix(...) or vec(...)"
+            "{head} is matrix-valued; use matrix(...) or vector(...)"
         )),
         _ => inspect_values_attachments(args, preflight),
     }
+}
+
+fn inspect_function_head_attachments(
+    value: &Value,
+    preflight: &mut AstPayloadPreflight,
+) -> Result<(), String> {
+    if matches!(value, Value::Map(map) if map_text(map, "head").ok() == Some("attach")) {
+        inspect_display_attachments(value, preflight)
+    } else {
+        inspect_value_attachments(value, preflight)
+    }
+}
+
+/// Typst stores both powers and labels in `attach`. The top attachment retains
+/// the existing algebraic interpretation unless it is explicitly empty; the
+/// remaining slots identify the decorated base symbol. Function heads instead
+/// preserve the entire tree.
+fn without_attachment_exponent(map: &[(Value, Value)]) -> Value {
+    Value::Map(
+        map.iter()
+            .map(|(key, value)| {
+                if key == &Value::Text("slots".to_owned())
+                    && let Value::Map(slots) = value
+                {
+                    return (
+                        key.clone(),
+                        Value::Map(
+                            slots
+                                .iter()
+                                .filter(|(key, value)| {
+                                    key != &Value::Text("t".to_owned()) || is_empty_display(value)
+                                })
+                                .cloned()
+                                .collect(),
+                        ),
+                    );
+                }
+                (key.clone(), value.clone())
+            })
+            .collect(),
+    )
+}
+
+fn display_symbol_from_value(
+    value: &Value,
+    namespace: &str,
+    attachments: &mut AttachmentSet,
+) -> Result<Symbol, String> {
+    let mut preflight = AstPayloadPreflight::default();
+    inspect_display_attachments(value, &mut preflight)?;
+    attachments
+        .merge(&preflight.attachments)
+        .map_err(|error| format!("could not merge display Atom attachments: {error}"))?;
+    MathDisplay::from_ast(value)?.register(namespace)
 }
 
 /// Construct a namespaced Symbolica symbol.
@@ -386,9 +531,17 @@ fn atom_from_node(
         }
         "lr" => slot_or_arg_atom(slots, "body", args, 0, head, namespace, attachments),
         "attach" => {
-            let base = slot_or_arg_atom(slots, "base", args, 0, head, namespace, attachments)?;
-            if let Some(exponent) = slot_atom(slots, "t", namespace, attachments) {
-                Ok(base.pow(exponent?))
+            let base = if has_display_attachment(slots) {
+                Atom::var(display_symbol_from_value(
+                    &without_attachment_exponent(map),
+                    namespace,
+                    attachments,
+                )?)
+            } else {
+                slot_or_arg_atom(slots, "base", args, 0, head, namespace, attachments)?
+            };
+            if let Some(exponent) = attachment_exponent(slots) {
+                Ok(base.pow(atom_from_value_collect(exponent, namespace, attachments)?))
             } else {
                 Ok(base)
             }
@@ -447,7 +600,7 @@ fn atom_from_node(
             Ok(symbol.call_args(arguments))
         }
         "mat" | "vec" => Err(format!(
-            "{head} is matrix-valued; use matrix(...) or vec(...)"
+            "{head} is matrix-valued; use matrix(...) or vector(...)"
         )),
         _ => {
             let symbol = Symbol::parse(head, namespace.to_owned())?;
@@ -544,6 +697,10 @@ fn symbol_from_value(
 ) -> Result<Symbol, String> {
     match value {
         Value::Text(text) => Symbol::parse(text.trim(), namespace.to_owned()),
+        Value::Map(map) if map_text(map, "head").ok() == Some("attach") => {
+            display_symbol_from_value(value, namespace, attachments)
+        }
+
         Value::Map(map) if map_text(map, "head").ok() == Some("op") => {
             if let Some(Value::Text(text)) = map_get(map, "text") {
                 Symbol::parse(text.trim(), namespace.to_owned())
@@ -675,6 +832,199 @@ mod tests {
             AttachmentSet::from_attachments([Attachment::new(key.clone(), data.to_vec()).unwrap()])
                 .unwrap();
         encode_atom_from_set(atom, &attachments).unwrap()
+    }
+
+    fn text(value: &str) -> Value {
+        Value::Text(value.to_owned())
+    }
+
+    fn attach(base: Value, labels: Vec<(&str, Value)>) -> Value {
+        let mut slots = vec![(text("base"), base)];
+        slots.extend(labels.into_iter().map(|(key, value)| (text(key), value)));
+        node("attach", vec![], slots)
+    }
+
+    #[test]
+    fn subscripted_symbols_do_not_collapse_to_their_base() {
+        let a0 = attach(text("a"), vec![("b", text("0"))]);
+        let a1 = attach(text("a"), vec![("b", text("1"))]);
+        let difference = node("sub", vec![a0.clone(), a1.clone()], vec![]);
+        let namespace = "subscript_identity";
+        let first = atom_from_value(&a0, namespace).unwrap();
+        let second = atom_from_value(&a1, namespace).unwrap();
+
+        assert_ne!(first, second);
+        assert_ne!(first, symbol_atom("a", namespace).unwrap());
+        assert_ne!(atom_from_value(&difference, namespace).unwrap(), Atom::Zero);
+        assert_eq!(atom_from_value(&a0, namespace).unwrap(), first);
+    }
+
+    #[test]
+    fn labels_preserve_order_and_repeated_indices_without_multiplication() {
+        let indexed = |base, labels| attach(text(base), vec![("b", node("mul", labels, vec![]))]);
+        let namespace = "ordered_subscript_identity";
+        let ij = atom_from_value(&indexed("C", vec![text("i"), text("j")]), namespace).unwrap();
+        let ji = atom_from_value(&indexed("C", vec![text("j"), text("i")]), namespace).unwrap();
+        assert_ne!(ij, ji);
+        assert_ne!(ij - ji, Atom::Zero);
+
+        let one_two =
+            atom_from_value(&indexed("K", vec![text("1"), text("2")]), namespace).unwrap();
+        let two = atom_from_value(&attach(text("K"), vec![("b", text("2"))]), namespace).unwrap();
+        assert_ne!(one_two, two);
+        let xx = atom_from_value(&indexed("f", vec![text("x"), text("x")]), namespace).unwrap();
+        assert_ne!(xx, symbol_atom("f", namespace).unwrap());
+    }
+
+    #[test]
+    fn every_corner_distinguishes_symbols_and_top_remains_a_power() {
+        let namespace = "attachment_positions";
+        let mut labels = Vec::new();
+        for position in ["b", "tl", "tr", "bl", "br"] {
+            let ast = attach(text("a"), vec![(position, text("i"))]);
+            let atom = atom_from_value(&ast, namespace).unwrap();
+            assert_ne!(atom, symbol_atom("a", namespace).unwrap());
+            assert!(!labels.contains(&atom));
+            labels.push(atom);
+        }
+        let all_labels = vec![
+            ("b", text("i")),
+            ("tl", text("j")),
+            ("tr", text("k")),
+            ("bl", text("l")),
+            ("br", text("m")),
+        ];
+        let decorated = atom_from_value(&attach(text("a"), all_labels.clone()), namespace).unwrap();
+        let mut with_power = all_labels;
+        with_power.push(("t", text("2")));
+        assert_eq!(
+            atom_from_value(&attach(text("a"), with_power), namespace).unwrap(),
+            decorated.pow(Atom::num(2)),
+        );
+        assert_eq!(
+            atom_from_value(&attach(text("x"), vec![("t", text("2"))]), namespace).unwrap(),
+            symbol_atom("x", namespace).unwrap().pow(Atom::num(2)),
+        );
+    }
+
+    #[test]
+    fn empty_top_attachments_are_display_data_and_survive_export() {
+        let namespace = "empty_top_attachment";
+        let empty = attach(text("a"), vec![("t", text(""))]);
+        let parsed = atom_from_value(&empty, namespace).unwrap();
+        assert_ne!(parsed, symbol_atom("a", namespace).unwrap());
+        let symbol = parsed.get_symbol().expect("an empty top is not a power");
+        let display = MathDisplay::from_symbol(symbol).unwrap().unwrap();
+        assert_eq!(display.to_typst_source(), "attach(a,t:\"\")");
+
+        let payload = encode_atom(&parsed).unwrap();
+        let imported = parse_payload(&payload).unwrap().import_atom().unwrap();
+        assert_eq!(imported, parsed);
+        assert_eq!(
+            MathDisplay::from_symbol(imported.get_symbol().unwrap()).unwrap(),
+            Some(display),
+        );
+        let with_bottom = attach(text("a"), vec![("b", text("i")), ("t", text(""))]);
+        let with_bottom = atom_from_value(&with_bottom, namespace).unwrap();
+        let bottom_only =
+            atom_from_value(&attach(text("a"), vec![("b", text("i"))]), namespace).unwrap();
+        assert_ne!(with_bottom, bottom_only);
+        let empty_sequence = attach(text("a"), vec![("t", node("mul", vec![], vec![]))]);
+        assert_eq!(atom_from_value(&empty_sequence, namespace).unwrap(), parsed);
+        let unset = attach(text("a"), vec![("t", Value::Null)]);
+        assert_eq!(
+            atom_from_value(&unset, namespace).unwrap(),
+            symbol_atom("a", namespace).unwrap()
+        );
+    }
+
+    #[test]
+    fn primes_and_decorated_function_heads_keep_function_semantics() {
+        let namespace = "decorated_functions";
+        let call = |head| {
+            node(
+                "call",
+                vec![],
+                vec![(text("fn"), head), (text("body"), text("c"))],
+            )
+        };
+        let primed = |count: i64| {
+            attach(
+                text("h"),
+                vec![(
+                    "tr",
+                    node(
+                        "primes",
+                        vec![],
+                        vec![(text("count"), Value::Integer(count.into()))],
+                    ),
+                )],
+            )
+        };
+        let ordinary = atom_from_value(&call(text("h")), namespace).unwrap();
+        let first = atom_from_value(&call(primed(1)), namespace).unwrap();
+        let second = atom_from_value(&call(primed(2)), namespace).unwrap();
+        let expected_head = atom_from_value(&primed(1), namespace)
+            .unwrap()
+            .get_symbol()
+            .unwrap();
+        assert_eq!(
+            first,
+            expected_head.call(symbol_atom("c", namespace).unwrap())
+        );
+        assert_ne!(first, ordinary);
+        assert_ne!(first, second);
+        assert_ne!(
+            first,
+            symbol_atom("h", namespace).unwrap() * symbol_atom("c", namespace).unwrap()
+        );
+
+        // In a function-head position, a top label belongs to the function's
+        // identity rather than turning the head into an algebraic power.
+        let top = attach(text("h"), vec![("t", text("star")), ("b", text("i"))]);
+        let top_head = MathDisplay::from_ast(&top)
+            .unwrap()
+            .register(namespace)
+            .unwrap();
+        assert_eq!(
+            atom_from_value(&call(top), namespace).unwrap(),
+            top_head.call(symbol_atom("c", namespace).unwrap()),
+        );
+    }
+
+    #[test]
+    fn attachment_labels_merge_payloads_and_reject_conflicts_before_import() {
+        let key = AttachmentKey::new("org.symbolica.display-test", 1, b"index".to_vec()).unwrap();
+        let index = symbol_atom("i", "embedded_display_index").unwrap();
+        let bytes = attached_bytes(&index, &key, b"first");
+        let valid = attach(text("C"), vec![("bl", Value::Bytes(bytes.clone()))]);
+        let preflight = attachments_from_value(&valid).unwrap();
+        assert_eq!(preflight.get(&key), Some(b"first".as_slice()));
+        let parsed = attached_atom_from_value(&valid, "display_payload_labels").unwrap();
+        assert_eq!(parsed.attachments, preflight);
+
+        let conflicting = attach(
+            text("C"),
+            vec![
+                ("tl", Value::Bytes(bytes)),
+                ("br", Value::Bytes(attached_bytes(&index, &key, b"second"))),
+            ],
+        );
+        assert!(
+            attachments_from_value(&conflicting)
+                .unwrap_err()
+                .contains("conflicting data")
+        );
+        assert!(attached_atom_from_value(&conflicting, "display_payload_labels").is_err());
+
+        let mut incompatible = encode_atom(&Atom::Zero).unwrap();
+        incompatible[super::super::FIXED_HEADER_BYTES] ^= 1;
+        let invalid = attach(text("C"), vec![("tr", Value::Bytes(incompatible))]);
+        assert!(
+            attachments_from_value(&invalid)
+                .unwrap_err()
+                .contains("wrong Symbolica magic")
+        );
     }
 
     #[test]
@@ -877,8 +1227,7 @@ mod tests {
 
     #[test]
     fn preflight_rejects_incompatible_atom_headers_without_importing() {
-        let atom_export = [0x67, 0x13, 0x87, 0x37, 0x05, 0x00];
-        let mut payload = super::super::encode_exported_atom(&atom_export, []).unwrap();
+        let mut payload = encode_atom(&Atom::Zero).unwrap();
         payload[super::super::FIXED_HEADER_BYTES] ^= 1;
 
         let error = attachments_from_value(&Value::Bytes(payload)).unwrap_err();

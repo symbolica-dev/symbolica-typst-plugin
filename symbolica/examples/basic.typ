@@ -9,8 +9,8 @@
 Symbolica turns native Typst mathematics into an exact Symbolica expression and
 places the computed result back into the document.
 
-#let x = symbol("x")
-#let polynomial = math($x^4 - 5 x^2 + 4$)
+#let x = literal("x")
+#let polynomial = parse($x^4 - 5 x^2 + 4$)
 #let factored = factor(polynomial)
 #let slope = derivative(polynomial, x)
 
@@ -20,4 +20,9 @@ $
   f'(x) &= #to-typst(slope)
 $
 
-All coefficients remain exact.
+All coefficients remain exact. The same expression can be parsed from a
+Symbolica string, using explicit multiplication:
+
+#let from-string = parse("x^4 - 5*x^2 + 4")
+#assert.eq(canonical(from-string), canonical(polynomial))
+$ #to-typst(factor(from-string)) $

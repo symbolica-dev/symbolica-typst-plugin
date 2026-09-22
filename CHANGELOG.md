@@ -6,12 +6,58 @@ prepared.
 
 ## Unreleased
 
+- Add `logo(size: 1em)` to draw the Symbolica logo inline with text.
+
+- Preserve imported math-display declarations when re-exporting equivalent
+  nested Atom labels across native and Wasm runtimes; session-local symbol IDs
+  no longer cause false metadata conflicts during rendering or serialization.
+
+- Update Symbolica to `main` at commit
+  `06906976bca24fefc5203aee699d90d62ebe08cd`, shared by the plugin, integration
+  engine, and Atom payload crate. Keep builds locked to that revision and
+  include Git source provenance in dependency notices.
+  This revision uses Atom export format 6 and accepts only that format; stored
+  Atom bytes from the registry 3.0.0 build (format 5) must be regenerated.
+  Ordinary Typst documents recreate their atoms when compiled.
+
+- Breaking: rename the public API, including the fields returned by `init()`:
+  `math` → `parse`, `symbol` → `literal`, `function` → `function-head`,
+  `terms` → `summands`, `content` → `matrix-content`, `vec` → `vector`,
+  `det` → `determinant`, `cancel` → `cancel-factors`, `sub` → `subtract`,
+  `div` → `divide`, `gamma` → `gamma-function`, and `zeta` → `zeta-function`.
+  The old names are removed without aliases, so wildcard imports leave Typst's
+  native names available.
+- Remove the public `atom` function, including `init().atom`. Use `parse` for
+  conversion: it accepts Typst math content through Parsely, strings through
+  Symbolica's expression parser, exact integers, floats, and existing Atom bytes.
+  Existing bytes pass through unchanged; `namespace` does not rename them.
+  Use explicit multiplication in strings, for example `parse("2*x + y")`.
+  Explicit `grammar` options are accepted only for content input. Strings in
+  algebra function arguments retain their single-leaf conversion; `literal`
+  explicitly constructs a symbol.
+
+- Extend `literal` to accept supported Typst math and text as one opaque
+  symbol label. Repeated displays have stable identities; an optional `name`
+  for content selects an explicit identity independently of appearance.
+  Preserve namespace and tag options, reuse ordinary and indexed identities
+  for simple labels, and group composite labels in both rendering paths.
+  Reject unsupported style, context, and layout content with guidance to use
+  `notation` instead.
+- Reject trailing underscores in literal names. Require `wild` to have a
+  nonempty base name without trailing underscores and a positive integer
+  `level`; `level: 0` no longer creates an ordinary symbol.
+
+- Preserve subscripts, all corner attachments, and primed function heads in
+  parsed math using versioned symbol display data. Keep ordered labels distinct
+  and retain decorations through native payloads, `to-typst`, and
+  `to-typst-source`. Top attachments continue to represent algebraic powers.
+
 - Use a mixed Rust `s`/`z` release profile to reduce integration-rule
   initialization time while keeping the compressed runtime archive below
   8 MB. Retain the complete integration rule set and step explanations.
 
-- Expose `gamma`, `polygamma`, `polylog`, `zeta`, and `bessel-j/y/i/k` directly
-  at the top level and on `init()` engines. These annotated constructors retain
+- Expose `gamma-function`, `polygamma`, `polylog`, `zeta-function`, and
+  `bessel-j/y/i/k` directly at the top level and on `init()` engines. These annotated constructors retain
   Symbolica's built-in function identity in any engine namespace. Document
   special-function access and limitations with evaluated examples.
 
@@ -20,7 +66,7 @@ prepared.
   metadata remain available inside numerators, denominators, and roots.
 
 - Keep `to-typst` output in one inline equation by default, including fractional
-  products such as `math($1/3 x^2$)`. Remove nested equations from product and
+  products such as `parse($1/3 x^2$)`. Remove nested equations from product and
   function-argument separators, and normalize equation wrappers and explicit
   spacing when parsing rendered atoms back into math.
 
@@ -61,8 +107,8 @@ prepared.
   `.branches`; `coverage` and `coverage-guard` preserve the limits of results with
   symbolic parameters. Branches expose `point` and optional `codimension` instead
   of `rank`, `parametric`, and `indeterminate`; unknown dimensions remain `none`.
-- Replaced the `var` alias with `symbol` and added a distinct callable
-  `function` constructor. Both use one versioned metadata envelope containing
+- Replaced the `var` alias with `literal` and added a distinct callable
+  `function-head` constructor. Both use one versioned metadata envelope containing
   authoritative native Atom bytes plus inspectable namespace and tag data;
   Parsely consumes the annotation before implicit multiplication, while
   unrelated package metadata remains transparent.
@@ -98,7 +144,7 @@ prepared.
   import layout.
 - Reworked the manual's prose around mathematical questions, removed repeated
   implementation detail, and moved tool credits to acknowledgements.
-- Added rational-expression transforms (`together`, `cancel`, and `apart`),
+- Added rational-expression transforms (`together`, `cancel-factors`, and `apart`),
   collection and coefficient tools, term and indeterminate inspection,
   structural predicates, decimal approximation, and complex or square-free
   factorization options.

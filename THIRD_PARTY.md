@@ -12,15 +12,19 @@ licenses as recorded below and in `THIRD_PARTY_LICENSES.txt`.
 ## Bundled engine and dependencies
 
 The runtime package includes [the collected license texts](THIRD_PARTY_LICENSES.txt)
-for the 99 registry crates in the locked Wasm build, including build-time
+for the dependencies in the locked Wasm build, including build-time
 dependencies conservatively. Each entry identifies the version, declared
-license, repository, and source archive. For alternatives such as MIT OR
+license, repository, and source archive. Git dependencies also identify the
+exact locked revision. For alternatives such as MIT OR
 Apache-2.0, the distribution uses MIT where available, and otherwise an
 applicable permissive alternative. Reproducing the alternative texts does not
 require recipients to accept every alternative simultaneously.
 
-Symbolica 3.0.0 is covered by its [source-available license](LICENSE-SYMBOLICA.md)
-and the overriding [Symbolica Typst permission](LICENSE-SYMBOLICA-TYPST.md).
+Symbolica 3.0.0 is built from `main` at revision
+[`06906976bca24fefc5203aee699d90d62ebe08cd`](https://github.com/symbolica-dev/symbolica/tree/06906976bca24fefc5203aee699d90d62ebe08cd),
+as pinned in `Cargo.lock`. It is covered by its
+[source-available license](LICENSE-SYMBOLICA.md) and the overriding
+[Symbolica Typst permission](LICENSE-SYMBOLICA-TYPST.md).
 The latter grants runtime use within Typst without payment, registration,
 activation, license keys, or a separate runtime agreement. The original
 plugin code remains under [MIT](LICENSE).
@@ -29,7 +33,7 @@ The Wasm includes malachite-base, malachite-nz, and malachite-q 0.7.1 under
 LGPL-3.0-only, as well as MPL-covered colored and smartstring components.
 Their source and license obligations remain in effect. See
 [source locations and rebuilding](REBUILDING.md) for the plugin source,
-locked crates.io dependencies, and build instructions. A vendored source
+locked registry and Git dependencies, and build instructions. A vendored source
 archive is optional; maintaining access to the matching sources is required.
 
 Maintainers regenerate the notices with `python3 scripts/update-licenses.py`.

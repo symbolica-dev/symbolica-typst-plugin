@@ -3,7 +3,7 @@
 // Parameters: https://github.com/TimeTravelPenguin/symbolic-eval/blob/79c6588351603b85b11b6c92b1fbff3faf478215/rust/examples/ode.rs
 #import "@preview/cetz:0.5.2": canvas, draw
 #import "@preview/cetz-plot:0.1.4": plot
-#import "@preview/symbolica:0.1.0": init
+#import "@preview/symbolica:0.1.0": *
 
 #set document(title: "A Lotka–Volterra trajectory")
 #set page(paper: "a4", margin: 18mm)
@@ -23,14 +23,14 @@ with $x(0)=y(0)=1$. Symbolica evaluates the two right-hand sides together at
 each stage. A short fourth-order Runge–Kutta loop local to this example then
 advances both populations; it is ordinary Typst code rather than a new ODE API.
 
-#let sym = init(namespace: "symbolica")
-#let parse = sym.math
-#let symbol = sym.symbol
-#let evaluate-many = sym.evaluate-many
+#let engine = init(namespace: "symbolica")
+#let parse = engine.parse
+#let literal = engine.literal
+#let evaluate-many = engine.evaluate-many
 
-#let t = symbol("t")
-#let x = symbol("x")
-#let y = symbol("y")
+#let t = literal("t")
+#let x = literal("x")
+#let y = literal("y")
 #let right-hand-sides = (
   parse($(2 x) / 3 - (4 x y) / 3$),
   parse($x y - y$),

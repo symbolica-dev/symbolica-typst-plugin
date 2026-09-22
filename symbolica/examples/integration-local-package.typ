@@ -1,10 +1,10 @@
-#import "@local/symbolica:0.1.0" as sym
+#import "@local/symbolica:0.1.0": *
 
 #set page(width: auto, height: auto, margin: 12pt)
 
-#let x = sym.math($x$)
-#let integrand = sym.math($x^2$)
-#let explanation = sym.integrate-with-steps(integrand, x)
+#let x = parse($x$)
+#let integrand = parse($x^2$)
+#let explanation = integrate-with-steps(integrand, x)
 
-$ integral #sym.to-typst(integrand) dif x
-  = #sym.to-typst(explanation.result) + C $
+$ integral #to-typst(integrand) dif x
+  = #to-typst(explanation.result) + C $

@@ -33,8 +33,8 @@ Import the published package to use Symbolica in a Typst document:
 ```typst
 #import "@preview/symbolica:0.1.0": *
 
-#let x = symbol("x")
-#let f = math($x^4 - 5 x^2 + 4$)
+#let x = literal("x")
+#let f = parse($x^4 - 5 x^2 + 4$)
 
 $
   f(x) &= #to-typst(f) \
@@ -55,15 +55,75 @@ The factorization and derivative are computed exactly while Typst compiles the d
 Symbolica expressions are opaque values; render them with `to-typst` or inspect
 them with `canonical`.
 
+The public names work with wildcard imports while leaving Typst's native
+`math`, `symbol`, `function`, `content`, and math layout functions available.
+
+### Parse Typst formulas or strings
+
+`parse` accepts both Typst math content and strings in Symbolica syntax:
+
+```typst
+#import "@preview/symbolica:0.1.0": *
+
+#let from-math = parse($x^2 / (1 + x)$)
+#let from-string = parse("x^2/(1+x)")
+#assert.eq(canonical(from-math), canonical(from-string))
+
+#let expression = parse("2*x + y", namespace: "model")
+#let x = literal("x", namespace: "model")
+$ #to-typst(derivative(expression, x)) $
+```
+
+Strings use Symbolica's expression syntax, including explicit `*` for
+multiplication. Typst formulas use Parsely and retain their decorated notation.
+`parse` also accepts numbers and existing expressions: integers remain exact,
+floats retain their value, and existing Atom bytes pass through unchanged.
+Use `literal("x")` to construct a symbol explicitly. In algebra function
+arguments, strings still represent single leaves; parse a string first when
+it contains a whole expression.
+
+### Use a formula as one literal symbol
+
+`literal` accepts a symbol name or supported Typst content. Content supplies the
+label for one opaque symbol: `literal($x+1$)` does not become an algebraic sum.
+Composite labels are grouped when rendered by either `to-typst` or
+`to-typst-source`.
+
+```typst
+#import "@preview/symbolica:0.1.0": *
+
+#let label = literal($x + 1$)
+$ #to-typst(pow(label, 2)) $
+
+#let first = literal($a_0$, name: "first_coefficient", namespace: "model")
+#let second = literal($a_0$, name: "second_coefficient", namespace: "model")
+#assert.ne(canonical(first, namespaces: true), canonical(second, namespaces: true))
+```
+
+Without `name`, repeated labels have stable identities within their namespace.
+Simple `literal($x$)` agrees with `literal("x")`, and `literal($a_0$)` agrees
+with `parse($a_0$)`. The optional `name` applies only to content and lets two
+symbols share a label while retaining distinct identities. `namespace` and
+`tags` work with both input forms. Names must not end with an underscore.
+
+Labels support portable math structures and text. Unsupported styling,
+context-dependent content, and layout elements are rejected; use `notation`
+for custom presentation around an explicitly named symbol. Plain source output
+preserves the label's appearance, while `to-typst` also carries its exact identity.
+
+Use `wild("a")` for a pattern placeholder. Its base name must be nonempty and
+must not end with an underscore; `level` is a positive integer. `wild` returns
+an Atom payload for matching, and `level: 0` is rejected.
+
 ### Numerical evaluation with π
 
 Evaluate `π² + sin(π/4)` using Symbolica's built-in value of π:
 
 ```typst
-#import "@preview/symbolica:0.1.0" as sym
+#import "@preview/symbolica:0.1.0": *
 
-#let expression = sym.math($pi^2 + sin(pi / 4)$)
-#let value = sym.evaluate(expression)
+#let expression = parse($pi^2 + sin(pi / 4)$)
+#let value = evaluate(expression)
 
 $ pi^2 + sin(pi / 4) approx #calc.round(value.re, digits: 8) $
 ```
@@ -80,15 +140,15 @@ with real and imaginary parts, `re` and `im`; here `im` is zero.
 Solve `x + y = a` and `x - y = b` for `x` and `y`, keeping `a` and `b` symbolic:
 
 ```typst
-#import "@preview/symbolica:0.1.0" as sym
+#import "@preview/symbolica:0.1.0": *
 
-#let solutions = sym.solve(
-  ($x + y - a$, $x - y - b$).map(sym.math),
-  ($x$, $y$).map(sym.math),
+#let solutions = solve(
+  ($x + y - a$, $x - y - b$).map(parse),
+  ($x$, $y$).map(parse),
   domain: "real",
 )
 
-#let (x, y) = solutions.branches.first().values.map(sym.to-typst)
+#let (x, y) = solutions.branches.first().values.map(to-typst)
 $ x = #x, quad y = #y $
 ```
 
@@ -100,11 +160,11 @@ $$
 ### Symbolic integration
 
 ```typst
-#import "@preview/symbolica:0.1.0" as sym
+#import "@preview/symbolica:0.1.0": *
 
-#let x = sym.math($x$)
-#let f = sym.math($x / (x + 1)$)
-#sym.to-typst(sym.integrate(f, x))
+#let x = parse($x$)
+#let f = parse($x / (x + 1)$)
+#to-typst(integrate(f, x))
 ```
 
 $$
@@ -121,6 +181,24 @@ the cached rules, so later calls and ordinary edits reuse them.
 The `symbolica-typst-atom-payload` crate is the reusable boundary for extensions. It
 combines Symbolica's exact native Atom export with schema-keyed portable
 attachments and a generic render tree.
+
+`parse` preserves subscripts and corner attachments as decorated symbols.
+For example, `$a_0-a_1$` keeps two distinct variables, `$C_(i j)$` retains the
+order of its labels, and `$h'(c)$` is a call with a decorated function head.
+All six Typst attachment positions (`t`, `b`, `tl`, `tr`, `bl`, `br`) are
+supported, including nested labels and primes. In ordinary expressions, `t`
+keeps its algebraic meaning: `$a_i^2$` is the square of `$a_i$`.
+
+Decorations are literal notation: primes do not request differentiation, and
+substitution does not traverse labels stored in symbol data. Use `derivative`
+for differentiation and function arguments for indices that participate in
+algebra. Rendered content retains exact Atom metadata; plain Typst source
+preserves notation but does not carry namespaces or other hidden metadata.
+
+The shared `math_display::MathDisplay` type stores the ordered display tree in
+versioned Symbolica symbol data and exports a `symbolica.math-display`
+attachment for other renderers. Its deterministic symbol names distinguish
+labels without depending on a runtime's symbol IDs.
 
 Several Typst packages are in development that make use of the symbolic payload, for example
 the tensor algebra package [spenso](https://github.com/alphal00p/gammaloop).
@@ -169,14 +247,14 @@ with:
 
 Upload that `lib.typ`, `render.typ`, and the three parts into a `symbolica`
 folder in the project. Omit the original large `symbolica.wasm`. Your document
-can then use the usual `#import "symbolica/lib.typ" as sym` and `sym.integrate`
+can then use the usual `#import "symbolica/lib.typ": *` and `integrate`
 API. [Typst accepts raw bytes as a plugin source](https://typst.app/docs/reference/foundations/plugin/).
 This joins the exact original engine in memory, without decompression. It
 reduces individual upload sizes, but not total project storage or runtime memory.
 The split loader was verified with the CLI; web upload acceptance depends on
 the account's file and project limits.
 
-Once published on Universe, use `#import "@preview/symbolica:0.1.0" as sym`
+Once published on Universe, use `#import "@preview/symbolica:0.1.0": *`
 instead; the package is fetched without manually uploading its Wasm.
 
 ## Development shell
@@ -191,6 +269,19 @@ typst compile --root . symbolica/tests/parsely-metadata.typ /tmp/parsely-metadat
 
 Use `nix run .#typst -- <arguments>` to run Typst without entering the shell.
 Run `nix flake check` to validate the bundled plugin, examples, and manual.
+
+## Logo
+
+Use `logo()` to place the Symbolica logo inline. It follows the text size by
+default; use `size` to set its width and height.
+
+```typst
+#import "@preview/symbolica:0.1.0": logo
+
+Calculated with #logo() Symbolica.
+
+#logo(size: 2em)
+```
 
 ## Documentation and examples
 
