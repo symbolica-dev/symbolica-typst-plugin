@@ -4,6 +4,9 @@ The official [Symbolica](https://symbolica.io/) plugin for Typst, powered by
 Symbolica 3.0. It is free to use for any use within Typst, including academic
 and commercial work.
 
+Available on [Typst Universe](https://typst.app/universe/package/symbolica/)
+for use in the Typst web app and with the command-line compiler.
+
 Symbolica lets you do symbolic computations and numerical evaluations directly in your Typst document. This avoids error-prone copy-pasting and keeps the displayed results in sync when you
 change an equation or parameter.
 
@@ -26,9 +29,14 @@ reference.
 
 ## Quick start
 
+The examples below follow the current repository API. For the published
+0.1.0 release, use the examples on [Universe](https://typst.app/universe/package/symbolica/).
+To try the updated API, [use a development checkout](#use-a-development-checkout)
+and replace `@preview` with `@local` in the imports below.
+
 ### Exact factorization and differentiation
 
-Import the published package to use Symbolica in a Typst document:
+Import Symbolica and calculate directly in a Typst document:
 
 ```typst
 #import "@preview/symbolica:0.1.0": *
@@ -202,7 +210,20 @@ labels without depending on a runtime's symbol IDs.
 
 Several Typst packages are in development that make use of the symbolic payload, for example
 the tensor algebra package [spenso](https://github.com/alphal00p/gammaloop).
-## Install locally
+
+## Use in the Typst web app
+
+Import the published package from [Typst Universe](https://typst.app/universe/package/symbolica/):
+
+```typst
+#import "@preview/symbolica:0.1.0": *
+```
+
+Typst fetches the package automatically. No manual Wasm upload, file splitting,
+or loader changes are needed. The optimized runtime archive built from this
+repository is about **7.76 MB compressed**, just under 8 MB.
+
+## Use a development checkout
 
 To use this repository checkout, clone it and expose its root as a local
 package. On Linux:
@@ -219,43 +240,6 @@ On macOS, use `~/Library/Application Support/typst/packages` in place of the
 Linux data directory. For that local installation, replace `@preview` with
 `@local` in your document import. The repository checks make the checkout
 available under both namespaces, so public examples run unchanged.
-
-## Use in the Typst web app
-
-Before publication on Universe, upload the library files into your project
-and import `"symbolica/lib.typ"`. A local installation on your computer is
-not available to the web app.
-
-If the 23.36 MiB Wasm exceeds the web app's per-file upload limit, split it
-into smaller parts. For this build, the following GNU `split` command creates
-three files of at most 8 MiB:
-
-```sh
-split -b 8M -d -a 1 symbolica/symbolica.wasm symbolica/symbolica.wasm.part
-```
-
-In the **uploaded copy** of `symbolica/lib.typ`, replace `_bundled_plugin`
-with:
-
-```typst
-#let _bundled_plugin() = plugin(
-  read("symbolica.wasm.part0", encoding: none) +
-  read("symbolica.wasm.part1", encoding: none) +
-  read("symbolica.wasm.part2", encoding: none)
-)
-```
-
-Upload that `lib.typ`, `render.typ`, and the three parts into a `symbolica`
-folder in the project. Omit the original large `symbolica.wasm`. Your document
-can then use the usual `#import "symbolica/lib.typ": *` and `integrate`
-API. [Typst accepts raw bytes as a plugin source](https://typst.app/docs/reference/foundations/plugin/).
-This joins the exact original engine in memory, without decompression. It
-reduces individual upload sizes, but not total project storage or runtime memory.
-The split loader was verified with the CLI; web upload acceptance depends on
-the account's file and project limits.
-
-Once published on Universe, use `#import "@preview/symbolica:0.1.0": *`
-instead; the package is fetched without manually uploading its Wasm.
 
 ## Development shell
 
