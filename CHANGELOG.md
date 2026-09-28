@@ -6,6 +6,9 @@ prepared.
 
 ## Unreleased
 
+- Select Symbolica and the shared Atom payload through root Cargo patches so
+  build roots can override their sources consistently across dependencies.
+
 - Add `logo(size: 1em)` to draw the Symbolica logo inline with text.
 
 - Preserve imported math-display declarations when re-exporting equivalent

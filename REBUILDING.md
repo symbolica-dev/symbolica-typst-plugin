@@ -8,9 +8,17 @@ Each binary release must identify the matching source revision. The planned
 Dependencies are fetched from crates.io at the versions and checksums recorded
 in `Cargo.lock`, or from Git at the recorded commit. Symbolica uses `main` at
 [`06906976bca24fefc5203aee699d90d62ebe08cd`](https://github.com/symbolica-dev/symbolica/tree/06906976bca24fefc5203aee699d90d62ebe08cd).
-The workspace dependency and crates.io patch keep the plugin, integration
+Versioned dependencies and the root crates.io patch keep the plugin, integration
 engine, and shared Atom payload crate on this revision. [Third-party notices](THIRD_PARTY_LICENSES.txt) provide
 exact source archive URLs and Git revisions for the Wasm build.
+
+The root `[patch.crates-io]` table selects both Symbolica and the shared Atom
+payload source. The payload defaults to `crates/atom-payload` in this checkout.
+Change or replace these patch entries to select another compatible Git revision
+or local checkout, then update the lockfile. There is no direct Git dependency
+on Symbolica that would bypass the patch. When the payload is embedded in another
+workspace, that consuming workspace supplies its own patches; Cargo does not
+inherit patch tables from dependencies.
 
 ## Build
 
