@@ -1888,6 +1888,41 @@ pub fn render_tree(payload: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Inspect a scalar payload, returning ordinary errors inside the CBOR result.
+#[cfg_attr(target_arch = "wasm32", wasm_func)]
+pub fn inspect_tree(payload: &[u8]) -> Result<Vec<u8>, String> {
+    let result = (|| {
+        if is_matrix_payload(payload) {
+            return Err("expected a scalar expression; matrix payloads are not supported by expression trees".to_owned());
+        }
+        let attached = decode_attached_atom(payload, "input")?;
+        let tree = crate::expression_tree::ExpressionTree::from_atom(
+            &attached.atom,
+            &attached.attachments,
+        )?;
+        // Apply the wire byte limit before returning the decoded tree in a result.
+        decode_cbor(&tree.encode()?, "expression tree")
+    })();
+    let fields = match result {
+        Ok(tree) => vec![("ok", Value::Bool(true)), ("tree", tree)],
+        Err(error) => vec![("ok", Value::Bool(false)), ("error", Value::Text(error))],
+    };
+    encode_cbor(Value::Map(
+        fields
+            .into_iter()
+            .map(|(k, v)| (Value::Text(k.into()), v))
+            .collect(),
+    ))
+}
+
+/// Rebuild a scalar expression from the semantic tree contract.
+#[cfg_attr(target_arch = "wasm32", wasm_func)]
+pub fn from_tree(tree: &[u8]) -> Result<Vec<u8>, String> {
+    initialize_core();
+    let attached = crate::expression_tree::ExpressionTree::decode(tree)?.to_atom()?;
+    encode_attached_atom(&attached.atom, &attached.attachments)
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_func)]
 pub fn to_latex(expr: &[u8]) -> Result<Vec<u8>, String> {
     if is_matrix_payload(expr) {

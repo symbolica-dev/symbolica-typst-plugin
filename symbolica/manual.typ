@@ -959,7 +959,7 @@ generated from the documentation in `lib.typ`.
   (
     title: [Parsing, symbols, and rendering],
     names: (
-      "parse", "literal", "function-head", "wild", "array-tree", "canonical",
+      "parse", "literal", "function-head", "wild", "array-tree", "canonical", "inspect", "from-tree",
       "notation", "merge-notation", "to-typst-source", "to-typst", "to-latex", "to-float",
     ),
   ),

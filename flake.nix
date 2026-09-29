@@ -22,7 +22,7 @@
         for example in basic showcase expression-grid lotka-volterra phase-portrait integration; do
           typst compile --root . "symbolica/examples/$example.typ" "$check_dir/$example.pdf"
         done
-        for fixture in api-surface parsing literals parsely-metadata attachments worked-examples integration; do
+        for fixture in api-surface parsing literals parsely-metadata attachments expression-tree worked-examples integration; do
           typst compile --root . "symbolica/tests/$fixture.typ" "$check_dir/test-$fixture.pdf"
         done
         python3 symbolica/tests/literals-check.py

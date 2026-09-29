@@ -29,7 +29,8 @@ def main():
                           "symbolica/tests"):
             shutil.copytree(ROOT / directory, source / directory,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        shutil.copyfile(ROOT / "docs/releasing.md", source / "docs/releasing.md")
+        for document in ("releasing.md", "expression-tree.md"):
+            shutil.copyfile(ROOT / "docs" / document, source / "docs" / document)
         for path in (ROOT / "symbolica").rglob("*.typ"):
             target = source / path.relative_to(ROOT)
             target.parent.mkdir(parents=True, exist_ok=True)

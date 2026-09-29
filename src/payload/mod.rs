@@ -13,6 +13,7 @@ use std::{
     sync::LazyLock,
 };
 
+pub mod expression_tree;
 pub mod math_display;
 pub mod typst_ast;
 
@@ -116,6 +117,13 @@ impl Attachment {
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+}
+
+/// A Symbolica Atom together with its portable attachment environment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttachedAtom {
+    pub atom: Atom,
+    pub attachments: AttachmentSet,
 }
 
 /// An owned, deterministically ordered collection of portable attachments.
@@ -1732,6 +1740,16 @@ mod tests {
         let parsed = parse_payload(&payload).unwrap();
         assert_eq!(parsed.attachment(&generated.key), Some(original.as_slice()));
         assert_eq!(parsed.import_atom().unwrap(), Atom::var(symbol));
+
+        let tree =
+            expression_tree::ExpressionTree::from_atom(&Atom::var(symbol), &supplied).unwrap();
+        let decoded = expression_tree::ExpressionTree::decode(&tree.encode().unwrap()).unwrap();
+        let rebuilt = decoded.to_atom().unwrap();
+        assert_eq!(rebuilt.atom, Atom::var(symbol));
+        assert_eq!(
+            rebuilt.attachments.get(&generated.key),
+            Some(original.as_slice())
+        );
 
         // An outer symbol supplies an inner declaration even when the inner
         // symbol also appears independently in the expression.

@@ -32,6 +32,7 @@ plugin = ["dep:ahash", "dep:getrandom", "dep:symbolica-integrate", "dep:wasm-min
 ahash = { version = "0.8", default-features = false, features = ["std", "compile-time-rng"], optional = true }
 blake3 = "1"
 ciborium = "0.2.2"
+serde = { version = "1", features = ["derive"] }
 getrandom = { version = "0.3", optional = true }
 symbolica = { version = "3.0.1", default-features = false }
 symbolica-integrate = { version = "2.0.1", default-features = false, features = ["compressed-step-metadata"], optional = true }

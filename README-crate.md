@@ -20,6 +20,12 @@ The public modules provide:
 - `payload`: native Symbolica Atom exports with versioned, schema-keyed attachments.
 - `math_display`: portable notation for decorated symbols and literal labels.
 - `typst_ast`: conversion from Parsely trees to annotated Symbolica expressions.
+- `expression_tree`: typed semantic trees, CBOR encoding, and conversion to and
+  from annotated expressions, independent of Parsely and print layout.
+
+The [expression-tree contract](https://github.com/symbolica-dev/symbolica-typst-plugin/blob/main/docs/expression-tree.md)
+describes the CBOR fields and shows how to inspect attachments before importing
+the tree's native leaves.
 
 Inspect and validate attachments before importing an Atom so your plugin can
 register any required symbol callbacks. Preserve attachments you do not

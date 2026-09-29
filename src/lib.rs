@@ -6,7 +6,7 @@
 //! library in another Wasm plugin; enable `plugin` to build our plugin itself.
 
 pub mod payload;
-pub use payload::{math_display, typst_ast};
+pub use payload::{expression_tree, math_display, typst_ast};
 
 #[cfg(feature = "plugin")]
 mod plugin;

@@ -898,6 +898,12 @@
 
   let api = (
     parse: (input, grammar: none, namespace: none) => _parse(engine, input, grammar: grammar, namespace: namespace),
+    inspect: value => if type(value) == bytes {
+      cbor(engine.plugin.inspect_tree(value))
+    } else {
+      (ok: false, error: "expected Symbolica expression bytes")
+    },
+    from-tree: tree => engine.plugin.from_tree(cbor.encode(tree)),
     literal: (input, name: none, namespace: none, tags: ()) => _symbol(engine, input, name: name, namespace: namespace, tags: tags),
     function-head: (name, namespace: none, tags: ()) => _function(engine, name, namespace: namespace, tags: tags),
     gamma-function: (z) => (_function(engine, "gamma", namespace: "symbolica"))(z),
@@ -1085,6 +1091,52 @@
   /// -> str | none
   namespace: none,
 ) = (_default_engine().parse)(input, grammar: grammar, namespace: namespace)
+
+/// Inspect scalar expression bytes as a semantic tree.
+///
+/// Returns `(ok: true, tree: ...)` on success, or `(ok: false, error: ...)` for
+/// a wrong input type, incompatible payload, or unsupported matrix. This reads
+/// an existing expression; use `parse` first for content or strings. Native
+/// payloads must come from a trusted, compatible plugin.
+///
+/// The versioned tree contains `root` and `attachments`. Nodes have a `kind`:
+/// `rational`, `complex`, `float`, `coefficient`, `symbol`, `call`, `sum`,
+/// `product`, or `power`. Sums have `terms`, products have `factors`, powers
+/// have `base` and `exponent`, and calls have `head` and `arguments`.
+/// This is normalized algebra, independent of Parsely and display notation.
+/// Exact rational numerators and denominators are decimal strings. Float
+/// nodes expose approximate `real` and `imaginary` values and retain an exact
+/// `payload`; other coefficient domains retain an opaque `payload`.
+/// Symbol descriptors retain names, namespaces, tags, attributes, and payloads.
+///
+/// ```example
+/// #let result = inspect(parse($x^2$))
+/// #assert(result.ok)
+/// #assert.eq(result.tree.root.kind, "power")
+/// #to-typst(from-tree(result.tree))
+/// ```
+///
+/// -> dictionary
+#let inspect(
+  /// A value that may contain Symbolica scalar expression bytes.
+  /// -> any
+  value,
+) = (_default_engine().inspect)(value)
+
+/// Rebuild an expression from a semantic tree returned by `inspect`.
+///
+/// Edit algebraic children or exact rational values, and preserve the envelope
+/// and attachments. Symbol descriptors and float approximations must still
+/// agree with their payloads. Invalid trees report an error. Symbolica
+/// normalizes the result, so the returned expression may combine or reorder
+/// terms. Labels and unknown attachments survive the conversion.
+///
+/// -> bytes
+#let from-tree(
+  /// A version 1 Symbolica expression-tree dictionary.
+  /// -> dictionary
+  tree,
+) = (_default_engine().from-tree)(tree)
 
 /// Construct an ordinary Symbolica symbol with an optional portable label.
 ///

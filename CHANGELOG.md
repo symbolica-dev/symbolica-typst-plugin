@@ -23,6 +23,9 @@
 
 ### Added and improved
 
+- Add `inspect` and `from-tree` for reading and rebuilding semantic expression
+  trees, with matching Rust types and a versioned CBOR contract. Preserve exact
+  coefficients, decorated symbols, and annotations from other plugins.
 - Allow `literal` to use supported Typst math or text as the label for one
   symbol. An optional `name` lets distinct symbols share a label; composite
   labels are grouped when rendered.

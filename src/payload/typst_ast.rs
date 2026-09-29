@@ -6,13 +6,7 @@ use crate::payload::{AttachmentSet, math_display::MathDisplay, parse_payload};
 use ciborium::value::Value;
 use symbolica::prelude::{Atom, AtomCore, Symbol};
 
-/// A parsed Symbolica Atom together with every portable attachment carried by
-/// embedded Atom payloads in the source tree.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AttachedAtom {
-    pub atom: Atom,
-    pub attachments: AttachmentSet,
-}
+pub use super::AttachedAtom;
 
 /// The complete, import-free payload preflight for one supported Parsely tree.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
