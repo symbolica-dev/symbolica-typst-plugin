@@ -13,16 +13,17 @@ It does not publish the Rust crate to crates.io.
 
 Update `typst.toml` and the package imports in both READMEs and Typst examples.
 Update the version in the README's local installation path as well.
-Record the changes in `CHANGELOG.md`, regenerate the manual with
-`nix run .#manual`, and commit the result. The Rust crate's version can advance
-separately from the Typst package version.
+Record the changes in `CHANGELOG.md` and update the version scope in
+`MIGRATING.md`. Regenerate the manual with `nix run .#manual` and commit the
+result. The Rust crate's version can advance separately from the Typst package
+version.
 
 `README.md` describes the repository and development workflow.
 `README-universe.md` is the package documentation; packaging copies it to
 `README.md` in the submission. Its examples must use the release version and
 compile with the staged package. Relative links to the
-manual and examples are retained: those files belong in the registry submission
-even though `typst.toml` excludes them from runtime downloads.
+manual, migration guide, and examples are retained: those files belong in the
+registry submission even though `typst.toml` excludes them from runtime downloads.
 
 ## Dry run
 

@@ -22,7 +22,7 @@ def main():
         for filename in ("Cargo.toml", "Cargo.lock", "flake.nix", "flake.lock",
                          "typst.toml", "README.md", "README-universe.md", "README-crate.md", "REBUILDING.md", "LICENSE",
                          "LICENSE-SYMBOLICA.md", "LICENSE-SYMBOLICA-TYPST.md",
-                         "THIRD_PARTY.md", "THIRD_PARTY_LICENSES.txt", "CHANGELOG.md"):
+                         "THIRD_PARTY.md", "THIRD_PARTY_LICENSES.txt", "CHANGELOG.md", "MIGRATING.md"):
             shutil.copyfile(ROOT / filename, source / filename)
         for directory in ("src", "tests", "scripts", "docs/license-sources",
                           "docs/manual-assets", "symbolica/assets", "symbolica/readme",

@@ -87,6 +87,7 @@ literal labels, namespaces, custom notation, and the complete API.
 
 See the [user manual](symbolica/manual.pdf) for concepts, recipes, limitations,
 and the full reference, or the [changelog](CHANGELOG.md) for compatibility notes.
+The [migration guide](MIGRATING.md) explains how to update existing documents.
 The [repository guide](https://github.com/symbolica-dev/symbolica-typst-plugin#reuse-the-rust-library)
 covers reuse of the Rust library and symbolic payloads in other plugins.
 

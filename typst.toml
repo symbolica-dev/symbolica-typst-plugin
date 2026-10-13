@@ -13,7 +13,7 @@ categories = ["integration", "scripting"]
 disciplines = ["mathematics"]
 compiler = "0.14.0"
 exclude = [
-  "src", "tests", "scripts", "docs", "target", "dist", "test.typ", "CHANGELOG.md",
+  "src", "tests", "scripts", "docs", "target", "dist", "test.typ", "CHANGELOG.md", "MIGRATING.md",
   "Cargo.toml", "Cargo.lock", "flake.nix", "flake.lock",
   "symbolica/examples", "symbolica/tests", "symbolica/readme", "symbolica/*.pdf", "symbolica/*manual.typ",
   "symbolica/*.wasm.part*",

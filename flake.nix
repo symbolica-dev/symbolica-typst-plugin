@@ -120,7 +120,7 @@
           cp -R ${self}/scripts "$work/scripts"
           mkdir -p "$work/docs"
           cp -R ${self}/docs/readme-assets "$work/docs/readme-assets"
-          for file in typst.toml README.md README-universe.md LICENSE LICENSE-SYMBOLICA.md LICENSE-SYMBOLICA-TYPST.md THIRD_PARTY.md THIRD_PARTY_LICENSES.txt REBUILDING.md CHANGELOG.md; do
+          for file in typst.toml README.md README-universe.md LICENSE LICENSE-SYMBOLICA.md LICENSE-SYMBOLICA-TYPST.md THIRD_PARTY.md THIRD_PARTY_LICENSES.txt REBUILDING.md CHANGELOG.md MIGRATING.md; do
             cp "${self}/$file" "$work/$file"
           done
           chmod -R u+w "$work"

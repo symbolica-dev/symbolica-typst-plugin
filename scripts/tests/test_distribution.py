@@ -36,7 +36,7 @@ repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
 ## Example
 
 ![Computed output](symbolica/readme/example.svg)
-[Manual](symbolica/manual.pdf), [example](#example).
+[Manual](symbolica/manual.pdf), [example](#example), [migration](MIGRATING.md).
 ''')
 
     def prepare(self, **kwargs):
@@ -61,6 +61,9 @@ repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
             self.assertTrue(all(name.startswith(prefix) for name in names))
             self.assertIn(prefix + 'symbolica/manual.pdf', names)
             self.assertIn(prefix + 'symbolica/readme/example.svg', names)
+            for name in ('CHANGELOG.md', 'MIGRATING.md'):
+                self.assertEqual(archive.extractfile(prefix + name).read(),
+                                 (self.root / name).read_bytes())
             self.assertNotIn(prefix + 'README-universe.md', names)
         original = runtime.read_bytes()
         self.prepare(release=True, source_revision='a' * 40)

@@ -20,7 +20,7 @@ RUNTIME = ("typst.toml", "README.md", "LICENSE", "LICENSE-SYMBOLICA.md",
            "REBUILDING.md", "symbolica/lib.typ", "symbolica/render.typ",
            "symbolica/symbolica.wasm", "symbolica/assets/symbolica-logo.svg",
            "symbolica/assets/README.md")
-DOCUMENTATION = ("CHANGELOG.md", "symbolica/manual.pdf",
+DOCUMENTATION = ("CHANGELOG.md", "MIGRATING.md", "symbolica/manual.pdf",
                  *(f"symbolica/examples/{name}.typ" for name in
                    ("basic", "showcase", "expression-grid", "lotka-volterra",
                     "phase-portrait", "integration", "optimization")))

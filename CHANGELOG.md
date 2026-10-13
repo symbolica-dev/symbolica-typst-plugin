@@ -2,18 +2,20 @@
 
 ## Unreleased
 
+Changes below are for the next release after the published Typst package
+`0.1.0`. The checkout still uses `0.1.0` in its manifest while that release is
+being prepared. See the [migration guide](MIGRATING.md) for before/after
+examples and the complete API rename table.
+
 ### Breaking changes
 
-- Rename the public API, including the fields returned by `init()`:
-  `math` → `parse`, `symbol` → `literal`, `function` → `function-head`,
-  `terms` → `summands`, `content` → `matrix-content`, `vec` → `vector`,
-  `det` → `determinant`, `cancel` → `cancel-factors`, `sub` → `subtract`,
-  `div` → `divide`, `gamma` → `gamma-function`, and `zeta` → `zeta-function`.
-  The old names have no aliases. Wildcard imports leave Typst's native names
-  available.
+- Rename ten public functions and their `init()` fields to avoid collisions
+  with Typst names, including `math` → `parse`, `symbol` → `literal`, and
+  `function` → `function-head`. The old names have no aliases; update explicit
+  imports, module calls, and engine bindings.
 - Remove `atom` and `init().atom`. Use `parse` for Typst math, Symbolica
-  expression strings, numbers, or existing expression bytes. Strings require
-  explicit multiplication, for example `parse("2*x + y")`. Custom `grammar`
+  expression strings, numbers, or existing expression bytes. Strings use
+  Symbolica syntax, for example `parse("2*x + y")`. Custom `grammar`
   applies only to Typst content; `namespace` does not rename existing payloads.
 - Reject trailing underscores in literal names. Wildcard names must be
   nonempty and must not end with an underscore; `wild` requires `level >= 1`.
@@ -39,7 +41,11 @@
 - Reduce integration-rule initialization time while retaining the complete
   rule set and step explanations. The runtime archive remains below 8 MB
   compressed. Load the Wasm directly, without the separate decompression plugin.
-- Revise the manual and add generated equation previews to the Universe README.
+- Add an optimization example with Symbolica-derived gradients, an exact
+  minimum, and a damped Newton loop written in Typst.
+- Revise the manual and Universe README with a Typst-generated banner,
+  equation previews, and an integration, solving, and optimization gallery.
+  Generate light and dark artwork from the same sources.
 
 ### Fixed
 

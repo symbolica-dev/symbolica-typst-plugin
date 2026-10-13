@@ -9,6 +9,8 @@ commercial use.
 Use its documentation for the published API. This repository contains the next
 release, including the renamed `parse`, `literal`, and `function-head` functions.
 These changes are not in the published 0.1.0 package.
+See the [changelog](CHANGELOG.md) for what is coming and the
+[migration guide](MIGRATING.md) for updating existing documents and plugins.
 
 The [package guide](README-universe.md) describes the current API and becomes the
 README shipped to Universe. See also the [user manual](symbolica/manual.pdf),
