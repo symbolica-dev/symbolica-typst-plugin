@@ -1,5 +1,8 @@
 <!-- readme-artwork: banner -->
-![Symbolica — Computer algebra in your document, with algebraic curves and optimization contours](symbolica/readme/banner.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="symbolica/readme/banner-dark.svg">
+  <img alt="Symbolica — Computer algebra in your document, with algebraic curves and optimization contours" src="symbolica/readme/banner.svg">
+</picture>
 
 The official [Symbolica](https://symbolica.io/) plugin for Typst, powered by
 Symbolica 3.0. Calculate directly from your Typst formulas and typeset the
@@ -29,7 +32,10 @@ $
 $
 ```
 
-![Exact factorization of x⁴ − 5x² + 4 and its derivative](symbolica/readme/factorization.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="symbolica/readme/factorization-dark.svg">
+  <img alt="Exact factorization of x⁴ − 5x² + 4 and its derivative" src="symbolica/readme/factorization.svg">
+</picture>
 
 The results are computed exactly as Typst compiles your document. `parse`
 reads the formula, `factor` and `derivative` perform the calculations, and
@@ -46,7 +52,7 @@ Typst fetches the package automatically.
 
 | Integration with steps | Exact system solving | Optimization valley |
 | --- | --- | --- |
-| [![A computed antiderivative of x/(x+1), with the complete rule trace in the linked example](symbolica/readme/integration-steps.svg)](symbolica/examples/integration.typ) | [![Four exact intersections of a circle and a hyperbola](symbolica/readme/exact-solving.svg)](symbolica/examples/showcase.typ) | [![Optimization steps through Rosenbrock contours toward the minimum at (1,1)](symbolica/readme/optimization.svg)](symbolica/examples/optimization.typ) |
+| [<picture><source media="(prefers-color-scheme: dark)" srcset="symbolica/readme/integration-steps-dark.svg"><img alt="A computed antiderivative of x/(x+1), with the complete rule trace in the linked example" src="symbolica/readme/integration-steps.svg"></picture>](symbolica/examples/integration.typ) | [<picture><source media="(prefers-color-scheme: dark)" srcset="symbolica/readme/exact-solving-dark.svg"><img alt="Four exact intersections of a circle and a hyperbola" src="symbolica/readme/exact-solving.svg"></picture>](symbolica/examples/showcase.typ) | [<picture><source media="(prefers-color-scheme: dark)" srcset="symbolica/readme/optimization-dark.svg"><img alt="Optimization steps through Rosenbrock contours toward the minimum at (1,1)" src="symbolica/readme/optimization.svg"></picture>](symbolica/examples/optimization.typ) |
 | Compute an antiderivative and inspect its steps. | Solve, substitute, and check the Jacobian. | Derive gradients and trace optimization steps. |
 
 Click a preview to open the complete Typst example. Symbolica computes the

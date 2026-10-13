@@ -3,6 +3,7 @@
 
 import argparse
 import base64
+from html.parser import HTMLParser
 from pathlib import Path
 import re
 import subprocess
@@ -23,14 +24,46 @@ ARTWORK_DEPENDENCIES = re.compile(
     r"^// readme-artwork-dependency: (.*?)$", re.MULTILINE,
 )
 ARTWORK_NAME = re.compile(r"[a-z][a-z0-9-]*")
-PREAMBLE = """#set page(width: auto, height: auto, margin: 10pt, fill: white)
+PREAMBLE = {
+    "light": """#set page(width: auto, height: auto, margin: 10pt, fill: white)
 #set text(font: "New Computer Modern", size: 11pt, fill: black)
-"""
+""",
+    "dark": """#set page(width: auto, height: auto, margin: 10pt, fill: rgb("#132c29"))
+#set text(font: "New Computer Modern", size: 11pt, fill: rgb("#f2f3e9"))
+""",
+}
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
 SVG_URL = re.compile(r"url\(\s*(['\"]?)#([^'\"\s)]+)\1\s*\)")
 ET.register_namespace("", SVG_NS)
 ET.register_namespace("xlink", XLINK_NS)
+
+
+class ReadmeImages(HTMLParser):
+    """Read decoded image attributes in light/dark picture markup."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.destinations = set()
+
+    def handle_starttag(self, tag, attributes):
+        if tag not in ("img", "source"):
+            return
+        attributes = dict(attributes)
+        if tag == "img" and attributes.get("src"):
+            self.destinations.add(attributes["src"])
+        if attributes.get("srcset"):
+            for candidate in attributes["srcset"].split(","):
+                parts = candidate.split()
+                if parts:
+                    self.destinations.add(parts[0])
+
+
+def preview_destinations(readme):
+    prose = re.sub(r"```[^\n]*\n.*?```", "", readme, flags=re.S)
+    images = ReadmeImages()
+    images.feed(prose)
+    return images.destinations | set(re.findall(r"!?\[[^\]\n]*\]\(([^\s)]+)\)", prose))
 
 
 def inline_svg_images(data: bytes) -> bytes:
@@ -131,6 +164,17 @@ def check_examples(package_root: Path, update: bool, readme_path: Path | None = 
     artwork = ARTWORK.findall(readme)
     if len(artwork) != len(set(artwork)) or set(artwork) & set(names):
         raise ValueError("Artwork and example preview names must be unique")
+    destinations = preview_destinations(readme)
+
+    def preview_path(name, theme):
+        suffix = "-dark" if theme == "dark" else ""
+        return Path("symbolica/readme") / f"{name}{suffix}.svg"
+
+    for name in (*names, *artwork):
+        for theme in PREAMBLE:
+            relative = preview_path(name, theme)
+            if relative.as_posix() not in destinations:
+                raise ValueError(f"README preview {name} has no {theme} image reference")
 
     stale = []
     with tempfile.TemporaryDirectory(prefix="symbolica-readme-") as temporary:
@@ -139,6 +183,25 @@ def check_examples(package_root: Path, update: bool, readme_path: Path | None = 
         link = packages / namespace / package["name"] / package["version"]
         link.parent.mkdir(parents=True)
         link.symlink_to(package_root, target_is_directory=True)
+        for theme in PREAMBLE:
+            (work / theme).mkdir()
+
+        def compile_source(source, output, theme):
+            subprocess.run(
+                ["typst", "compile", "--creation-timestamp", "0", "--package-path", str(packages),
+                 "--input", f"theme={theme}", "--root", str(work), str(source), str(output)],
+                check=True,
+            )
+
+        def check_preview(output, name, theme):
+            relative = preview_path(name, theme)
+            expected = package_root / relative
+            if update:
+                destination = ROOT / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(output.read_bytes())
+            elif not expected.is_file() or output.read_bytes() != expected.read_bytes():
+                stale.append(str(relative))
 
         for index, match in enumerate(examples, 1):
             name, code = match[1], match[2]
@@ -146,37 +209,27 @@ def check_examples(package_root: Path, update: bool, readme_path: Path | None = 
             if not imports or any(import_namespace != namespace or version != package["version"]
                                   for import_namespace, version in imports):
                 raise ValueError(f"README example {index} must import @{namespace}/symbolica:{package['version']}")
-            source = work / f"example-{index}.typ"
-            output = source.with_suffix(".svg" if name else ".pdf")
-            source.write_text(PREAMBLE + code)
-            subprocess.run(
-                ["typst", "compile", "--creation-timestamp", "0", "--package-path", str(packages),
-                 "--root", str(work), str(source), str(output)], check=True,
-            )
-            if name:
-                relative = Path("symbolica/readme") / f"{name}.svg"
-                if f"]({relative.as_posix()})" not in readme:
-                    raise ValueError(f"README example {name} has no link to its preview")
-                expected = package_root / relative
-                if update:
-                    destination = ROOT / relative
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    destination.write_bytes(output.read_bytes())
-                elif not expected.is_file() or output.read_bytes() != expected.read_bytes():
-                    stale.append(str(relative))
+            for theme in PREAMBLE if name else ("light",):
+                source = work / theme / f"example-{index}.typ"
+                output = source.with_suffix(".svg" if name else ".pdf")
+                source.write_text(PREAMBLE[theme] + code)
+                compile_source(source, output, theme)
+                if name:
+                    check_preview(output, name, theme)
             print(f"Compiled README example {index}" + (f" ({name})" if name else ""))
         compiled_artwork = set()
         compiling_artwork = []
 
-        def compile_artwork(name):
-            if name in compiled_artwork:
+        def compile_artwork(name, theme):
+            key = (name, theme)
+            if key in compiled_artwork:
                 return
-            if name in compiling_artwork:
-                cycle = " -> ".join((*compiling_artwork, name))
+            if key in compiling_artwork:
+                cycle = " -> ".join(asset for asset, _ in (*compiling_artwork, key))
                 raise ValueError(f"README artwork dependency cycle: {cycle}")
             if name in names:
                 raise ValueError(f"README artwork {name} conflicts with an example preview")
-            compiling_artwork.append(name)
+            compiling_artwork.append(key)
             code = (ROOT / "docs/readme-assets" / f"{name}.typ").read_text()
             imports = IMPORTS.findall(code)
             if not imports or any(import_namespace != namespace or version != package["version"]
@@ -188,39 +241,27 @@ def check_examples(package_root: Path, update: bool, readme_path: Path | None = 
             if len(dependencies) != len(set(dependencies)):
                 raise ValueError(f"README artwork {name} repeats a dependency name")
             for dependency in dependencies:
-                compile_artwork(dependency)
-            source = work / f"artwork-{name}.typ"
+                compile_artwork(dependency, theme)
+            source = work / theme / f"artwork-{name}.typ"
             # Dependencies are addressed by their declared SVG filename in Typst.
-            output = work / f"{name}.svg"
+            output = work / theme / f"{name}.svg"
             source.write_text(code)
-            subprocess.run(
-                ["typst", "compile", "--creation-timestamp", "0", "--package-path", str(packages),
-                 "--root", str(work), str(source), str(output)], check=True,
-            )
+            compile_source(source, output, theme)
             # Browsers and SVG renderers can reject images nested inside image SVGs.
             # Flatten dependencies before a parent artwork imports them.
             output.write_bytes(inline_svg_images(output.read_bytes()))
-            relative = Path("symbolica/readme") / f"{name}.svg"
-            expected = package_root / relative
-            if update:
-                destination = ROOT / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(output.read_bytes())
-            elif not expected.is_file() or output.read_bytes() != expected.read_bytes():
-                stale.append(str(relative))
+            check_preview(output, name, theme)
             compiling_artwork.pop()
-            compiled_artwork.add(name)
-            print(f"Compiled README artwork {name}")
+            compiled_artwork.add(key)
+            print(f"Compiled README artwork {name} ({theme})")
 
         for name in artwork:
-            relative = Path("symbolica/readme") / f"{name}.svg"
-            if f"]({relative.as_posix()})" not in readme:
-                raise ValueError(f"README artwork {name} has no link to its preview")
-            compile_artwork(name)
+            for theme in PREAMBLE:
+                compile_artwork(name, theme)
     if stale:
         raise ValueError("Stale README previews: " + ", ".join(stale)
                          + "; run python3 scripts/readme-examples.py --readme README-universe.md --update")
-    print(f"Checked {len(examples)} README examples, {len(names)} equation previews, and {len(compiled_artwork)} artwork previews")
+    print(f"Checked {len(examples)} README examples, {len(names) * 2} equation previews, and {len(compiled_artwork)} artwork previews")
 
 
 def main():

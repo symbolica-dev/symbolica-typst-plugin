@@ -74,6 +74,46 @@ repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
             self.prepare()
         self.assertEqual((stage / 'README.md').read_bytes(), expected)
 
+    def test_missing_dark_picture_resource_fails_before_replacing_stage(self):
+        stage = self.prepare()
+        expected = (stage / 'README.md').read_bytes()
+        (self.root / 'README-universe.md').write_text('''<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="symbolica/readme/missing-dark.svg">
+  <img alt="Computed output" src="symbolica/readme/example.svg">
+</picture>
+''')
+        with self.assertRaisesRegex(ValueError, 'missing-dark.svg'):
+            self.prepare()
+        self.assertEqual((stage / 'README.md').read_bytes(), expected)
+
+    def test_picture_resources_are_staged_but_excluded_from_runtime(self):
+        for name in ('example-dark.svg', 'example-dark-2x.svg'):
+            (self.root / 'symbolica/readme' / name).write_text('<svg/>')
+        (self.root / 'README-universe.md').write_text('''<picture>
+  <source media="(prefers-color-scheme: dark)"
+    srcset="symbolica/readme/example-dark.svg 1x, symbolica/readme/example-dark-2x.svg 2x">
+  <img alt="Computed output" src="symbolica/readme/example.svg">
+</picture>
+''')
+        stage = self.prepare()
+        for name in ('example.svg', 'example-dark.svg', 'example-dark-2x.svg'):
+            self.assertTrue((stage / 'symbolica/readme' / name).is_file())
+        with tarfile.open(self.root / 'dist/symbolica-9.2.1.tar.gz') as archive:
+            self.assertFalse(any(name.startswith('symbolica/readme/') for name in archive.getnames()))
+        with tarfile.open(self.root / 'dist/symbolica-9.2.1-universe.tar.gz') as archive:
+            self.assertIn('packages/preview/symbolica/9.2.1/symbolica/readme/example-dark.svg',
+                          archive.getnames())
+
+    def test_picture_attributes_are_decoded_and_fenced_examples_ignored(self):
+        resource = self.root / 'symbolica/readme/with&character.svg'
+        resource.write_text('<svg/>')
+        (self.root / 'README-universe.md').write_text('''<img src='symbolica/readme/with&amp;character.svg'>
+```html
+<source srcset="does-not-exist.svg">
+```
+''')
+        self.prepare()
+
     def test_raw_math_and_dangling_anchor_are_rejected(self):
         for source in ('$$ x^2 $$', '[Gone](#development)'):
             (self.root / 'README-universe.md').write_text(source)

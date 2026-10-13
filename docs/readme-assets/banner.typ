@@ -4,12 +4,13 @@
 // Supporting artwork is generated first by scripts/readme-examples.py.
 // readme-artwork-dependency: algebraic-curves
 // readme-artwork-dependency: optimization-valley
-#let paper = rgb("#fff8ee")
-#let ink = rgb("#2c4137")
-#let green = rgb("#087f64")
-#let coral = rgb("#bc6c57")
-#let soft-green = rgb("#a0b3a0")
-#let faint-ink = rgb("#c3b6a1")
+#let dark = sys.inputs.at("theme", default: "light") == "dark"
+#let paper = if dark { rgb("#132c29") } else { rgb("#fff8ee") }
+#let ink = if dark { rgb("#f2f3e9") } else { rgb("#2c4137") }
+#let green = if dark { rgb("#75d5b3") } else { rgb("#087f64") }
+#let coral = if dark { rgb("#e19a80") } else { rgb("#bc6c57") }
+#let soft-green = if dark { rgb("#789c89") } else { rgb("#a0b3a0") }
+#let faint-ink = if dark { rgb("#677f70") } else { rgb("#c3b6a1") }
 
 #let fade(width, height) = rect(
   width: width, height: height, stroke: none,
@@ -19,7 +20,7 @@
   ),
 )
 
-#set document(title: "Symbolica — Symbolica — Computer algebra in your document")
+#set document(title: "Symbolica — Computer algebra in your document")
 #set page(width: 800pt, height: 280pt, margin: 0pt, fill: paper)
 #set text(font: "DejaVu Sans", size: 12pt, fill: ink)
 #set par(leading: 0.65em)

@@ -3,10 +3,14 @@
 // readme-artwork-dependency: optimization-valley
 #import "@preview/symbolica:0.1.0": *
 
+#let dark = sys.inputs.at("theme", default: "light") == "dark"
+#let ink = if dark { rgb("#f2f3e9") } else { rgb("#18222f") }
+#let card = if dark { rgb("#182f29") } else { white }
+
 #set page(width: 240pt, height: 190pt, margin: 0pt, fill: none)
-#set text(font: "DejaVu Sans", size: 9pt, fill: rgb("#18222f"))
-#let accent = rgb("#087f64")
-#let border = rgb("#d8e3ef")
+#set text(font: "DejaVu Sans", size: 9pt, fill: ink)
+#let accent = if dark { rgb("#75d5b3") } else { rgb("#087f64") }
+#let border = if dark { rgb("#3b5b4b") } else { rgb("#d8e3ef") }
 #let x = literal("x")
 #let y = literal("y")
 #let F = parse($(1 - x)^2 + 100 (y - x^2)^2$)
@@ -17,7 +21,7 @@
 #assert.eq(minimum.map(canonical),("1","1"))
 
 #place(top + left, rect(width: 240pt, height: 190pt, radius: 10pt,
-  fill: white, stroke: 0.6pt + border))
+  fill: card, stroke: 0.6pt + border))
 #place(top + left, dx: 14pt, dy: 13pt,
   text(size: 12pt, weight: "bold", fill: accent)[Find the minimum])
 #place(top + left, dx: 25pt, dy: 31pt,

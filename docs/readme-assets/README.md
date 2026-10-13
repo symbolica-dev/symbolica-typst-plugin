@@ -1,7 +1,7 @@
 # README artwork
 
 These Typst sources generate the Universe README banner and three gallery
-previews. Every equation, solution, integration step, and complex value is
+previews in light and dark palettes. Every equation, solution, and integration step is
 computed by the package while Typst renders the artwork.
 
 Regenerate and check them together with the README's runnable examples:
@@ -12,7 +12,11 @@ nix develop -c python3 scripts/readme-examples.py --readme README-universe.md
 ```
 
 A `readme-artwork` comment in the README selects a source in this directory
-and its SVG in `symbolica/readme`. SVGs are staged as Universe documentation,
+and its SVG in `symbolica/readme`. The generator passes `theme=light` and
+`theme=dark` to the same Typst source; the dark output has a `-dark.svg` suffix.
+Small `<picture>` elements select the theme while the rest of the README stays
+Markdown. Both image paths are checked during package staging.
+SVGs are staged as Universe documentation,
 and excluded from the runtime download. The sources stay in this repository.
 
 The banner declares its supporting SVGs with `// readme-artwork-dependency:`

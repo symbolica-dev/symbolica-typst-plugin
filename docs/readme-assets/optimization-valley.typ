@@ -3,9 +3,14 @@
 // Definition: https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.rosen.html
 // Contours and damped Newton/Armijo iteration are local Typst code.
 #import "@preview/symbolica:0.1.0": *
+#let dark = sys.inputs.at("theme", default: "light") == "dark"
+#let ink = if dark { rgb("#f2f3e9") } else { rgb("#2c4137") }
+#let halo-paint = if dark { "#132c29" } else { "#fff8ee" }
+#let path-paint = if dark { "#e19a80" } else { "#b96852" }
+#let minimum-paint = if dark { "#75d5b3" } else { "#087f64" }
 #set document(title: "Rosenbrock — a curved optimization valley")
 #set page(width: 254pt, height: 186pt, margin: 0pt, fill: none)
-#set text(font: "DejaVu Sans", size: 11pt, fill: rgb("#2c4137"))
+#set text(font: "DejaVu Sans", size: 11pt, fill: ink)
 #let x = literal("x")
 #let y = literal("y")
 #let F = parse($(1 - x)^2 + 100 (y - x^2)^2$)
@@ -122,22 +127,27 @@
 
 
 #let levels = (0.1,0.3,1,3,8,20,50,100,250,500,1000)
-#let paints = ("#087f64","#138e71","#2f9f84","#57ae96","#82b9a8",
-  "#aeaba4","#c6a089","#c08e80","#ad889c","#9487b1","#8077aa")
+#let paints = if dark {
+  ("#75d5b3","#65c7a6","#58b999","#72c2ac","#8dc9b8",
+    "#b7c2b2","#dcc19a","#e1ad92","#d6a2bb","#c2a5d6","#ab98cf")
+} else {
+  ("#087f64","#138e71","#2f9f84","#57ae96","#82b9a8",
+    "#aeaba4","#c6a089","#c08e80","#ad889c","#9487b1","#8077aa")
+}
 #let curves = levels.enumerate().map(((index,level)) => (
   "<path d='"+contour(level)+"' fill='none' stroke='"+paints.at(index)
   +"' stroke-width='1.15' stroke-linecap='round' stroke-linejoin='round'/>"
 ))
 #let path-data = "M "+path.map(state => coord(screen(state))).join(" L ")
-#let trajectory = ("<path d='"+path-data+"' fill='none' stroke='#fff8ee' stroke-width='4'/>"
-  +"<path d='"+path-data+"' fill='none' stroke='#b96852' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/>")
+#let trajectory = ("<path d='"+path-data+"' fill='none' stroke='"+halo-paint+"' stroke-width='4'/>"
+  +"<path d='"+path-data+"' fill='none' stroke='"+path-paint+"' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/>")
 #let steps = path.slice(0,path.len() - 1).map(state => {
   let p = screen(state)
-  "<circle cx='"+number(p.at(0))+"' cy='"+number(p.at(1))+"' r='1.8' fill='#b96852' stroke='#fff8ee' stroke-width='.65'/>"
+  "<circle cx='"+number(p.at(0))+"' cy='"+number(p.at(1))+"' r='1.8' fill='"+path-paint+"' stroke='"+halo-paint+"' stroke-width='.65'/>"
 }).join("")
 #let optimum = screen((1,1))
-#let dot = ("<circle cx='"+number(optimum.at(0))+"' cy='"+number(optimum.at(1))+"' r='3.5' fill='#087f64' stroke='#fff8ee' stroke-width='1.2'/>"
-  +"<path d='M"+number(optimum.at(0)+5)+" "+number(optimum.at(1)-4)+" l8 -10' fill='none' stroke='#087f64' stroke-width='.8'/>")
+#let dot = ("<circle cx='"+number(optimum.at(0))+"' cy='"+number(optimum.at(1))+"' r='3.5' fill='"+minimum-paint+"' stroke='"+halo-paint+"' stroke-width='1.2'/>"
+  +"<path d='M"+number(optimum.at(0)+5)+" "+number(optimum.at(1)-4)+" l8 -10' fill='none' stroke='"+minimum-paint+"' stroke-width='.8'/>")
 #let svg = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 "+str(plot-width)+" "+str(plot-height)+"'>"
   +"<defs><radialGradient id='fade'><stop offset='0' stop-color='white'/><stop offset='.72' stop-color='white'/><stop offset='1' stop-color='black'/></radialGradient>"
   +"<mask id='edge'><rect width='100%' height='100%' fill='url(#fade)'/></mask></defs>"

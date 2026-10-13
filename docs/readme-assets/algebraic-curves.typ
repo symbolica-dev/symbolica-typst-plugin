@@ -1,5 +1,7 @@
 // Supporting art for the Universe README banner.
 #import "@preview/symbolica:0.1.0": *
+#let dark = sys.inputs.at("theme", default: "light") == "dark"
+#let ink = if dark { rgb("#f2f3e9") } else { rgb("#2c4137") }
 
 // A family of real cubic curves: y^2 = x^3 - x + c.
 // Mathematical reference: https://mathworld.wolfram.com/EllipticCurve.html
@@ -8,7 +10,7 @@
 // Every contour below comes from a Symbolica-evaluated polynomial field.
 #set document(title: "A family of real algebraic cubic curves")
 #set page(width: 260pt, height: 220pt, margin: 0pt, fill: none)
-#set text(font: "DejaVu Sans", size: 12pt, fill: rgb("#2c4137"))
+#set text(font: "DejaVu Sans", size: 12pt, fill: ink)
 #set par(leading: 0.65em)
 
 #let x = literal("x")
@@ -88,16 +90,23 @@
   segments.join(" ")
 }
 
+#let paints = if dark {
+  ("#c2addf", "#ae98cf", "#91c8b8", "#7ccdb0", "#75d5b3",
+    "#e19a80", "#dfb28d", "#d8ca9a", "#b1d1ba")
+} else {
+  ("#9b8fb2", "#81729f", "#609a89", "#289375", "#087f64",
+    "#bb6d58", "#c28c64", "#b6a173", "#95b0a1")
+}
 #let curves = (
-  (c: -0.55, paint: "#9b8fb2", width: 0.9),
-  (c: -0.4, paint: "#81729f", width: 1.0),
-  (c: -0.25, paint: "#609a89", width: 1.0),
-  (c: -0.1, paint: "#289375", width: 1.0),
-  (c: 0.0, paint: "#087f64", width: 1.3),
-  (c: 0.1, paint: "#bb6d58", width: 1.1),
-  (c: 0.25, paint: "#c28c64", width: 1.0),
-  (c: 0.4, paint: "#b6a173", width: 1.0),
-  (c: 0.55, paint: "#95b0a1", width: 0.9),
+  (c: -0.55, paint: paints.at(0), width: 0.9),
+  (c: -0.4, paint: paints.at(1), width: 1.0),
+  (c: -0.25, paint: paints.at(2), width: 1.0),
+  (c: -0.1, paint: paints.at(3), width: 1.0),
+  (c: 0.0, paint: paints.at(4), width: 1.3),
+  (c: 0.1, paint: paints.at(5), width: 1.1),
+  (c: 0.25, paint: paints.at(6), width: 1.0),
+  (c: 0.4, paint: paints.at(7), width: 1.0),
+  (c: 0.55, paint: paints.at(8), width: 0.9),
 )
 #let paths = curves.map(curve => contour(curve.c, curve.paint, curve.width))
 #let svg = ("<svg xmlns='http://www.w3.org/2000/svg' width='" + str(plot-width)

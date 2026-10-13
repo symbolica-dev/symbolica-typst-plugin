@@ -3,6 +3,7 @@
 import argparse
 import gzip
 import hashlib
+from html.parser import HTMLParser
 import io
 import json
 import re
@@ -25,6 +26,35 @@ DOCUMENTATION = ("CHANGELOG.md", "symbolica/manual.pdf",
                     "phase-portrait", "integration", "optimization")))
 
 
+class ReadmeImages(HTMLParser):
+    """Collect the image resources used by theme-responsive picture markup."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.destinations = []
+
+    def handle_starttag(self, tag, attributes):
+        if tag not in ("img", "source"):
+            return
+        attributes = dict(attributes)
+        if tag == "img" and attributes.get("src"):
+            self.destinations.append(attributes["src"])
+        if attributes.get("srcset"):
+            for candidate in attributes["srcset"].split(","):
+                parts = candidate.split()
+                if parts:
+                    self.destinations.append(parts[0])
+
+
+def readme_destinations(text):
+    """Read Markdown destinations and decoded HTML image attributes."""
+    prose = re.sub(r"```[^\n]*\n.*?```", "", text, flags=re.S)
+    images = ReadmeImages()
+    images.feed(prose)
+    return [*re.findall(r"!?\[[^\]\n]*\]\(([^\s)]+)\)", prose),
+            *images.destinations]
+
+
 def validate_readme(package_root):
     """Check the local resources Universe resolves from the submission tree."""
     text = (package_root / "README.md").read_text()
@@ -34,7 +64,7 @@ def validate_readme(package_root):
     headings = set()
     for title in re.findall(r"^#{1,6}\s+(.+)$", prose, flags=re.M):
         headings.add(re.sub(r"[^\w\- ]", "", title.lower()).replace(" ", "-"))
-    for destination in re.findall(r"!?\[[^\]\n]*\]\(([^\s)]+)\)", prose):
+    for destination in readme_destinations(text):
         link = urlsplit(destination)
         if link.scheme or link.netloc:
             continue
