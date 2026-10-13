@@ -19,7 +19,7 @@
         done
         export TYPST_PACKAGE_PATH="$check_dir/packages"
         python3 scripts/readme-examples.py
-        for example in basic showcase expression-grid lotka-volterra phase-portrait integration; do
+        for example in basic showcase expression-grid lotka-volterra phase-portrait integration optimization; do
           typst compile --root . "symbolica/examples/$example.typ" "$check_dir/$example.pdf"
         done
         for fixture in api-surface parsing literals parsely-metadata attachments expression-tree worked-examples integration; do
@@ -118,6 +118,8 @@
           mkdir -p "$work"
           cp -R ${self}/symbolica "$work/symbolica"
           cp -R ${self}/scripts "$work/scripts"
+          mkdir -p "$work/docs"
+          cp -R ${self}/docs/readme-assets "$work/docs/readme-assets"
           for file in typst.toml README.md README-universe.md LICENSE LICENSE-SYMBOLICA.md LICENSE-SYMBOLICA-TYPST.md THIRD_PARTY.md THIRD_PARTY_LICENSES.txt REBUILDING.md CHANGELOG.md; do
             cp "${self}/$file" "$work/$file"
           done

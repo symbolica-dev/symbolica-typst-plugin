@@ -22,7 +22,7 @@ RUNTIME = ("typst.toml", "README.md", "LICENSE", "LICENSE-SYMBOLICA.md",
 DOCUMENTATION = ("CHANGELOG.md", "symbolica/manual.pdf",
                  *(f"symbolica/examples/{name}.typ" for name in
                    ("basic", "showcase", "expression-grid", "lotka-volterra",
-                    "phase-portrait", "integration")))
+                    "phase-portrait", "integration", "optimization")))
 
 
 def validate_readme(package_root):

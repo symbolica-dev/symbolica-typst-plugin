@@ -66,6 +66,8 @@ nix develop -c python3 scripts/readme-examples.py --readme README-universe.md
 ```
 
 Add `--update` after changing an example to regenerate its preview.
+The same command checks and regenerates the banner and gallery artwork from
+`docs/readme-assets`.
 
 See [release instructions](docs/releasing.md) for an artifact-only dry run and
 the version-tagged publishing workflow.
