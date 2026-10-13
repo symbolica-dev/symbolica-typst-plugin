@@ -84,40 +84,15 @@ and the full reference, or the [changelog](CHANGELOG.md) for compatibility notes
 The [repository guide](https://github.com/symbolica-dev/symbolica-typst-plugin#reuse-the-rust-library)
 covers reuse of the Rust library and symbolic payloads in other plugins.
 
-## Attribution and licensing
+## Thanks and licensing
 
-The official `symbolica` Typst plugin is
-free to use for any use within Typst, including academic and commercial work.
-No Symbolica license or license key is needed for use within Typst.
+This plugin is [free to use for any use within Typst](LICENSE-SYMBOLICA-TYPST.md),
+including academic and commercial work.
 
-The [Symbolica Typst permission](LICENSE-SYMBOLICA-TYPST.md) explicitly grants
-free runtime use for all purposes within Typst, including commercial, server,
-and hosted use. No payment, registration, activation, license key, or separate
-runtime agreement is required. It also permits redistribution of the plugin
-and rebuilding unmodified Symbolica as part of it. It grants no additional
-rights to modify Symbolica itself or distribute modified Symbolica source.
-
-The original Typst interface and Rust adapter code are under [MIT](LICENSE).
-The `license = "MIT"` field in `typst.toml` describes that original plugin code.
-
-**The bundled `symbolica/symbolica.wasm` is built from components under multiple
-licenses and is not covered solely by MIT.** Symbolica's components are covered
-by its [source-available license](LICENSE-SYMBOLICA.md), with the
-[Symbolica Typst permission](LICENSE-SYMBOLICA-TYPST.md) taking precedence for
-the uses it grants. Use outside Typst retains the otherwise applicable
-Symbolica terms. Other dependencies retain their respective licenses,
-including LGPL and MPL terms where applicable.
-
-See the [third-party notices](THIRD_PARTY.md),
-[complete dependency license texts](THIRD_PARTY_LICENSES.txt), and
-[source locations and rebuilding instructions](REBUILDING.md). The MIT
-declaration does not relicense any bundled dependency.
-
-Thanks also to [Parsely](https://typst.app/universe/package/parsely/) for making
-native Typst-math parsing possible, and to
-[Tidy](https://typst.app/universe/package/tidy/) for the documentation tools.
-The batched-evaluation, predator–prey, and phase-portrait examples were inspired
-by TimeTravelPenguin's
-[`symbolic-eval`](https://github.com/TimeTravelPenguin/symbolic-eval) package and
-independently adapted to Symbolica's API. Their pinned sources and upstream
-license declaration are recorded in the [third-party notices](THIRD_PARTY.md).
+Thanks to [Parsely](https://typst.app/universe/package/parsely/) for native
+Typst-math parsing, [Tidy](https://typst.app/universe/package/tidy/) for the
+documentation tools, and [CeTZ](https://typst.app/universe/package/cetz/) and
+[CeTZ-Plot](https://typst.app/universe/package/cetz-plot/) for drawing and plotting.
+Thanks also to TimeTravelPenguin's
+[`symbolic-eval`](https://github.com/TimeTravelPenguin/symbolic-eval) for inspiring
+several examples. See the [credits and dependency notices](THIRD_PARTY.md).
