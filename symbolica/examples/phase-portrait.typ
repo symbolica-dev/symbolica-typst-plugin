@@ -1,6 +1,6 @@
 // Inspired by TimeTravelPenguin/symbolic-eval:
 // https://github.com/TimeTravelPenguin/symbolic-eval/blob/79c6588351603b85b11b6c92b1fbff3faf478215/examples/phase_portrait.typ
-#import "@preview/symbolica:0.1.0": *
+#import "@preview/symbolica:0.2.0": *
 
 #set document(title: "A complex-function phase portrait")
 #set page(paper: "a4", margin: 18mm)

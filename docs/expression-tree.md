@@ -8,7 +8,7 @@ are not retained. It is independent of Parsely and the internal rendering tree.
 ## Typst
 
 ```typ
-#import "@preview/symbolica:0.1.0": *
+#import "@local/symbolica:0.2.0": *
 
 #let result = inspect(parse($x^2/(1+x)$))
 #assert(result.ok)
@@ -23,8 +23,10 @@ Other input types, incompatible envelopes, and matrices return an error value.
 `from-tree(tree)` validates the contract, imports its leaves, and builds a new
 expression. Invalid trees raise an error, like other algebra operations.
 
-These functions are on the development branch; the published 0.1.0 package
-does not yet provide them.
+These functions are included in the prepared 0.2.0 checkout; published 0.1.0
+does not provide them. Use the local import above until 0.2.0 is published.
+After its registry submission is merged and deployed, change the import to
+`@preview/symbolica:0.2.0`.
 
 ## Rust
 

@@ -1,14 +1,13 @@
-# Migrating from Symbolica 0.1.0
+# Migrating from Symbolica 0.1.0 to 0.2.0
 
-This guide covers the **next, unreleased version** of the Typst package.
-Published `@preview/symbolica:0.1.0` still has the original API. The checkout's
-manifest also says `0.1.0` while the next release is being prepared; importing
-the published package will not give you these changes.
+Version **0.2.0 is prepared for release and is not yet published** on Typst
+Universe. Published `@preview/symbolica:0.1.0` has the original API; the
+checkout's manifest is now `0.2.0`.
 
 For now, [install the checkout as a local package](https://github.com/symbolica-dev/symbolica-typst-plugin#try-the-development-version)
-and use `@local/symbolica:0.1.0`. When the next version is published, update your
-`@preview` import to that version. The [changelog](CHANGELOG.md) lists the new
-features and fixes.
+and use `@local/symbolica:0.2.0`. After the registry submission is merged and
+deployed, use `@preview/symbolica:0.2.0`. The [changelog](CHANGELOG.md) lists the
+new features and fixes.
 
 ## Rename public API calls
 
@@ -44,10 +43,10 @@ Before, with the published package:
 $ #s.to-typst(s.factor(f)), quad #s.to-typst(s.derivative(f, x)) $
 ```
 
-After, with the development checkout:
+After, with the prepared 0.2.0 checkout:
 
 ```typst
-#import "@local/symbolica:0.1.0" as s
+#import "@local/symbolica:0.2.0" as s
 
 #let x = s.literal("x")
 #let f = s.parse($x^4 - 5 x^2 + 4$)

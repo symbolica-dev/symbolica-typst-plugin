@@ -1,4 +1,4 @@
-#import "@preview/symbolica:0.1.0": *
+#import "@preview/symbolica:0.2.0": *
 
 #set page(width: 150mm, height: auto, margin: 16mm)
 #set text(size: 10.5pt)

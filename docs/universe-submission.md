@@ -1,78 +1,72 @@
 # Universe submission preparation
 
-Run `python3 scripts/prepare-distribution.py` to create the clean submission
-directory at `dist/universe/packages/preview/symbolica/0.1.0` and the runtime
-archive at `dist/symbolica-0.1.0.tar.gz`. The submission includes the linked manual,
-public examples, and the changelog; those documentation files are excluded
-from runtime downloads. Build scripts, tests, source files, and split upload
-chunks are not copied into the submission directory.
+This checkout prepares **Symbolica 0.2.0**. Version 0.1.0 is already published;
+submit the update in a new `packages/preview/symbolica/0.2.0` directory. The
+0.2.0 package becomes available after its registry PR is merged and deployment
+completes. A GitHub release alone does not publish it to Universe.
 
-Publish the matching plugin source revision, lockfile, and build scripts and
-link them from the binary release. `REBUILDING.md` describes those sources and
-the locked crates.io and Git dependency sources listed in `THIRD_PARTY_LICENSES.txt`.
-Source may be hosted on other servers under GPLv3 Section 6(d), provided there
-are clear directions beside the binary and equivalent access is maintained.
-A separate archive is not mandatory. `python3 scripts/prepare-source.py`
-optionally creates a vendored source archive for offline builds and backup;
-keep it out of the Universe runtime download.
+## Prepare the submission
 
-## Dependency licensing issue to resolve before distribution
+Use the [release workflow](releasing.md) for the complete build, validation,
+source archive, and checksums. Its manual trigger performs an artifact-only dry
+run; a matching version tag prepares the GitHub release and submission branch.
 
-The Symbolica allowance leaves its existing reverse-engineering restrictions
-unchanged. LGPLv3 Section 4 requires the combined work's terms to permit
-reverse engineering for debugging modifications to its LGPL-covered portions.
-Do not treat the current combination as cleared for distribution: resolve
-that conflict through an appropriate narrow permission, an alternative
-license for the affected dependencies, or a build without those dependencies.
-A source archive does not resolve this issue.
+For local package staging after building and checking the plugin:
 
-## Decisions still required from Universe maintainers
+```sh
+nix run .#package
+nix develop -c python3 scripts/readme-examples.py --package-root dist/universe/packages/preview/symbolica/0.2.0
+```
 
-The [licensing rules](https://github.com/typst/packages/blob/main/docs/licensing.md)
-require an OSI-approved license or one of the specified Creative Commons
-licenses. The custom Typst-only allowance removes runtime requirements and
-grants redistribution and rebuilding, but does not make Symbolica an
-OSI-licensed component. The manifest declares `LicenseRef-Symbolica-Typst`
-instead of presenting the entire Wasm as MIT. The current
-[bundler](https://github.com/typst/packages/blob/main/bundler/src/main.rs)
-rejects custom license references under its normal validation. An explicit
-maintainer exception or an accepted licensing arrangement is still needed;
-do not remove the custom term merely to make validation pass.
+The generated submission directory is
+`dist/universe/packages/preview/symbolica/0.2.0`. Packaging copies
+`README-universe.md` to its `README.md` and includes the linked manual, migration
+guide, changelog, public examples, and light/dark README SVGs. These documentation
+files remain in the registry submission and are excluded from runtime downloads.
+Rust source, build scripts, tests, and artwork source files are not copied into
+the submission directory.
 
-Size also needs a case-by-case decision under the
-[submission guidelines](https://github.com/typst/packages/blob/main/docs/README.md).
-The joint engine is about 23.36 MiB raw and the complete runtime archive is
-about 6 MiB compressed. It shares the algebra and integration implementation,
-uses compressed step metadata, removes unrelated C exports, and initializes
-rules through a cached Typst transition instead of a large Wizer snapshot.
-The repository's 10 MiB download budget is not a Universe limit.
+The release workflow produces:
 
-The README retains the requested LaTeX equivalents. Universe's Markdown
-renderer differs from GitHub's; check their presentation in the submission
-preview and use rendered equation images if its renderer does not support
-the math blocks.
+- `symbolica-0.2.0.tar.gz`: runtime files.
+- `symbolica-0.2.0-universe.tar.gz`: the complete registry submission tree.
+- `symbolica-0.2.0-source.tar.gz`: matching source and vendored dependencies.
+- `symbolica-0.2.0-manual.pdf` and `SHA256SUMS`.
 
-## Suggested submission description
+Release staging includes `SOURCE.json` with the source revision and checksums
+for the Wasm, `Cargo.lock`, and `flake.lock`. Keep the matching revision publicly
+accessible and include the source archive alongside the binaries. See
+[rebuilding instructions](../REBUILDING.md) for reproducing the plugin.
 
-Symbolica is the official Symbolica 3.0 integration for Typst. It provides exact
-algebra, symbolic integration with steps, numerical evaluation, and system
-solving in one Wasm module. All uses of this plugin within Typst are free and
-require no Symbolica subscription, registration, activation, or license key.
+## Review the registry update
 
-Authors can compute symbolic results and numerical values directly in their
-papers, without precomputing them in another tool and copying them back by
-hand. This avoids error-prone copy-pasting and keeps displayed results in sync
-when equations or parameters change.
+Follow the current [submission guidelines](https://github.com/typst/packages/blob/main/docs/README.md)
+and [licensing guidance](https://github.com/typst/packages/blob/main/docs/licensing.md).
+Keep the existing license texts and scope notices with the update:
+`license = "MIT"` in the manifest covers the original Typst interface and Rust
+adapter, while the bundled Wasm contains components under their own terms.
+The [Symbolica Typst permission](../LICENSE-SYMBOLICA-TYPST.md),
+[third-party notices](../THIRD_PARTY.md), and
+[complete dependency license texts](../THIRD_PARTY_LICENSES.txt) document those
+terms. Preserve that distinction in the submission README.
 
-This submission requests review of two exceptions: the custom Symbolica Typst
-permission and the approximately 23.36 MiB Wasm. The permission grants runtime
-use, redistribution through Universe and mirrors, and rebuilding unmodified
-Symbolica as part of the plugin. It grants no additional right to modify
-Symbolica's own source or distribute such modifications. The matching plugin
-source, lockfile, build instructions, and exact dependency source links are
-provided for rebuilding. The compressed runtime download remains much
-smaller than the raw Wasm.
+Check that the staged README's current examples import 0.2.0, all local links
+resolve, and the light fallback and dark artwork display in supported viewers.
+The migration guide deliberately
+retains the published 0.1.0 Before example. Rendered equation SVGs replace raw
+LaTeX blocks. Review the generated archive sizes; the repository's 10 MiB runtime
+budget is a project check, while registry size review remains case by case.
 
-Do not submit this description until the matching source revision is published
-and both the dependency licensing issue and Universe licensing arrangement
-are resolved.
+## Suggested update description
+
+Symbolica 0.2.0 updates the Typst interface to `parse`, `literal`, and
+`function-head`, with the full rename table and before/after examples in the
+migration guide. It adds semantic expression trees, portable literal labels,
+and direct special-function constructors. Symbolica 3.0.1 requires regenerating
+saved native expression payloads from 0.1.0.
+
+The update also improves rendering and integration initialization, and adds a
+computed optimization example. The README has generated light/dark artwork;
+its manual, migration guide, examples, and image assets are included as registry
+documentation and excluded from runtime downloads. Matching source, dependency
+notices, build instructions, and checksums accompany the release.

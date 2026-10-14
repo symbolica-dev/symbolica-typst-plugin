@@ -6,10 +6,11 @@ formulas directly in your documents. Use within Typst is free, including
 commercial use.
 
 **Version 0.1.0 is available on [Typst Universe](https://typst.app/universe/package/symbolica/).**
-Use its documentation for the published API. This repository contains the next
-release, including the renamed `parse`, `literal`, and `function-head` functions.
-These changes are not in the published 0.1.0 package.
-See the [changelog](CHANGELOG.md) for what is coming and the
+Use its documentation for the published API. This checkout prepares **version
+0.2.0**, including the renamed `parse`, `literal`, and `function-head` functions.
+Version 0.2.0 is not yet published; `@preview/symbolica:0.2.0` becomes available
+after its registry submission is merged and deployed.
+See the [changelog](CHANGELOG.md) for the 0.2.0 changes and the
 [migration guide](MIGRATING.md) for updating existing documents and plugins.
 
 The [package guide](README-universe.md) describes the current API and becomes the
@@ -26,14 +27,14 @@ git clone https://github.com/symbolica-dev/symbolica-typst-plugin.git
 cd symbolica-typst-plugin
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica"
 ln -s "$PWD" \
-  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica/0.1.0"
+  "${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/symbolica/0.2.0"
 ```
 
 On macOS, use `~/Library/Application Support/typst/packages` in place of the
 Linux data directory. Then import the checkout with `@local`:
 
 ```typst
-#import "@local/symbolica:0.1.0": *
+#import "@local/symbolica:0.2.0": *
 
 #let x = literal("x")
 #let f = parse($x^4 - 5 x^2 + 4$)

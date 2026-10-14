@@ -22,14 +22,18 @@ def main():
         for filename in ("Cargo.toml", "Cargo.lock", "flake.nix", "flake.lock",
                          "typst.toml", "README.md", "README-universe.md", "README-crate.md", "REBUILDING.md", "LICENSE",
                          "LICENSE-SYMBOLICA.md", "LICENSE-SYMBOLICA-TYPST.md",
-                         "THIRD_PARTY.md", "THIRD_PARTY_LICENSES.txt", "CHANGELOG.md", "MIGRATING.md"):
-            shutil.copyfile(ROOT / filename, source / filename)
-        for directory in ("src", "tests", "scripts", "docs/license-sources",
-                          "docs/manual-assets", "symbolica/assets", "symbolica/readme",
+                         "THIRD_PARTY.md", "THIRD_PARTY_LICENSES.txt", "CHANGELOG.md", "MIGRATING.md",
+                         "symbolica/manual.pdf"):
+            destination = source / filename
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / filename, destination)
+        for directory in ("src", "tests", "scripts", ".github", "docs/license-sources",
+                          "docs/manual-assets", "docs/readme-assets", "symbolica/assets", "symbolica/readme",
                           "symbolica/tests"):
             shutil.copytree(ROOT / directory, source / directory,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        for document in ("releasing.md", "expression-tree.md"):
+        for document in ("releasing.md", "universe-submission.md", "expression-tree.md",
+                         "wasm-optimization.md"):
             shutil.copyfile(ROOT / "docs" / document, source / "docs" / document)
         for path in (ROOT / "symbolica").rglob("*.typ"):
             target = source / path.relative_to(ROOT)

@@ -1,4 +1,4 @@
-#import "@local/symbolica:0.1.0": *
+#import "@local/symbolica:0.2.0": *
 
 #set page(width: auto, height: auto, margin: 12pt)
 

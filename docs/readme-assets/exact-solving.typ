@@ -1,6 +1,6 @@
 // Rebuild with scripts/readme-examples.py --update.
 // Palette: docs/manual-assets/README.md.
-#import "@preview/symbolica:0.1.0": *
+#import "@preview/symbolica:0.2.0": *
 
 #let dark = sys.inputs.at("theme", default: "light") == "dark"
 #let ink = if dark { rgb("#f2f3e9") } else { rgb("#18222f") }

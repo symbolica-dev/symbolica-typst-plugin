@@ -1,4 +1,4 @@
-#import "@preview/symbolica:0.1.0": *
+#import "@preview/symbolica:0.2.0": *
 
 // A mathematical workbench spilling beyond the banner.
 // Supporting artwork is generated first by scripts/readme-examples.py.

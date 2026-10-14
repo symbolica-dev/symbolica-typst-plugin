@@ -2,7 +2,7 @@
 // Rosenbrock's banana valley, evaluated and differentiated by Symbolica.
 // Definition: https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.rosen.html
 // Contours and damped Newton/Armijo iteration are local Typst code.
-#import "@preview/symbolica:0.1.0": *
+#import "@preview/symbolica:0.2.0": *
 #let dark = sys.inputs.at("theme", default: "light") == "dark"
 #let ink = if dark { rgb("#f2f3e9") } else { rgb("#2c4137") }
 #let halo-paint = if dark { "#132c29" } else { "#fff8ee" }

@@ -1,11 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
-Changes below are for the next release after the published Typst package
-`0.1.0`. The checkout still uses `0.1.0` in its manifest while that release is
-being prepared. See the [migration guide](MIGRATING.md) for before/after
-examples and the complete API rename table.
+Prepared for release; not yet published on Typst Universe. These changes follow
+the published `0.1.0` package. See the [migration guide](MIGRATING.md) for
+before/after examples and the complete API rename table.
 
 ### Breaking changes
 

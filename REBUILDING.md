@@ -79,7 +79,7 @@ limited permission in `LICENSE-SYMBOLICA-TYPST.md`.
 ## Optional offline archive
 
 Maintainers can run `python3 scripts/prepare-source.py` to generate
-`dist/symbolica-0.1.0-source.tar.gz`, containing the plugin source and vendored
+`dist/symbolica-0.2.0-source.tar.gz`, containing the plugin source and vendored
 dependencies and Cargo source replacements needed to rebuild without fetching
 dependencies. This is an optional convenience and availability backup, not a
 required archive format. It is not included in the Typst runtime package.

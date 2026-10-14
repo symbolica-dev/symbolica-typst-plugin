@@ -1,8 +1,8 @@
 # Releasing to Typst Universe
 
-Symbolica 0.1.0 is already published. The next release needs a new version;
-do not create a new `v0.1.0` tag pointing to today's source or replace that
-version in the package registry.
+Symbolica 0.1.0 is already published. This checkout prepares **0.2.0**, which
+is not yet published. Its release tag is `v0.2.0`; keep the published 0.1.0
+files and tag unchanged.
 
 The [release workflow](../.github/workflows/release.yml) adapts the
 [Typst community template](https://github.com/typst-community/typst-package-template/blob/main/.github/workflows/release.yml)
@@ -11,12 +11,14 @@ It does not publish the Rust crate to crates.io.
 
 ## Prepare a version
 
-Update `typst.toml` and the package imports in both READMEs and Typst examples.
-Update the version in the README's local installation path as well.
-Record the changes in `CHANGELOG.md` and update the version scope in
-`MIGRATING.md`. Regenerate the manual with `nix run .#manual` and commit the
-result. The Rust crate's version can advance separately from the Typst package
-version.
+For 0.2.0, confirm that `typst.toml`, current README examples, local
+installation paths, and Typst sources all use `0.2.0`. Preserve the 0.1.0
+Before example in `MIGRATING.md` and historical changelog entries. Regenerate
+the README artwork and manual after changing imports, then commit their
+outputs. For future releases, advance these same files together and record
+the changes in `CHANGELOG.md` and `MIGRATING.md`. Use `nix run .#manual` to
+regenerate the manual. The Rust crate's version can advance separately from
+the Typst package version.
 
 `README.md` describes the repository and development workflow.
 `README-universe.md` is the package documentation; packaging copies it to
@@ -29,9 +31,8 @@ registry submission even though `typst.toml` excludes them from runtime download
 
 Choose **Prepare and release Typst package → Run workflow** in GitHub Actions.
 This builds, tests, and uploads artifacts only. It does not create a GitHub
-release or push a submission branch, even if run against a tag. A dry run can
-use the current manifest version while preparing an update to an already
-published package.
+release or push a submission branch, even if run against a tag. The current
+dry run prepares 0.2.0 artifacts for inspection before tagging.
 
 The workflow tests the reusable library and plugin, rebuilds Wasm, checks the
 examples and committed manual, and compiles the release README snippets against
@@ -44,7 +45,7 @@ the staged package. It uploads:
 - `symbolica-VERSION-manual.pdf` and `SHA256SUMS`.
 
 `SOURCE.json` inside the package identifies the source revision and checksums
-for the Wasm and dependency lockfile. Inspect the artifacts before tagging.
+for the Wasm and both dependency lockfiles. Inspect the artifacts before tagging.
 Artifact retention is 30 days; actual releases retain their downloadable assets.
 
 For a local metadata check, run:
@@ -55,8 +56,10 @@ nix develop -c python3 scripts/release.py preflight
 
 ## Publish a new version
 
-Push a `vVERSION` tag matching the committed `typst.toml`. The workflow rejects
-mismatched tags, outdated package imports, and versions already present in
+After the 0.2.0 dry run passes and its artifacts are reviewed, push `v0.2.0`.
+For subsequent releases, use a `vVERSION` tag matching the committed
+`typst.toml`. The workflow rejects mismatched tags, outdated package imports,
+and versions already present in
 `typst/packages`. A registry lookup failure also stops publication.
 
 After validation, it creates a GitHub release containing the same artifacts.

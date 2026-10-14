@@ -1,6 +1,6 @@
 [package]
 name = "symbolica"
-version = "0.1.0"
+version = "0.2.0"
 entrypoint = "symbolica/lib.typ"
 authors = ["lcnbr <https://github.com/lcnbr>"]
 # Covers the original plugin code. The bundled Wasm contains components under

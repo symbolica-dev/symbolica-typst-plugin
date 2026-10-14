@@ -20,7 +20,7 @@ Write a polynomial in native Typst math, then factor and differentiate it:
 
 <!-- readme-example: factorization -->
 ```typst
-#import "@preview/symbolica:0.1.0": *
+#import "@preview/symbolica:0.2.0": *
 
 #let x = literal("x")
 #let f = parse($x^4 - 5 x^2 + 4$)

@@ -1,7 +1,7 @@
 // Rosenbrock benchmark: https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.rosen.html
 // Symbolica derives and evaluates the expressions; the optimizer and renderer
 // below are ordinary Typst code, not a built-in optimization API.
-#import "@preview/symbolica:0.1.0": *
+#import "@preview/symbolica:0.2.0": *
 
 #set document(title: "An optimization valley")
 #set page(paper: "a4", margin: 18mm)
