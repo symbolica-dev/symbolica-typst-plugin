@@ -115,6 +115,6 @@
       v(18pt),
       text(font: "Libertinus Serif", size: 27pt, fill: green)[Computer algebra in your document],
       v(18pt),
-      text(size: 12pt, fill: ink)[Explore. Explain. Evaluate.],
+      text(size: 12pt, fill: ink)[Explore. Transform. Evaluate.],
     ))
   ])
