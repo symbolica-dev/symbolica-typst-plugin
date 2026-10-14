@@ -9,6 +9,14 @@ and use `@local/symbolica:0.2.0`. After the registry submission is merged and
 deployed, use `@preview/symbolica:0.2.0`. The [changelog](CHANGELOG.md) lists the
 new features and fixes.
 
+## Update Typst
+
+Use **Typst 0.14.2 or newer** for this release. Typst 0.14.0 can panic when
+executing the plugin. Check your command-line compiler with `typst --version`
+and update it before migrating your document.
+Typst 0.15.1 is recommended for consistent spacing of mathematical and text
+literal labels; 0.14.2 can produce small typesetting differences.
+
 ## Rename public API calls
 
 These names change in the package exports and in the dictionary returned by

@@ -38,8 +38,9 @@ jobs:
       - name: Test release scripts and Rust library
         run: |
           nix develop -c python3 -m unittest discover -s scripts/tests
-          nix develop -c cargo test --locked
-          nix develop -c cargo test --locked --features plugin
+          # Native Symbolica permits one restricted thread without a license key.
+          nix develop -c cargo test --locked -- --test-threads=1
+          nix develop -c cargo test --locked --features plugin -- --test-threads=1
       - name: Rebuild Wasm and validate examples and manual
         run: nix run .#check
       - name: Stage release documentation and corresponding source

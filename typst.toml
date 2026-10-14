@@ -11,7 +11,7 @@ repository = "https://github.com/symbolica-dev/symbolica-typst-plugin"
 keywords = ["computer-algebra", "symbolic-computation", "symbolica"]
 categories = ["integration", "scripting"]
 disciplines = ["mathematics"]
-compiler = "0.14.0"
+compiler = "0.14.2"
 exclude = [
   "src", "tests", "scripts", "docs", "target", "dist", "test.typ", "CHANGELOG.md", "MIGRATING.md",
   "Cargo.toml", "Cargo.lock", "flake.nix", "flake.lock",

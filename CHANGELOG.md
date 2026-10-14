@@ -8,6 +8,8 @@ before/after examples and the complete API rename table.
 
 ### Breaking changes
 
+- Require Typst 0.14.2 or newer. Typst 0.14.0 can panic while executing the
+  plugin; the release runtime is checked with 0.14.2 and 0.15.1.
 - Rename ten public functions and their `init()` fields to avoid collisions
   with Typst names, including `math` → `parse`, `symbol` → `literal`, and
   `function` → `function-head`. The old names have no aliases; update explicit

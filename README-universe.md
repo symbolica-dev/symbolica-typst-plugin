@@ -16,6 +16,8 @@ No license key required.**
 
 ## Quick start
 
+Requires Typst 0.14.2 or newer.
+
 Write a polynomial in native Typst math, then factor and differentiate it:
 
 <!-- readme-example: factorization -->

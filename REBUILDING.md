@@ -52,11 +52,12 @@ cargo rustc --locked --release --target wasm32-unknown-unknown \
   --no-default-features --features wasm,plugin
 ```
 
-Run the library and full native plugin tests with:
+Run the library and full native plugin tests sequentially. Without a Symbolica
+license key, the native engine permits one restricted thread:
 
 ```sh
-cargo test --locked
-cargo test --locked --features plugin
+cargo test --locked -- --test-threads=1
+cargo test --locked --features plugin -- --test-threads=1
 ```
 
 Symbolica is resolved from crates.io; the plugin crate itself is not yet
