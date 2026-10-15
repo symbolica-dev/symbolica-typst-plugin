@@ -4,6 +4,7 @@
 import argparse
 import base64
 from html.parser import HTMLParser
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -177,6 +178,11 @@ def check_examples(package_root: Path, update: bool, readme_path: Path | None = 
                 raise ValueError(f"README preview {name} has no {theme} image reference")
 
     stale = []
+    font_environment = os.environ.copy()
+    font_paths = [*font_environment.get("TYPST_FONT_PATHS", "").split(os.pathsep),
+                  str(ROOT / "docs/readme-assets/fonts")]
+    font_environment["TYPST_FONT_PATHS"] = os.pathsep.join(dict.fromkeys(
+        path for path in font_paths if path))
     with tempfile.TemporaryDirectory(prefix="symbolica-readme-") as temporary:
         work = Path(temporary)
         packages = work / "packages"
@@ -190,7 +196,7 @@ def check_examples(package_root: Path, update: bool, readme_path: Path | None = 
             subprocess.run(
                 ["typst", "compile", "--creation-timestamp", "0", "--package-path", str(packages),
                  "--input", f"theme={theme}", "--root", str(work), str(source), str(output)],
-                check=True,
+                check=True, env=font_environment,
             )
 
         def check_preview(output, name, theme):

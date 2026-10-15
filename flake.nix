@@ -45,7 +45,7 @@
     in {
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
-          TYPST_FONT_PATHS = "${pkgs.dejavu_fonts}/share/fonts";
+          TYPST_FONT_PATHS = "${pkgs.dejavu_fonts}/share/fonts:${self}/docs/readme-assets/fonts";
           TYPST_IGNORE_SYSTEM_FONTS = "true";
           packages = [ pkgs.binaryen pkgs.cargo pkgs.lld pkgs.rustc pkgs.rustfmt pkgs.python3 pkgs.stdenv.cc (typstWithPackages pkgs) ];
         };
@@ -59,7 +59,7 @@
               inherit name;
               runtimeInputs = path;
               text = ''
-                export TYPST_FONT_PATHS="${pkgs.dejavu_fonts}/share/fonts"
+                export TYPST_FONT_PATHS="${pkgs.dejavu_fonts}/share/fonts:${self}/docs/readme-assets/fonts"
                 export TYPST_IGNORE_SYSTEM_FONTS=true
               '' + text;
             }}/bin/${name}";
@@ -110,7 +110,7 @@
         });
       checks = eachSystem (pkgs: {
         default = pkgs.runCommand "symbolica-typst-check" {
-          TYPST_FONT_PATHS = "${pkgs.dejavu_fonts}/share/fonts";
+          TYPST_FONT_PATHS = "${pkgs.dejavu_fonts}/share/fonts:${self}/docs/readme-assets/fonts";
           TYPST_IGNORE_SYSTEM_FONTS = "true";
           nativeBuildInputs = [ pkgs.coreutils pkgs.diffutils pkgs.gnutar pkgs.gzip pkgs.python3 (typstWithPackages pkgs) ];
         } (''

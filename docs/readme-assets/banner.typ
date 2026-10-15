@@ -1,4 +1,6 @@
 #import "@preview/symbolica:0.2.0": *
+#let text-font = "Space Grotesk"
+#let api-font = "JetBrains Mono"
 
 // A mathematical workbench spilling beyond the banner.
 // Supporting artwork is generated first by scripts/readme-examples.py.
@@ -22,8 +24,9 @@
 
 #set document(title: "Symbolica — Computer algebra in your document")
 #set page(width: 800pt, height: 280pt, margin: 0pt, fill: paper)
-#set text(font: "DejaVu Sans", size: 12pt, fill: ink)
+#set text(font: text-font, size: 12pt, fill: ink)
 #set par(leading: 0.65em)
+#show raw: set text(font: api-font, weight: 400)
 
 
 // Real public names, deliberately jostled and cropped at the perimeter.
@@ -61,7 +64,7 @@
 )
 #for note in api-notes {
   place(top + left, dx: note.x, dy: note.y,
-    rotate(note.angle, text(font: "DejaVu Sans Mono", size: note.size,
+    rotate(note.angle, text(font: api-font, weight: 400, size: note.size,
       fill: note.fill, note.name + "(...)")))
 }
 
@@ -110,11 +113,11 @@
         column-gutter: 10pt,
         align: horizon,
         logo(size: 32pt),
-        text(size: 32pt, weight: "bold")[Symbolica],
+        text(size: 32pt, weight: 700, tracking: 0pt)[Symbolica],
       ),
       v(18pt),
-      text(font: "Libertinus Serif", size: 27pt, fill: green)[Computer algebra in your document],
+      text(font: text-font, size: 23.13pt, weight: 400, tracking: 0pt, fill: green)[Computer algebra in your document],
       v(18pt),
-      text(size: 12pt, fill: ink)[Explore. Transform. Evaluate.],
+      text(size: 12pt, weight: 400, tracking: 0pt, fill: ink)[Explore. Transform. Evaluate.],
     ))
   ])

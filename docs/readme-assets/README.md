@@ -25,6 +25,12 @@ comments. The same command generates and checks those dependencies first.
 `optimization-valley.typ` derives the Rosenbrock gradient and Hessian, solves
 for its minimum, and draws a local damped Newton iteration through the contours.
 
+The banner's Balanced typography uses Space Grotesk for its text and JetBrains
+Mono for API names and code notes. The exact font files and their licenses are
+kept in [fonts](fonts/README.md). The generator loads that directory directly;
+the Nix shell and apps also include it in `TYPST_FONT_PATHS`. Font files belong
+to the source archive, while the submission contains only the rendered SVGs.
+
 The palette follows [the manual artwork](../manual-assets/README.md). The banner
 uses the package's existing `logo()` function; see [logo provenance](../../symbolica/assets/README.md).
 The optimization gallery card reuses the banner's computed valley and links to
